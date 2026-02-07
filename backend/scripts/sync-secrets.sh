@@ -9,8 +9,9 @@ NAMESPACE="data"
 function sync_secret() {
     local secret_name=$1
     local k8s_secret_name=$2
+    local key_name=${3:-value}
     
-    echo "Syncing $secret_name to Kubernetes $k8s_secret_name..."
+    echo "Syncing $secret_name to Kubernetes $k8s_secret_name (key: $key_name)..."
     
     VALUE=$(aws secretsmanager get-secret-value --secret-id "$secret_name" --query SecretString --output text)
     
@@ -30,7 +31,7 @@ function sync_secret() {
         # It's a plain string
         kubectl create secret opaque "$k8s_secret_name" \
             --namespace "$NAMESPACE" \
-            --from-literal=value="$VALUE" \
+            --from-literal="$key_name"="$VALUE" \
             --dry-run=client -o yaml | kubectl apply -f -
     fi
 }
@@ -39,7 +40,7 @@ function sync_secret() {
 kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 
 # Sync DB password
-sync_secret "${PROJECT_NAME}-db-password" "db-credentials-raw"
+sync_secret "${PROJECT_NAME}-db-password" "db-credentials" "password"
 
 # Sync JWT key
 sync_secret "${PROJECT_NAME}-jwt-key" "jwt-key"

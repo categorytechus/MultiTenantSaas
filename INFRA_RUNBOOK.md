@@ -48,12 +48,12 @@ Bootstrap secrets in AWS Secrets Manager:
 export DB_PASSWORD="your-strong-password"
 export JWT_KEY="your-jwt-secret"
 export LLM_KEYS='{"openai": "sk-...", "anthropic": "..."}'
-./scripts/bootstrap-aws-secrets.sh
+./backend/scripts/bootstrap-aws-secrets.sh
 ```
 
 Sync secrets to Kubernetes:
 ```bash
-./scripts/sync-secrets.sh
+./backend/scripts/sync-secrets.sh
 ```
 
 ## 5. Deployment (Day 1 & 2)
@@ -98,6 +98,21 @@ kubectl run psql-client --rm -it --image=postgres:15 --restart=Never -n data -- 
   psql "postgresql://saas_admin:supersecretpassword@pgbouncer:6432/saas_db" -c "SELECT 1;"
 ```
 
+### API Gateway (Day 3)
+- **REST API:** Test endpoints using `curl`:
+  ```bash
+  # Replace <REST_URL> with the output 'rest_api_url'
+  curl <REST_URL>/agents
+  curl <REST_URL>/users
+  curl <REST_URL>/orgs
+  ```
+- **WebSocket API:** Test using a tool like `wscat` or a browser-based WebSocket client:
+  ```bash
+  # Replace <WS_URL> with the output 'ws_api_url'
+  wscat -c <WS_URL>
+  # Once connected, send: {"action": "task-status"}
+  ```
+
 ### Logging & Trail
 - **CloudWatch:** Check log group `/${PROJECT_NAME}/k3s-logs` in AWS Console.
 - **CloudTrail:** Verify trail `${PROJECT_NAME}-trail` is logging to S3.
@@ -105,4 +120,3 @@ kubectl run psql-client --rm -it --image=postgres:15 --restart=Never -n data -- 
 ## 7. Environment Variables
 Required for application pods:
 - `DATABASE_URL`: `postgresql://saas_admin:secret@pgbouncer:6432/saas_db`
-- `RABBITMQ_URL`: `amqp://admin:admin@rabbitmq:5672`

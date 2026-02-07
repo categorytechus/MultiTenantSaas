@@ -18,3 +18,13 @@ output "llm_keys_secret_name" {
 output "cloudtrail_bucket" {
   value = aws_s3_bucket.cloudtrail.id
 }
+
+output "rest_api_url" {
+  value       = "${aws_api_gateway_stage.prod.invoke_url}/api"
+  description = "REST API base URL"
+}
+
+output "ws_api_url" {
+  value       = aws_apigatewayv2_stage.prod.invoke_url
+  description = "WebSocket API base URL"
+}

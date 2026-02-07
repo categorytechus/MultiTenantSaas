@@ -11,18 +11,17 @@ help:
 deploy-infra: terraform-apply k8s-deploy
 
 terraform-apply:
-	cd terraform && terraform init && terraform apply -auto-approve
+	cd terraform && ../bin/terraform init && ../bin/terraform apply -auto-approve
 
 k8s-deploy:
 	kubectl create namespace data --dry-run=client -o yaml | kubectl apply -f -
 	kubectl apply -f backend/k8s/postgresql.yaml
 	kubectl apply -f backend/k8s/rabbitmq/rabbitmq.yaml
-	kubectl apply -f backend/k8s/pgbouncer-config.yaml
 	kubectl apply -f backend/k8s/pgbouncer.yaml
 	kubectl apply -f backend/k8s/cloudwatch-logging.yaml
 
 sync-secrets:
-	./scripts/sync-secrets.sh
+	./backend/scripts/sync-secrets.sh
 
 bootstrap-secrets:
-	./scripts/bootstrap-aws-secrets.sh
+	./backend/scripts/bootstrap-aws-secrets.sh

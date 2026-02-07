@@ -143,7 +143,44 @@ resource "aws_instance" "k3s_server" {
               apt-get install -y jq unzip postgresql-client
               EOF
 
+  key_name = aws_key_pair.k3s_key.key_name
+
   tags = {
     Name = "${var.project_name}-k3s-server"
   }
+}
+
+resource "tls_private_key" "k3s_key" {
+  algorithm = "RSA"
+  rsa_bits  = 4096
+}
+
+resource "aws_key_pair" "k3s_key" {
+  key_name   = "${var.project_name}-key"
+  public_key = tls_private_key.k3s_key.public_key_openssh
+}
+
+resource "local_file" "ssh_key" {
+  filename        = "${path.module}/../${var.project_name}-key.pem"
+  content         = tls_private_key.k3s_key.private_key_pem
+  file_permission = "0600"
+}
+
+# Auto-shutdown after 60 mins of inactivity (CPU < 5%)
+resource "aws_cloudwatch_metric_alarm" "auto_shutdown" {
+  alarm_name          = "${var.project_name}-auto-shutdown"
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = "12" # 12 * 5 mins = 60 mins
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/EC2"
+  period              = "300" # 5 minutes
+  statistic           = "Average"
+  threshold           = "5" # 5% CPU threshold
+  alarm_description   = "Stop instance if inactive for 60 minutes"
+  
+  dimensions = {
+    InstanceId = aws_instance.k3s_server.id
+  }
+
+  alarm_actions = ["arn:aws:automate:${var.aws_region}:ec2:stop"]
 }

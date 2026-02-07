@@ -1,0 +1,24 @@
+# Dependencies
+node_modules
+.next
+dist
+
+# Terraform
+.terraform
+*.tfstate
+*.tfstate.*
+bin/terraform
+.terraform.lock.hcl
+
+# Security (Sensitive)
+# Using a wildcard to match the project name key pattern we established
+multi-tenant-saas-key.pem
+*.pem
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store

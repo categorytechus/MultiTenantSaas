@@ -17,10 +17,8 @@ COPY . .
 
 ARG DATABASE_URL=postgresql://postgres:postgres@pgbouncer.data.svc.cluster.local:6432/appdb?schema=public
 ARG DIRECT_URL=postgresql://postgres:postgres@postgres.data.svc.cluster.local:5432/appdb?schema=public
-ARG RABBITMQ_URL=amqp://admin:admin@rabbitmq.data.svc.cluster.local:5672
 ENV DATABASE_URL=$DATABASE_URL
 ENV DIRECT_URL=$DIRECT_URL
-ENV RABBITMQ_URL=$RABBITMQ_URL
 
 # Regenerate Prisma client to ensure types are available for TS compilation
 RUN npx prisma generate
