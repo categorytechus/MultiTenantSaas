@@ -6,9 +6,7 @@ on:
 jobs:
   protect-main:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      
+    
     steps:
       - name: Protect main branch
         run: |
@@ -22,4 +20,4 @@ jobs:
             -f require_linear_history=false \
             -f require_conversation_resolution=false
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.BRANCH_PROTECTION_TOKEN }}
