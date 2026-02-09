@@ -16,34 +16,36 @@ resource "aws_s3_bucket_public_access_block" "cloudtrail" {
   restrict_public_buckets = true
 }
 
+data "aws_iam_policy_document" "cloudtrail_bpolicy" {
+  statement {
+    actions   = ["s3:GetBucketAcl"]
+    effect    = "Allow"
+    resources = [aws_s3_bucket.cloudtrail.arn]
+    principals {
+      type        = "Service"
+      identifiers = ["cloudtrail.amazonaws.com"]
+    }
+  }
+
+  statement {
+    actions   = ["s3:PutObject"]
+    effect    = "Allow"
+    resources = ["${aws_s3_bucket.cloudtrail.arn}/AWSLogs/${data.aws_caller_identity.current.account_id}/*"]
+    principals {
+      type        = "Service"
+      identifiers = ["cloudtrail.amazonaws.com"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "s3:x-amz-acl"
+      values   = ["bucket-owner-full-control"]
+    }
+  }
+}
+
 resource "aws_s3_bucket_policy" "cloudtrail" {
   bucket = aws_s3_bucket.cloudtrail.id
-  policy = jsonencode({
-    Version = "2012-10-14"
-    Statement = [
-      {
-        Action   = "s3:GetBucketAcl"
-        Effect   = "Allow"
-        Principal = {
-          Service = "cloudtrail.amazonaws.com"
-        }
-        Resource = aws_s3_bucket.cloudtrail.arn
-      },
-      {
-        Action   = "s3:PutObject"
-        Effect   = "Allow"
-        Principal = {
-          Service = "cloudtrail.amazonaws.com"
-        }
-        Resource = "${aws_s3_bucket.cloudtrail.arn}/AWSLogs/${data.aws_caller_identity.current.account_id}/*"
-        Condition = {
-          StringEquals = {
-            "s3:x-amz-acl" = "bucket-owner-full-control"
-          }
-        }
-      }
-    ]
-  })
+  policy = data.aws_iam_policy_document.cloudtrail_bpolicy.json
 }
 
 resource "aws_cloudtrail" "main" {

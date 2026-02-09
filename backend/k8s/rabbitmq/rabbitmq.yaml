@@ -10,6 +10,7 @@ stringData:
   RABBITMQ_DEFAULT_PASS: admin
   RABBITMQ_ERLANG_COOKIE: SWQOKODSQALRPCLNMEQG
 
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:

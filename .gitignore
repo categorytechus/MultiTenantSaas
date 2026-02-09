@@ -22,3 +22,9 @@ yarn-error.log*
 
 # OS
 .DS_Store
+
+# Kubernetes
+kubeconfig*
+
+# Lambda Build Artifacts
+backend/lambdas/*.zip

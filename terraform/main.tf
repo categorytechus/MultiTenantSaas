@@ -94,21 +94,20 @@ resource "aws_security_group" "k3s" {
   }
 }
 
-resource "aws_iam_role" "ec2_role" {
-  name = "${var.project_name}-ec2-role"
+data "aws_iam_policy_document" "ec2_assume_role" {
+  statement {
+    actions = ["sts:AssumeRole"]
+    effect  = "Allow"
+    principals {
+      type        = "Service"
+      identifiers = ["ec2.amazonaws.com"]
+    }
+  }
+}
 
-  assume_role_policy = jsonencode({
-    Version = "2012-10-14"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = {
-          Service = "ec2.amazonaws.com"
-        }
-      }
-    ]
-  })
+resource "aws_iam_role" "ec2_role" {
+  name               = "${var.project_name}-ec2-role"
+  assume_role_policy = data.aws_iam_policy_document.ec2_assume_role.json
 }
 
 resource "aws_iam_role_policy_attachment" "ssm" {
