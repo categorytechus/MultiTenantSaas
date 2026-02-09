@@ -10,14 +10,24 @@ jobs:
     steps:
       - name: Protect main branch
         run: |
-          gh api repos/${{ github.repository }}/branches/main/protection \
-            -X PUT \
-            -f required_pull_request_reviews='{"required_approving_review_count":1,"dismiss_stale_reviews":true}' \
-            -f required_status_checks='{"strict":true,"contexts":[]}' \
-            -f enforce_admins=true \
-            -f allow_force_pushes=false \
-            -f allow_deletions=false \
-            -f require_linear_history=false \
-            -f require_conversation_resolution=false
-        env:
-          GITHUB_TOKEN: ${{ secrets.BRANCH_PROTECTION_TOKEN }}
+          curl -X PUT \
+            -H "Authorization: token ${{ secrets.BRANCH_PROTECTION_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/${{ github.repository }}/branches/main/protection \
+            -d '{
+              "required_pull_request_reviews": {
+                "required_approving_review_count": 1,
+                "dismiss_stale_reviews": true,
+                "require_code_owner_reviews": false
+              },
+              "required_status_checks": {
+                "strict": false,
+                "contexts": []
+              },
+              "enforce_admins": true,
+              "allow_force_pushes": false,
+              "allow_deletions": false,
+              "require_linear_history": false,
+              "require_conversation_resolution": false
+            }' \
+            -v
