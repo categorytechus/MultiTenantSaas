@@ -26,3 +26,6 @@ output "secrets_created" {
     rabbitmq_password = module.secrets.rabbitmq_password_secret_name
   }
 }
+
+
+
