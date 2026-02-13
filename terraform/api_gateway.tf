@@ -14,7 +14,7 @@ resource "aws_api_gateway_resource" "api" {
 # Define resources: agents, users, orgs
 variable "api_resources" {
   type    = list(string)
-  default = ["agents", "users", "orgs"]
+  default = ["agents", "users", "orgs", "validate-permissions"]
 }
 
 resource "aws_api_gateway_resource" "resources" {
