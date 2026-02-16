@@ -263,3 +263,292 @@ export const refreshToken = async (req: Request, res: Response): Promise<void> =
     });
   }
 };
+
+/**
+ * Forgot password - Generate reset code
+ */
+export const forgotPassword = async (req: Request, res: Response): Promise<void> => {
+  const { email } = req.body;
+
+  try {
+    // Find user
+    const result = await pool.query(
+      'SELECT id, email, full_name FROM users WHERE email = $1',
+      [email.toLowerCase()]
+    );
+
+    // Always return success even if user not found (security: don't reveal if email exists)
+    if (result.rows.length === 0) {
+      res.status(200).json({
+        success: true,
+        message: 'If the email exists, a password reset code has been sent',
+      });
+      return;
+    }
+
+    const user = result.rows[0];
+
+    // Generate 6-digit reset code
+    const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const resetCodeExpiry = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+
+    // Store reset code in database
+    await pool.query(
+      `UPDATE users 
+       SET reset_code = $1, reset_code_expiry = $2 
+       WHERE id = $3`,
+      [resetCode, resetCodeExpiry, user.id]
+    );
+
+    // TODO: In production, send email with reset code
+    // For now, we'll log it (REMOVE THIS IN PRODUCTION!)
+    console.log(`Password reset code for ${email}: ${resetCode}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'If the email exists, a password reset code has been sent',
+      // REMOVE IN PRODUCTION - only for testing
+      debug: { resetCode },
+    });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+    });
+  }
+};
+
+/**
+ * Confirm password reset with code
+ */
+export const confirmPasswordReset = async (req: Request, res: Response): Promise<void> => {
+  const { email, code, newPassword } = req.body;
+
+  try {
+    // Validate new password strength
+    const passwordValidation = validatePasswordStrength(newPassword);
+    if (!passwordValidation.valid) {
+      res.status(400).json({
+        success: false,
+        message: 'Password does not meet requirements',
+        errors: passwordValidation.errors,
+      });
+      return;
+    }
+
+    // Find user and verify reset code
+    const result = await pool.query(
+      `SELECT id, reset_code, reset_code_expiry 
+       FROM users 
+       WHERE email = $1 AND reset_code = $2 AND reset_code_expiry > NOW()`,
+      [email.toLowerCase(), code]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(400).json({
+        success: false,
+        message: 'Invalid or expired reset code',
+      });
+      return;
+    }
+
+    const user = result.rows[0];
+
+    // Hash new password
+    const hashedPassword = await hashPassword(newPassword);
+
+    // Update password and clear reset code
+    await pool.query(
+      `UPDATE users 
+       SET password_hash = $1, reset_code = NULL, reset_code_expiry = NULL 
+       WHERE id = $2`,
+      [hashedPassword, user.id]
+    );
+
+    // Invalidate all existing sessions
+    await pool.query('DELETE FROM sessions WHERE user_id = $1', [user.id]);
+
+    res.status(200).json({
+      success: true,
+      message: 'Password reset successfully',
+    });
+  } catch (error) {
+    console.error('Confirm password reset error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+    });
+  }
+};
+
+/**
+ * Change password (for authenticated users)
+ */
+export const changePassword = async (req: Request, res: Response): Promise<void> => {
+  const userId = (req as any).user?.userId;
+  const { currentPassword, newPassword } = req.body;
+
+  try {
+    // Validate new password strength
+    const passwordValidation = validatePasswordStrength(newPassword);
+    if (!passwordValidation.valid) {
+      res.status(400).json({
+        success: false,
+        message: 'Password does not meet requirements',
+        errors: passwordValidation.errors,
+      });
+      return;
+    }
+
+    // Get current password hash
+    const result = await pool.query(
+      'SELECT password_hash FROM users WHERE id = $1',
+      [userId]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+      return;
+    }
+
+    // Verify current password
+    const isPasswordValid = await comparePassword(
+      currentPassword,
+      result.rows[0].password_hash
+    );
+
+    if (!isPasswordValid) {
+      res.status(401).json({
+        success: false,
+        message: 'Current password is incorrect',
+      });
+      return;
+    }
+
+    // Hash new password
+    const hashedPassword = await hashPassword(newPassword);
+
+    // Update password
+    await pool.query(
+      'UPDATE users SET password_hash = $1 WHERE id = $2',
+      [hashedPassword, userId]
+    );
+
+    // Invalidate all sessions except current one
+    await pool.query(
+      'DELETE FROM sessions WHERE user_id = $1',
+      [userId]
+    );
+
+    res.status(200).json({
+      success: true,
+      message: 'Password changed successfully',
+    });
+  } catch (error) {
+    console.error('Change password error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+    });
+  }
+};
+
+/**
+ * Update user profile
+ */
+export const updateProfile = async (req: Request, res: Response): Promise<void> => {
+  const userId = (req as any).user?.userId;
+  const { name, avatar_url } = req.body;
+
+  try {
+    // Build update query dynamically based on provided fields
+    const updates: string[] = [];
+    const values: any[] = [];
+    let paramCount = 1;
+
+    if (name !== undefined) {
+      updates.push(`full_name = $${paramCount}`);
+      values.push(name);
+      paramCount++;
+    }
+
+    if (avatar_url !== undefined) {
+      updates.push(`avatar_url = $${paramCount}`);
+      values.push(avatar_url);
+      paramCount++;
+    }
+
+    if (updates.length === 0) {
+      res.status(400).json({
+        success: false,
+        message: 'No fields to update',
+      });
+      return;
+    }
+
+    // Add userId to values
+    values.push(userId);
+
+    // Execute update
+    await pool.query(
+      `UPDATE users SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${paramCount}`,
+      values
+    );
+
+    // Get updated user
+    const result = await pool.query(
+      'SELECT id, email, full_name, avatar_url, status, created_at FROM users WHERE id = $1',
+      [userId]
+    );
+
+    res.status(200).json({
+      success: true,
+      message: 'Profile updated successfully',
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error('Update profile error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+    });
+  }
+};
+
+/**
+ * Google OAuth callback handler
+ */
+export const googleCallback = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = (req as any).user;
+
+    if (!user) {
+      res.redirect(`${process.env.FRONTEND_URL}/auth/signin?error=authentication_failed`);
+      return;
+    }
+
+    // Generate tokens
+    const tokens = generateTokenPair({
+      userId: user.id,
+      email: user.email,
+    });
+
+    // Create session
+    await pool.query(
+      `INSERT INTO sessions (user_id, token_hash, expires_at)
+       VALUES ($1, $2, NOW() + INTERVAL '7 days')`,
+      [user.id, tokens.refreshToken.substring(0, 50)]
+    );
+
+    // Redirect to frontend with tokens
+    const redirectUrl = `${process.env.FRONTEND_URL}/auth/callback?accessToken=${tokens.accessToken}&refreshToken=${tokens.refreshToken}`;
+    res.redirect(redirectUrl);
+  } catch (error) {
+    console.error('Google callback error:', error);
+    res.redirect(`${process.env.FRONTEND_URL}/auth/signin?error=server_error`);
+  }
+};

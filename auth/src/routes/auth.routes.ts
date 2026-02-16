@@ -6,9 +6,15 @@ import {
   signout,
   getCurrentUser,
   refreshToken,
+  forgotPassword,
+  confirmPasswordReset,
+  changePassword,
+  updateProfile,
+  googleCallback,
 } from '../controllers/auth.controller';
 import { authenticateToken } from '../middleware/auth.middleware';
 import { validateRequest } from '../middleware/validation.middleware';
+import passport from '../config/passport';
 
 const router = Router();
 
@@ -62,6 +68,87 @@ router.post(
   [body('refreshToken').notEmpty()],
   validateRequest,
   refreshToken
+);
+
+/**
+ * POST /api/auth/forgot-password
+ * Request password reset code
+ */
+router.post(
+  '/forgot-password',
+  [body('email').isEmail().normalizeEmail()],
+  validateRequest,
+  forgotPassword
+);
+
+/**
+ * POST /api/auth/reset-password
+ * Confirm password reset with code
+ */
+router.post(
+  '/reset-password',
+  [
+    body('email').isEmail().normalizeEmail(),
+    body('code').isLength({ min: 6, max: 6 }),
+    body('newPassword').isLength({ min: 8 }),
+  ],
+  validateRequest,
+  confirmPasswordReset
+);
+
+/**
+ * POST /api/auth/change-password
+ * Change password for authenticated user
+ */
+router.post(
+  '/change-password',
+  authenticateToken,
+  [
+    body('currentPassword').notEmpty(),
+    body('newPassword').isLength({ min: 8 }),
+  ],
+  validateRequest,
+  changePassword
+);
+
+/**
+ * PUT /api/auth/profile
+ * Update user profile
+ */
+router.put(
+  '/profile',
+  authenticateToken,
+  [
+    body('name').optional().trim().notEmpty(),
+    body('avatar_url').optional().isURL(),
+  ],
+  validateRequest,
+  updateProfile
+);
+
+/**
+ * GET /api/auth/google
+ * Initiate Google OAuth flow
+ */
+router.get(
+  '/google',
+  passport.authenticate('google', {
+    scope: ['profile', 'email'],
+    session: false,
+  })
+);
+
+/**
+ * GET /api/auth/google/callback
+ * Google OAuth callback
+ */
+router.get(
+  '/google/callback',
+  passport.authenticate('google', {
+    session: false,
+    failureRedirect: `${process.env.FRONTEND_URL}/auth/signin?error=google_auth_failed`,
+  }),
+  googleCallback
 );
 
 export default router;
