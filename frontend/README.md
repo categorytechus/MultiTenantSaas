@@ -20,6 +20,55 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Configuration
+
+### Changing the Port Number
+
+By default, the Next.js app runs on port **3000**. You can change this in several ways:
+
+#### Option 1: Command Line (Temporary)
+```bash
+npm run dev -- -p 3001
+```
+
+#### Option 2: Environment Variable
+Create or update `.env.local`:
+```bash
+PORT=3001
+```
+
+Then run:
+```bash
+npm run dev
+```
+
+#### Option 3: Update package.json (Permanent)
+Edit `package.json`:
+```json
+{
+  "scripts": {
+    "dev": "next dev -p 3001"
+  }
+}
+```
+
+### Environment Variables
+
+The following environment variables can be configured in `.env.local`:
+```bash
+# Port (optional, default: 3000)
+PORT=3000
+
+# Cognito Configuration (required for auth)
+NEXT_PUBLIC_USER_POOL_ID=your-user-pool-id
+NEXT_PUBLIC_USER_POOL_CLIENT_ID=your-client-id
+NEXT_PUBLIC_COGNITO_DOMAIN=your-cognito-domain
+NEXT_PUBLIC_REDIRECT_SIGN_IN=http://localhost:3000/auth/callback
+NEXT_PUBLIC_REDIRECT_SIGN_OUT=http://localhost:3000
+```
+
+**Note:** After changing the port, update the redirect URLs in your environment variables and auth configuration.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
