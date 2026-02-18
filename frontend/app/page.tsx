@@ -1,83 +1,166 @@
 'use client';
 
-import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { fetchAuthSession } from 'aws-amplify/auth';
-import Link from 'next/link';
 
-export default function Home() {
+export default function HomePage() {
   const router = useRouter();
 
-  useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const session = await fetchAuthSession();
-        if (session.tokens) {
-          router.push('/dashboard');
-        }
-      } catch (error) {
-        // User not authenticated, stay on home page
-      }
-    };
-
-    checkAuth();
-  }, [router]);
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex flex-col items-center justify-center min-h-screen">
-          <div className="text-center">
-            <h1 className="text-5xl font-bold text-gray-900 mb-4">
-              MultiTenant SaaS Platform
-            </h1>
-            <p className="text-xl text-gray-600 mb-8">
-              AI-powered platform with intelligent agent orchestration
-            </p>
-            
-            <div className="flex gap-4 justify-center">
-              <Link
-                href="/auth/signin"
-                className="px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition"
-              >
-                Sign In
-              </Link>
-              <Link
-                href="/auth/signup"
-                className="px-6 py-3 bg-white text-blue-600 rounded-lg font-semibold border-2 border-blue-600 hover:bg-blue-50 transition"
-              >
-                Sign Up
-              </Link>
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap');
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'DM Sans', sans-serif; -webkit-font-smoothing: antialiased; }
+
+        .page {
+          min-height: 100vh;
+          display: flex; flex-direction: column;
+          align-items: center; justify-content: center;
+          background: #faf9f7;
+          padding: 40px 20px;
+        }
+
+        .hero {
+          text-align: center;
+          max-width: 580px;
+          animation: up .4s ease both;
+        }
+        @keyframes up {
+          from { opacity: 0; transform: translateY(16px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+
+        .hero h1 {
+          font-size: 38px; font-weight: 600; color: #1a1a1a;
+          letter-spacing: -0.8px; margin-bottom: 12px; line-height: 1.2;
+        }
+        .hero p {
+          font-size: 16px; color: #9a9a9a; line-height: 1.6;
+          margin-bottom: 32px;
+        }
+
+        .btns {
+          display: flex; align-items: center;
+          justify-content: center; gap: 10px;
+        }
+
+        .btn {
+          padding: 11px 24px;
+          border-radius: 8px;
+          font-family: 'DM Sans', sans-serif;
+          font-size: 14px; font-weight: 500;
+          cursor: pointer; transition: all .13s;
+          text-decoration: none; display: inline-block;
+        }
+
+        .btn-primary {
+          background: #1a1a1a; color: white; border: none;
+        }
+        .btn-primary:hover {
+          background: #333;
+          box-shadow: 0 4px 14px rgba(0,0,0,.14);
+        }
+
+        .btn-secondary {
+          background: white; color: #1a1a1a;
+          border: 1px solid #ebebeb;
+        }
+        .btn-secondary:hover {
+          border-color: #c8c8c8;
+          box-shadow: 0 2px 8px rgba(0,0,0,.06);
+        }
+
+        .features {
+          margin-top: 64px;
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 20px;
+          max-width: 900px;
+        }
+
+        .feat {
+          background: white;
+          border: 1px solid #ebebeb;
+          border-radius: 10px;
+          padding: 24px;
+          text-align: left;
+          animation: up .4s ease both;
+        }
+        .feat:nth-child(1) { animation-delay: .05s; }
+        .feat:nth-child(2) { animation-delay: .1s; }
+        .feat:nth-child(3) { animation-delay: .15s; }
+
+        .feat-icon {
+          font-size: 24px;
+          margin-bottom: 12px;
+        }
+        .feat-title {
+          font-size: 15px; font-weight: 600;
+          color: #1a1a1a; margin-bottom: 6px;
+          letter-spacing: -0.2px;
+        }
+        .feat-desc {
+          font-size: 13px; color: #9a9a9a;
+          line-height: 1.5;
+        }
+
+        @media (max-width: 768px) {
+          .hero h1 { font-size: 32px; }
+          .hero p { font-size: 15px; }
+          .features { grid-template-columns: 1fr; max-width: 400px; }
+        }
+
+        @media (max-width: 480px) {
+          .hero h1 { font-size: 28px; }
+          .btns { flex-direction: column; width: 100%; max-width: 280px; }
+          .btn { width: 100%; }
+        }
+      `}</style>
+
+      <div className="page">
+        <div className="hero">
+          <h1>MultiTenant SaaS Platform</h1>
+          <p>
+            AI-powered platform with intelligent agent orchestration.
+            Streamline counseling, enrollment, and support workflows.
+          </p>
+
+          <div className="btns">
+            <button className="btn btn-primary" onClick={() => router.push('/auth/signin')}>
+              Sign In
+            </button>
+            <button className="btn btn-secondary" onClick={() => router.push('/auth/signup')}>
+              Sign Up
+            </button>
+          </div>
+        </div>
+
+        <div className="features">
+          <div className="feat">
+            <div className="feat-icon">🤖</div>
+            <div className="feat-title">AI Agents</div>
+            <div className="feat-desc">
+              Counselor, Enrollment, and Support agents powered by LangGraph, CrewAI, and Strands
             </div>
           </div>
 
-          <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-8 max-w-4xl">
-            <div className="bg-white p-6 rounded-lg shadow-lg">
-              <div className="text-3xl mb-4">🤖</div>
-              <h3 className="text-lg font-semibold mb-2">AI Agents</h3>
-              <p className="text-gray-600 text-sm">
-                Counselor, Enrollment, and Support agents powered by LangGraph, CrewAI, and Strands
-              </p>
+          <div className="feat">
+            <div className="feat-icon">🏢</div>
+            <div className="feat-title">Multi-Tenant</div>
+            <div className="feat-desc">
+              Complete data isolation with row-level security and RBAC for organizations
             </div>
+          </div>
 
-            <div className="bg-white p-6 rounded-lg shadow-lg">
-              <div className="text-3xl mb-4">🏢</div>
-              <h3 className="text-lg font-semibold mb-2">Multi-Tenant</h3>
-              <p className="text-gray-600 text-sm">
-                Complete data isolation with row-level security and RBAC
-              </p>
-            </div>
-
-            <div className="bg-white p-6 rounded-lg shadow-lg">
-              <div className="text-3xl mb-4">⚡</div>
-              <h3 className="text-lg font-semibold mb-2">Real-Time</h3>
-              <p className="text-gray-600 text-sm">
-                WebSocket-powered updates and asynchronous task processing
-              </p>
+          <div className="feat">
+            <div className="feat-icon">⚡</div>
+            <div className="feat-title">Real-Time</div>
+            <div className="feat-desc">
+              WebSocket-powered updates and asynchronous task processing at scale
             </div>
           </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }
