@@ -214,17 +214,70 @@ export default function DashboardPage() {
         .card-title { font-size: 13.5px; font-weight: 600; color: #1a1a1a; margin-bottom: 4px; }
         .card-desc  { font-size: 12px; color: #9a9a9a; line-height: 1.5; }
 
+        /* Floating Action Buttons */
+        .fab-container {
+          position: fixed;
+          bottom: 28px;
+          right: 28px;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          z-index: 100;
+        }
+        .fab {
+          width: 56px;
+          height: 56px;
+          border-radius: 50%;
+          background: white;
+          border: 1px solid #ebebeb;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+          box-shadow: 0 4px 12px rgba(0,0,0,.08);
+          animation: fadeIn 0.5s ease both;
+        }
+        .fab:nth-child(1) { animation-delay: 0.1s; }
+        .fab:nth-child(2) { animation-delay: 0.2s; }
+        .fab:hover {
+          transform: translateY(-4px) scale(1.05);
+          box-shadow: 0 12px 24px rgba(0,0,0,.12);
+          border-color: #1a1a1a;
+        }
+        .fab:active {
+          transform: translateY(-2px) scale(1.02);
+        }
+        .fab svg {
+          width: 24px;
+          height: 24px;
+          color: #1a1a1a;
+          transition: all 0.2s;
+        }
+        .fab:hover svg {
+          transform: scale(1.1);
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(20px) scale(0.8); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
         /* Responsive */
         @media (max-width: 768px) {
           .side { display: none; }
           .stats { grid-template-columns: 1fr 1fr; }
           .cards { grid-template-columns: 1fr 1fr; }
+          .fab-container { bottom: 20px; right: 20px; }
+          .fab { width: 52px; height: 52px; }
+          .fab svg { width: 22px; height: 22px; }
         }
         @media (max-width: 480px) {
           .stats { grid-template-columns: 1fr; }
           .cards { grid-template-columns: 1fr; }
           .ts-btn { min-width: 120px; }
           .breadcrumb span:first-child, .breadcrumb svg:first-of-type { display: none; }
+          .fab-container { bottom: 16px; right: 16px; }
+          .fab { width: 48px; height: 48px; }
         }
       `}</style>
 
@@ -408,6 +461,26 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Floating Action Buttons */}
+      <div className="fab-container">
+        {/* Chat Icon */}
+        <button className="fab" title="AI Chat Assistant" onClick={() => alert('Chat feature coming soon!')}>
+          <svg fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+        </button>
+
+        {/* Voice Recorder Icon */}
+        <button className="fab" title="Voice Input" onClick={() => alert('Voice input feature coming soon!')}>
+          <svg fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            <line x1="12" y1="19" x2="12" y2="23"/>
+            <line x1="8" y1="23" x2="16" y2="23"/>
+          </svg>
+        </button>
       </div>
     </>
   );
