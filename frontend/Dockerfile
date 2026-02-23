@@ -1,50 +1,45 @@
+# Frontend Service - Next.js 16 with TypeScript
+FROM node:20-alpine AS base
 
-# Stage 1: Install dependencies
-FROM node:20-alpine AS deps
+# Install dependencies only when needed
+FROM base AS deps
+RUN apk add --no-cache libc6-compat
 WORKDIR /app
-# Install dependencies required for building (including devDependencies)
-COPY package.json package-lock.json ./
-COPY prisma ./prisma
-ENV DATABASE_URL="postgresql://dummy:dummy@localhost:6432/dummy"
-ENV DIRECT_URL="postgresql://dummy:dummy@localhost:5432/dummy"
+
+# Copy package files
+COPY package.json package-lock.json* ./
 RUN npm ci
 
-# Stage 2: Build the application
-FROM node:20-alpine AS builder
+# Rebuild the source code only when needed
+FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-ARG DATABASE_URL=postgresql://postgres:postgres@pgbouncer.data.svc.cluster.local:6432/appdb?schema=public
-ARG DIRECT_URL=postgresql://postgres:postgres@postgres.data.svc.cluster.local:5432/appdb?schema=public
-ENV DATABASE_URL=$DATABASE_URL
-ENV DIRECT_URL=$DIRECT_URL
+# Set environment variables for build
+ENV NEXT_TELEMETRY_DISABLED 1
 
-# Regenerate Prisma client to ensure types are available for TS compilation
-RUN npx prisma generate
-
-# Build Next.js
 RUN npm run build
 
-# Stage 3: Setup Production Runner
-FROM node:20-alpine AS runner
+# Production image
+FROM base AS runner
 WORKDIR /app
 
-ENV NODE_ENV=production
+ENV NODE_ENV production
+ENV NEXT_TELEMETRY_DISABLED 1
 
-# Install only production dependencies
-COPY package.json package-lock.json ./
-COPY prisma ./prisma
-ENV DATABASE_URL="postgresql://dummy:dummy@localhost:6432/dummy"
-ENV DIRECT_URL="postgresql://dummy:dummy@localhost:5432/dummy"
-RUN npm ci --only=production
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
 
-# Copy built assets
-COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
-# Note: we also copy prisma folder for reference/migrations
-COPY --from=builder /app/prisma ./prisma
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Expose port and start
+USER nextjs
+
 EXPOSE 3000
-CMD ["npm", "start"]
+
+ENV PORT 3000
+ENV HOSTNAME "0.0.0.0"
+
+CMD ["node", "server.js"]
