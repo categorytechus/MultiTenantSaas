@@ -1,0 +1,47 @@
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: forward-auth
+  namespace: data
+spec:
+  forwardAuth:
+    address: http://auth-service.data.svc.cluster.local:3001/verify
+    authResponseHeaders:
+      - X-User-Id
+      - X-Org-Id
+      - X-Permissions
+      - X-Email
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: orchestrator-ingress
+  namespace: data
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: PathPrefix(`/api`)
+      kind: Rule
+      middlewares:
+        - name: forward-auth
+          namespace: data
+      services:
+        - name: orchestrator-service
+          port: 3000
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: task-status-ws-ingress
+  namespace: data
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: PathPrefix(`/ws`)
+      kind: Rule
+      services:
+        - name: task-status-service
+          port: 3002

@@ -76,3 +76,53 @@ model UserOrganizationRole {
 
   @@unique([userId, organizationId, roleId])
 }
+
+// --- Missing Tables from Sprint Plan (Commented Out) ---
+
+// model AgentTask {
+//   id          String   @id @default(uuid())
+//   orgId       String
+//   agentType   String   // "Counselor", "Enrollment", "Support"
+//   status      String   // "PENDING", "RUNNING", "COMPLETED", "FAILED"
+//   input       Json?
+//   result      Json?
+//   createdAt   DateTime @default(now())
+//   updatedAt   DateTime @updatedAt
+//   startedAt   DateTime?
+//   completedAt DateTime?
+
+//   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+//   // results     AgentResult[]
+// }
+
+// model AgentResult {
+//   id          String   @id @default(uuid())
+//   taskId      String
+//   output      Json
+//   createdAt   DateTime @default(now())
+
+//   // task        AgentTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+// }
+
+// model AuditLog {
+//   id          String   @id @default(uuid())
+//   orgId       String
+//   userId      String?
+//   action      String
+//   resource    String
+//   details     Json?
+//   ipAddress   String?
+//   createdAt   DateTime @default(now())
+
+//   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+//   user         User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+// }
+
+// model Session {
+//   id           String   @id @default(uuid())
+//   sessionToken String   @unique
+//   userId       String
+//   expires      DateTime
+//   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+// }
+
