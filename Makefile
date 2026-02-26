@@ -29,8 +29,11 @@ terraform-apply:
 
 docker-build:
 	docker build -t auth-service:latest ./auth
-	docker build -t orchestrator-service:latest ./orchestrator
-	docker build -t task-status-service:latest ./task-status
+	docker build -t orchestrator-service:latest -f ./agents/orchestrator/Dockerfile ./agents
+	docker build -t worker-agent1:latest -f ./agents/worker_agent1/Dockerfile ./agents
+	docker build -t worker-agent2:latest -f ./agents/worker_agent2/Dockerfile ./agents
+	docker build -t worker-agent3:latest -f ./agents/worker_agent3/Dockerfile ./agents
+	docker build -t frontend:latest ./frontend
 
 ecr-login:
 	@$(eval REGION := $(shell cd infrastructure/terraform && ../../bin/terraform output -raw aws_region))
@@ -40,13 +43,22 @@ ecr-login:
 ecr-push: ecr-login
 	@$(eval AUTH_REPO := $(shell cd infrastructure/terraform && ../../bin/terraform output -raw auth_service_repository_url))
 	@$(eval ORCH_REPO := $(shell cd infrastructure/terraform && ../../bin/terraform output -raw orchestrator_service_repository_url))
-	@$(eval TASK_REPO := $(shell cd infrastructure/terraform && ../../bin/terraform output -raw task_status_service_repository_url))
+	@$(eval FRONTEND_REPO := $(shell cd infrastructure/terraform && ../../bin/terraform output -raw frontend_repository_url))
+	@$(eval AGENT1_REPO := $(shell cd infrastructure/terraform && ../../bin/terraform output -raw worker_agent1_repository_url))
+	@$(eval AGENT2_REPO := $(shell cd infrastructure/terraform && ../../bin/terraform output -raw worker_agent2_repository_url))
+	@$(eval AGENT3_REPO := $(shell cd infrastructure/terraform && ../../bin/terraform output -raw worker_agent3_repository_url))
 	docker build -t $(AUTH_REPO):latest ./auth
-	docker build -t $(ORCH_REPO):latest ./orchestrator
-	docker build -t $(TASK_REPO):latest ./task-status
+	docker build -t $(ORCH_REPO):latest -f ./agents/orchestrator/Dockerfile ./agents
+	docker build -t $(FRONTEND_REPO):latest ./frontend
+	docker build -t $(AGENT1_REPO):latest -f ./agents/worker_agent1/Dockerfile ./agents
+	docker build -t $(AGENT2_REPO):latest -f ./agents/worker_agent2/Dockerfile ./agents
+	docker build -t $(AGENT3_REPO):latest -f ./agents/worker_agent3/Dockerfile ./agents
 	docker push $(AUTH_REPO):latest
 	docker push $(ORCH_REPO):latest
-	docker push $(TASK_REPO):latest
+	docker push $(FRONTEND_REPO):latest
+	docker push $(AGENT1_REPO):latest
+	docker push $(AGENT2_REPO):latest
+	docker push $(AGENT3_REPO):latest
 
 
 docker-load:

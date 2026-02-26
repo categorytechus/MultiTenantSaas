@@ -44,6 +44,26 @@ output "task_status_service_repository_url" {
   description = "ECR repository URL for task-status-service"
 }
 
+output "frontend_repository_url" {
+  value       = aws_ecr_repository.frontend.repository_url
+  description = "ECR repository URL for frontend"
+}
+
+output "worker_agent1_repository_url" {
+  value       = aws_ecr_repository.worker_agent1.repository_url
+  description = "ECR repository URL for worker-agent1"
+}
+
+output "worker_agent2_repository_url" {
+  value       = aws_ecr_repository.worker_agent2.repository_url
+  description = "ECR repository URL for worker-agent2"
+}
+
+output "worker_agent3_repository_url" {
+  value       = aws_ecr_repository.worker_agent3.repository_url
+  description = "ECR repository URL for worker-agent3"
+}
+
 output "ecr_registry_url" {
   value       = split("/", aws_ecr_repository.auth_service.repository_url)[0]
   description = "ECR registry URL (account.dkr.ecr.region.amazonaws.com)"

@@ -15,11 +15,17 @@ echo "==> Reading ECR repository URLs from Terraform outputs..."
 
 AUTH_REPO=$(cd "$TF_DIR" && "$TF_BIN" output -raw auth_service_repository_url)
 ORCH_REPO=$(cd "$TF_DIR" && "$TF_BIN" output -raw orchestrator_service_repository_url)
-TASK_REPO=$(cd "$TF_DIR" && "$TF_BIN" output -raw task_status_service_repository_url)
+FRONTEND_REPO=$(cd "$TF_DIR" && "$TF_BIN" output -raw frontend_repository_url)
+AGENT1_REPO=$(cd "$TF_DIR" && "$TF_BIN" output -raw worker_agent1_repository_url)
+AGENT2_REPO=$(cd "$TF_DIR" && "$TF_BIN" output -raw worker_agent2_repository_url)
+AGENT3_REPO=$(cd "$TF_DIR" && "$TF_BIN" output -raw worker_agent3_repository_url)
 
 echo "    auth-service:         $AUTH_REPO:latest"
 echo "    orchestrator-service: $ORCH_REPO:latest"
-echo "    task-status-service:  $TASK_REPO:latest"
+echo "    frontend:             $FRONTEND_REPO:latest"
+echo "    worker-agent1:        $AGENT1_REPO:latest"
+echo "    worker-agent2:        $AGENT2_REPO:latest"
+echo "    worker-agent3:        $AGENT3_REPO:latest"
 
 # Create temp directory for rendered manifests
 TMPDIR=$(mktemp -d)
@@ -29,11 +35,18 @@ echo ""
 echo "==> Rendering K8s manifests with ECR image URLs..."
 
 # Substitute placeholders and write to temp files
-for manifest in auth-service.yaml orchestrator-service.yaml task-status-service.yaml; do
+for manifest in auth-service.yaml orchestrator-service.yaml frontend.yaml worker-agent1.yaml worker-agent2.yaml worker-agent3.yaml; do
+    if [ ! -f "$K8S_DIR/$manifest" ]; then
+        echo "    Skipping missing manifest: $manifest"
+        continue
+    fi
     sed \
         -e "s|__ECR_AUTH_IMAGE__|${AUTH_REPO}:latest|g" \
         -e "s|__ECR_ORCHESTRATOR_IMAGE__|${ORCH_REPO}:latest|g" \
-        -e "s|__ECR_TASK_STATUS_IMAGE__|${TASK_REPO}:latest|g" \
+        -e "s|__ECR_FRONTEND_IMAGE__|${FRONTEND_REPO}:latest|g" \
+        -e "s|__ECR_AGENT1_IMAGE__|${AGENT1_REPO}:latest|g" \
+        -e "s|__ECR_AGENT2_IMAGE__|${AGENT2_REPO}:latest|g" \
+        -e "s|__ECR_AGENT3_IMAGE__|${AGENT3_REPO}:latest|g" \
         "$K8S_DIR/$manifest" > "$TMPDIR/$manifest"
     echo "    Rendered: $manifest"
 done
@@ -53,9 +66,9 @@ kubectl --insecure-skip-tls-verify apply -f "$K8S_DIR/cloudwatch-logging.yaml"
 
 echo ""
 echo "==> Applying service manifests (with ECR images)..."
-kubectl --insecure-skip-tls-verify apply -f "$TMPDIR/auth-service.yaml"
-kubectl --insecure-skip-tls-verify apply -f "$TMPDIR/orchestrator-service.yaml"
-kubectl --insecure-skip-tls-verify apply -f "$TMPDIR/task-status-service.yaml"
+for rendered in "$TMPDIR"/*.yaml; do
+    kubectl --insecure-skip-tls-verify apply -f "$rendered"
+done
 
 echo ""
 echo "==> Applying ingress..."

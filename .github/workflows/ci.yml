@@ -1,0 +1,68 @@
+name: Build and Push to ECR
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-push:
+    name: Build and Push
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1 # Adjust as needed or use a secret
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build, Tag, and Push Images
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          PROJECT_NAME: multi-tenant-saas # Consistent with Terraform var
+        run: |
+          # List of services and their paths
+          # Format: "repo_name:path_to_docker_context"
+          SERVICES=(
+            "auth-service:auth"
+            "orchestrator-service:agents/orchestrator"
+            "worker-agent1:agents/worker_agent1"
+            "worker-agent2:agents/worker_agent2"
+            "worker-agent3:agents/worker_agent3"
+            "frontend:frontend"
+            "task-status-service:task-status"
+          )
+
+          for service in "${SERVICES[@]}"; do
+            REPO_NAME="${service%%:*}"
+            CONTEXT="${service#*:}"
+            
+            FULL_REPO_NAME="${PROJECT_NAME}-${REPO_NAME}"
+            IMAGE_TAG="${ECR_REGISTRY}/${FULL_REPO_NAME}:latest"
+            
+            echo "==> Building ${IMAGE_TAG}..."
+            
+            # Special handling for agents to include 'common' dir
+            if [[ $CONTEXT == agents/* ]]; then
+              echo "    Context: agents/"
+              echo "    Dockerfile: $CONTEXT/Dockerfile"
+              docker build -t $IMAGE_TAG -f ./$CONTEXT/Dockerfile ./agents
+            else
+              echo "    Context: $CONTEXT/"
+              docker build -t $IMAGE_TAG ./$CONTEXT
+            fi
+            
+            echo "==> Pushing ${IMAGE_TAG}..."
+            docker push $IMAGE_TAG
+          done
