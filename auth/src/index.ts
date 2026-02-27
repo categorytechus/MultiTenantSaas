@@ -6,6 +6,7 @@ import authRoutes from './routes/auth.routes';
 import organizationRoutes from './routes/organization.routes';
 import testRoutes from './routes/test.routes';
 import passport from './config/passport';
+import documentRoutes from './routes/document.routes';
 
 // Load environment variables
 dotenv.config();
@@ -38,6 +39,7 @@ app.get('/health', (req: Request, res: Response) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/organizations', organizationRoutes);
 app.use('/api/test', testRoutes);
+app.use('/api/documents', documentRoutes);
 
 // 404 handler
 app.use((req: Request, res: Response) => {

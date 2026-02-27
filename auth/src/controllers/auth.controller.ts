@@ -124,6 +124,27 @@ export const signin = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    // Get user's first organization
+    const orgResult = await pool.query(`
+      SELECT organization_id 
+      FROM user_roles 
+      WHERE user_id = $1 
+      LIMIT 1
+    `, [user.id]);
+
+    const organizationId = orgResult.rows[0]?.organization_id || null;
+
+    // Load user permissions for that organization
+    const permissionsResult = await pool.query(`
+      SELECT DISTINCT p.resource || ':' || p.action as permission
+      FROM user_roles ur
+      JOIN role_permissions rp ON ur.role_id = rp.role_id
+      JOIN permissions p ON rp.permission_id = p.id
+      WHERE ur.user_id = $1 ${organizationId ? 'AND ur.organization_id = $2' : ''}
+    `, organizationId ? [user.id, organizationId] : [user.id]);
+
+    const permissions = permissionsResult.rows.map(row => row.permission);
+
     // Update last login
     await pool.query(
       'UPDATE users SET last_login_at = NOW() WHERE id = $1',
@@ -134,6 +155,8 @@ export const signin = async (req: Request, res: Response): Promise<void> => {
     const tokens = generateTokenPair({
       userId: user.id,
       email: user.email,
+      organizationId,
+      permissions,
     });
 
     // Create session

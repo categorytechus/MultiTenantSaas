@@ -23,3 +23,16 @@ module "secrets" {
   jwt_secret       = var.jwt_secret
   openai_api_key   = var.openai_api_key
 }
+
+module "s3" {
+  source = "../../modules/s3"
+  
+  bucket_name     = "${var.project_name}-documents-${var.environment}"
+  environment     = var.environment
+  allowed_origins = ["http://localhost:3000", "http://localhost:4000"]
+  
+  tags = {
+    Project = var.project_name
+  }
+}
+
