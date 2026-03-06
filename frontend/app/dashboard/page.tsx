@@ -1,116 +1,243 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { fetchAuthSession, getCurrentUser, signOut } from 'aws-amplify/auth';
+import { useState, useEffect } from 'react';
+import Layout from '../../components/Layout';
+
+interface Org { id: string; name: string; slug: string; role: string; }
+interface User { id: string; email: string; full_name?: string; }
 
 export default function DashboardPage() {
-  const router = useRouter();
-  const [user, setUser] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<User | null>(null);
+  const [orgs, setOrgs] = useState<Org[]>([]);
+  const [cur, setCur] = useState<Org | null>(null);
 
   useEffect(() => {
-    const checkAuth = async () => {
+    (async () => {
+      const token = localStorage.getItem('accessToken');
+      if (!token) return;
       try {
-        const session = await fetchAuthSession();
-        
-        if (!session.tokens) {
-          router.push('/auth/signin');
-          return;
-        }
-
-        const currentUser = await getCurrentUser();
-        setUser(currentUser);
+        const [uRes, oRes] = await Promise.all([
+          fetch('http://localhost:4000/api/auth/me', { headers: { Authorization: `Bearer ${token}` } }),
+          fetch('http://localhost:4000/api/organizations', { headers: { Authorization: `Bearer ${token}` } }),
+        ]);
+        const uData = await uRes.json();
+        const oData = await oRes.json();
+        if (uData.success) setUser(uData.data);
+        if (oData.success && oData.data.length > 0) { setOrgs(oData.data); setCur(oData.data[0]); }
       } catch (error) {
-        console.error('Auth check error:', error);
-        router.push('/auth/signin');
-      } finally {
-        setLoading(false);
+        console.error('Error fetching data:', error);
       }
-    };
-
-    checkAuth();
-  }, [router]);
-
-  const handleSignOut = async () => {
-    try {
-      await signOut();
-      router.push('/auth/signin');
-    } catch (error) {
-      console.error('Sign out error:', error);
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-700">Loading...</p>
-        </div>
-      </div>
-    );
-  }
+    })();
+  }, []);
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center">
-              <h1 className="text-xl font-bold text-gray-900">
-                MultiTenant SaaS Platform
-              </h1>
-            </div>
-            <div className="flex items-center">
-              <button
-                onClick={handleSignOut}
-                className="ml-4 px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-              >
-                Sign out
-              </button>
-            </div>
+    <Layout>
+      <style>{`
+        .content {
+          padding: 32px;
+        }
+        .pg-title {
+          font-size: 24px;
+          font-weight: 700;
+          color: #1a1a1a;
+          letter-spacing: -0.5px;
+          margin-bottom: 4px;
+        }
+        .pg-sub {
+          font-size: 14px;
+          color: #9a9a9a;
+          margin-bottom: 32px;
+        }
+        .chip {
+          display: inline-flex;
+          padding: 3px 8px;
+          border-radius: 6px;
+          font-size: 11px;
+          font-weight: 600;
+          margin-left: 4px;
+        }
+        .chip-green {
+          background: #f0fdf4;
+          color: #16a34a;
+        }
+
+        .stats {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 16px;
+          margin-bottom: 24px;
+        }
+        .stat-card {
+          background: white;
+          border: 1px solid #ebebeb;
+          border-radius: 12px;
+          padding: 20px;
+        }
+        .stat-lbl {
+          font-size: 11px;
+          font-weight: 600;
+          color: #bbb;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          margin-bottom: 8px;
+        }
+        .stat-val {
+          font-size: 32px;
+          font-weight: 700;
+          color: #1a1a1a;
+          letter-spacing: -1px;
+          line-height: 1;
+        }
+        .stat-note {
+          font-size: 12px;
+          color: #16a34a;
+          margin-top: 6px;
+        }
+
+        .cards {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 16px;
+        }
+        .card {
+          background: white;
+          border: 1px solid #ebebeb;
+          border-radius: 12px;
+          padding: 24px;
+          transition: all 0.2s;
+          cursor: pointer;
+        }
+        .card:hover {
+          border-color: #d8d8d8;
+          box-shadow: 0 4px 16px rgba(0,0,0,0.05);
+          transform: translateY(-2px);
+        }
+        .card-em {
+          font-size: 24px;
+          margin-bottom: 12px;
+        }
+        .card-title {
+          font-size: 16px;
+          font-weight: 600;
+          color: #1a1a1a;
+          margin-bottom: 6px;
+        }
+        .card-desc {
+          font-size: 13px;
+          color: #9a9a9a;
+          line-height: 1.5;
+        }
+
+        /* Floating Action Buttons */
+        .fab-container {
+          position: fixed;
+          bottom: 28px;
+          right: 28px;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          z-index: 100;
+        }
+        .fab {
+          width: 56px;
+          height: 56px;
+          border-radius: 50%;
+          background: white;
+          border: 1px solid #ebebeb;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+          box-shadow: 0 4px 12px rgba(0,0,0,.08);
+          animation: fadeIn 0.5s ease both;
+        }
+        .fab:nth-child(1) { animation-delay: 0.1s; }
+        .fab:nth-child(2) { animation-delay: 0.2s; }
+        .fab:hover {
+          transform: translateY(-4px) scale(1.05);
+          box-shadow: 0 12px 24px rgba(0,0,0,.12);
+          border-color: #1a1a1a;
+        }
+        .fab svg {
+          width: 24px;
+          height: 24px;
+          color: #1a1a1a;
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(20px) scale(0.8); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        @media (max-width: 768px) {
+          .stats { grid-template-columns: 1fr 1fr; }
+          .cards { grid-template-columns: 1fr; }
+        }
+      `}</style>
+
+      <div className="content">
+        <div>
+          <h1 className="pg-title">Good morning, {user?.full_name?.split(' ')[0] || 'there'} 👋</h1>
+          <p className="pg-sub">
+            Viewing <strong>{cur?.name}</strong> as
+            <span className="chip chip-green">{cur?.role || 'member'}</span>
+          </p>
+        </div>
+
+        <div className="stats">
+          <div className="stat-card">
+            <div className="stat-lbl">Active Agents</div>
+            <div className="stat-val">3</div>
+            <div className="stat-note">All operational</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-lbl">Tasks Today</div>
+            <div className="stat-val">24</div>
+            <div className="stat-note">↑ 12% from yesterday</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-lbl">Organizations</div>
+            <div className="stat-val">{orgs.length}</div>
+            <div className="stat-note">Active memberships</div>
           </div>
         </div>
-      </nav>
 
-      <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-        <div className="px-4 py-6 sm:px-0">
-          <div className="bg-white shadow rounded-lg p-6">
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">
-              Welcome to your Dashboard
-            </h2>
-            
-            {user && (
-              <div className="space-y-3">
-                <p className="text-gray-700">
-                  <span className="font-semibold">User ID:</span> {user.userId}
-                </p>
-                <p className="text-gray-700">
-                  <span className="font-semibold">Username:</span> {user.username}
-                </p>
-              </div>
-            )}
-
-            <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-blue-50 p-4 rounded-lg">
-                <h3 className="text-lg font-semibold text-blue-900 mb-2">AI Agents</h3>
-                <p className="text-blue-700 text-sm">Run and manage your AI agents</p>
-              </div>
-              
-              <div className="bg-green-50 p-4 rounded-lg">
-                <h3 className="text-lg font-semibold text-green-900 mb-2">Organizations</h3>
-                <p className="text-green-700 text-sm">Manage your organizations</p>
-              </div>
-              
-              <div className="bg-purple-50 p-4 rounded-lg">
-                <h3 className="text-lg font-semibold text-purple-900 mb-2">Settings</h3>
-                <p className="text-purple-700 text-sm">Configure your account</p>
-              </div>
-            </div>
+        <div className="cards">
+          <div className="card">
+            <div className="card-em">🤖</div>
+            <div className="card-title">Counselor Agent</div>
+            <div className="card-desc">AI-powered counseling with LangGraph orchestration</div>
+          </div>
+          <div className="card">
+            <div className="card-em">📋</div>
+            <div className="card-title">Enrollment Agent</div>
+            <div className="card-desc">Automate enrollment via CrewAI multi-agent system</div>
+          </div>
+          <div className="card">
+            <div className="card-em">💬</div>
+            <div className="card-title">Support Agent</div>
+            <div className="card-desc">24/7 intelligent support via Amazon Strands</div>
           </div>
         </div>
-      </main>
-    </div>
+      </div>
+
+      {/* Floating Action Buttons */}
+      <div className="fab-container">
+        <button className="fab" title="AI Chat Assistant" onClick={() => alert('Chat feature coming soon!')}>
+          <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+        </button>
+
+        <button className="fab" title="Voice Input" onClick={() => alert('Voice input feature coming soon!')}>
+          <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            <line x1="12" y1="19" x2="12" y2="23"/>
+            <line x1="8" y1="23" x2="16" y2="23"/>
+          </svg>
+        </button>
+      </div>
+    </Layout>
   );
 }
