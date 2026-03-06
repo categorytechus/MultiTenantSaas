@@ -2,15 +2,92 @@ name: Build and Push to ECR
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, dev, "infra/*" ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, dev ]
 
 jobs:
+  terraform-validate:
+    name: Terraform Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+      - name: Terraform Init
+        run: cd infrastructure/terraform && terraform init -backend=false
+      - name: Terraform Validate
+        run: cd infrastructure/terraform && terraform validate
+
+  k8s-validate:
+    name: K8s Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install dependencies
+        run: pip install pyyaml
+      - name: Validate K8s Manifests
+        run: |
+          find infrastructure/k8s -name "*.yaml" -type f | while read f; do
+            echo "Checking $f"
+            python3 -c "import yaml; yaml.safe_load(open('$f'))"
+          done
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Auth - Build
+        run: |
+          cd auth && npm ci && npm run build
+      - name: Frontend - Lint
+        run: |
+          cd frontend && npm ci && npx next lint
+
+  build-verify:
+    name: Build Verify (PR)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build Images (no push)
+        env:
+          PROJECT_NAME: multi-tenant-saas
+        run: |
+          SERVICES=(
+            "auth-service:auth"
+            "auth-gateway:auth-gateway"
+            "orchestrator-service:agents/orchestrator"
+            "worker-agent1:agents/worker_agent1"
+            "worker-agent2:agents/worker_agent2"
+            "worker-agent3:agents/worker_agent3"
+            "frontend:frontend"
+            "task-status-service:task-status"
+          )
+          for service in "${SERVICES[@]}"; do
+            REPO_NAME="${service%%:*}"
+            CONTEXT="${service#*:}"
+            echo "==> Building ${PROJECT_NAME}-${REPO_NAME}..."
+            if [[ $CONTEXT == agents/* ]]; then
+              docker build -t ${PROJECT_NAME}-${REPO_NAME}:pr -f ./$CONTEXT/Dockerfile ./agents
+            else
+              docker build -t ${PROJECT_NAME}-${REPO_NAME}:pr ./$CONTEXT
+            fi
+          done
+
   build-and-push:
     name: Build and Push
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [terraform-validate, k8s-validate]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
 
     steps:
       - name: Checkout Code
@@ -36,6 +113,7 @@ jobs:
           # Format: "repo_name:path_to_docker_context"
           SERVICES=(
             "auth-service:auth"
+            "auth-gateway:auth-gateway"
             "orchestrator-service:agents/orchestrator"
             "worker-agent1:agents/worker_agent1"
             "worker-agent2:agents/worker_agent2"
