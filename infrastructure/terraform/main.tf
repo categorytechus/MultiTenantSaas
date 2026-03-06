@@ -146,7 +146,7 @@ resource "aws_iam_instance_profile" "ec2_profile" {
   role = aws_iam_role.ec2_role.name
 }
 
-resource "aws_instance" "k3s_master" {
+resource "aws_instance" "k3s_server" {
   ami           = var.ami_id
   instance_type = var.instance_type
   subnet_id     = aws_subnet.public.id
@@ -195,7 +195,7 @@ resource "aws_cloudwatch_metric_alarm" "auto_shutdown" {
   alarm_description   = "Stop instance if inactive for 60 minutes"
   
   dimensions = {
-    InstanceId = aws_instance.k3s_master.id
+    InstanceId = aws_instance.k3s_server.id
   }
 
   alarm_actions = ["arn:aws:automate:${var.aws_region}:ec2:stop"]

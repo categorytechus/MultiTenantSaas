@@ -1,5 +1,5 @@
 const assert = require('assert');
-const rabbitmq = require('../../orchestrator/utils/rabbitmq');
+const rabbitmq = require('../../auth-gateway/src/utils/rabbitmq');
 const amqp = require('amqplib'); // We will mock this
 
 // Mock implementation

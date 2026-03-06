@@ -51,9 +51,9 @@ spec:
               name: postgres
           env:
             - name: POSTGRES_DB
-              value: saas_db
+              value: multitenant_saas
             - name: POSTGRES_USER
-              value: saas_admin
+              value: postgres
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:

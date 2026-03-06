@@ -34,14 +34,19 @@ output "auth_service_repository_url" {
   description = "ECR repository URL for auth-service"
 }
 
-output "orchestrator_service_repository_url" {
-  value       = aws_ecr_repository.orchestrator_service.repository_url
-  description = "ECR repository URL for orchestrator-service"
+output "auth_gateway_repository_url" {
+  value       = aws_ecr_repository.auth_gateway.repository_url
+  description = "ECR repository URL for auth-gateway"
 }
 
 output "task_status_service_repository_url" {
   value       = aws_ecr_repository.task_status_service.repository_url
   description = "ECR repository URL for task-status-service"
+}
+
+output "orchestrator_repository_url" {
+  value       = aws_ecr_repository.orchestrator.repository_url
+  description = "ECR repository URL for orchestrator"
 }
 
 output "frontend_repository_url" {

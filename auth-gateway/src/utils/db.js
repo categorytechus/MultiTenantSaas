@@ -54,14 +54,14 @@ const discoverResources = async (userId, orgId) => {
 /**
  * Helper to create a task record in the DB immediately.
  */
-const createTask = async (orgId, userId, prompt, resources, action) => {
+const createTask = async (orgId, userId, prompt, resources, action, sessionId) => {
     const sql = `
-        INSERT INTO agent_tasks (organization_id, user_id, agent_type, status, input_data)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO agent_tasks (organization_id, user_id, agent_type, status, input_data, session_id)
+        VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING id;
     `;
     const inputData = JSON.stringify({ prompt, resources, action });
-    const result = await query(sql, [orgId, userId, 'orchestrator', 'pending', inputData]);
+    const result = await query(sql, [orgId, userId, 'orchestrator', 'pending', inputData, sessionId || null]);
     return result.rows[0].id;
 };
 

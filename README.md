@@ -8,7 +8,7 @@ This platform consists of:
 - **Frontend**: Next.js 16 with TypeScript, Tailwind CSS, and Shadcn UI
 - **Authentication**: AWS Cognito with federated identity (Google, username/password)
 - **API Gateway**: AWS API Gateway (REST + WebSocket)
-- **Agent Orchestrator**: RabbitMQ-based task routing and lifecycle management
+- **Auth Gateway**: Request validation, RBAC, and RabbitMQ-based task routing
 - **AI Agents**:
   - Counselor (LangGraph)
   - Enrollment (CrewAI)
@@ -45,9 +45,9 @@ MultiTenantSaas/
 │       ├── main.py
 │       ├── requirements.txt
 │       └── Dockerfile
-├── orchestrator/              # Agent orchestrator
-│   ├── orchestrator.py
-│   ├── requirements.txt
+├── auth-gateway/              # Auth Gateway proxy
+│   ├── src/                   # Node.js source files
+│   ├── package.json
 │   └── Dockerfile
 ├── infrastructure/
 │   ├── terraform/             # IaaC configurations

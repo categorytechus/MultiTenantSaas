@@ -11,9 +11,18 @@ class AgentState(TypedDict, total=False):
     agent_type: str
     result: dict
 
+from common.rabbitmq import RabbitMQClient
+mq_client = RabbitMQClient()
+
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+
+llm = ChatOpenAI(model="gpt-4o", temperature=0)
+
 def decide_agent_type(state: AgentState):
     """
-    Decides agent type based on action or keywords in prompt.
+    Decides agent type using an LLM.
     """
     # Check for explicit actions first (from REST endpoints)
     action = state.get('action', '')
@@ -24,30 +33,44 @@ def decide_agent_type(state: AgentState):
     elif action == 'organizations:update':
         return {"agent_type": "worker_agent2"}
 
-    # Fallback to keyword-based routing for chat
-    prompt = state['prompt'].lower()
-    if 'payroll' in prompt or 'enroll' in prompt:
-        return {"agent_type": "worker_agent2"}
-    elif 'support' in prompt or 'help' in prompt or 'it' in prompt:
-        return {"agent_type": "worker_agent3"}
-    else:
-        return {"agent_type": "worker_agent1"}
+    # Use LLM for classification for chat
+    prompt = ChatPromptTemplate.from_template("""
+    You are a routing agent. Classified the user prompt into one of the following agent types:
+    - worker_agent1: General queries, information, or tasks not covered by others.
+    - worker_agent2: Enrollment, payroll, human resources, or benefits.
+    - worker_agent3: IT support, help desk, technical issues, or system access.
+
+    User Prompt: {input}
+
+    Respond ONLY with the agent type identifier (e.g., worker_agent1).
+    """)
+    
+    chain = prompt | llm | StrOutputParser()
+    agent_type = chain.invoke({"input": state['prompt']}).strip()
+    
+    # Validation
+    if agent_type not in ["worker_agent1", "worker_agent2", "worker_agent3"]:
+        agent_type = "worker_agent1"
+
+    print(f" -> LLM classified task as: {agent_type}")
+    return {"agent_type": agent_type}
 
 def route_to_worker(state: AgentState):
     """
-    Simulates routing to specialized workers.
-    In a real app, this would push back to a specific RabbitMQ queue or invoke a subgraph.
+    Routes the task to a specialized worker via RabbitMQ RPC.
     """
     agent_type = state['agent_type']
-    print(f" -> Routing task {state['task_id']} to {agent_type} worker")
+    routing_key = f"agents.{agent_type}"
     
-    # Simulate worker response
-    return {
-        "result": {
-            "answer": f"This is a response from the {agent_type} agent regarding your query: {state['prompt'][:50]}...",
-            "sources": [r['name'] for r in state['resources']]
-        }
-    }
+    print(f" -> Delegating task {state['task_id']} to {agent_type} via {routing_key}")
+    
+    try:
+        # Call the worker and wait for the response (synchronous for demo)
+        worker_result = mq_client.call(routing_key, state)
+        return {"result": worker_result}
+    except Exception as e:
+        print(f" [!] Delegation failed: {e}")
+        return {"result": {"error": str(e), "answer": "The specialist agent is currently unavailable."}}
 
 def finalize_task(state: AgentState):
     """
@@ -80,8 +103,10 @@ def finalize_task(state: AgentState):
     try:
         from common.rabbitmq import RabbitMQClient
         mq_client = RabbitMQClient()
-        mq_client.publish('event.created', {
+        routing_key = f"events.{state['org_id']}"
+        mq_client.publish(routing_key, {
             "task_id": state['task_id'],
+            "org_id": state['org_id'],
             "status": "completed",
             "data": state['result']
         })

@@ -27,7 +27,7 @@ const connect = async () => {
 const publishTask = async (task) => {
     const ch = await connect();
     const exchange = 'saas_exchange';
-    const routingKey = `agents.request.${task.orgId}`;
+    const routingKey = `tasks.${task.orgId}`;
 
     // Ensure exchange exists
     await ch.assertExchange(exchange, 'topic', { durable: true });
@@ -35,7 +35,7 @@ const publishTask = async (task) => {
     ch.publish(exchange, routingKey, Buffer.from(JSON.stringify(task)), {
         persistent: true
     });
-    console.log(`Task published to ${exchange} with routing key ${routingKey}`);
+    console.log(`Task published to ${exchange} with routing key ${routingKey} (session: ${task.sessionId})`);
 };
 
 module.exports = {

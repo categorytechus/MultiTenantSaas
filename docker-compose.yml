@@ -67,20 +67,22 @@ services:
       postgres:
         condition: service_healthy
 
-  orchestrator:
+  auth-gateway:
     build:
-      context: ./orchestrator
-      dockerfile: ../orchestrator.Dockerfile
-    container_name: multitenant-orchestrator
+      context: ./auth-gateway
+      dockerfile: Dockerfile
+    container_name: multitenant-auth-gateway
     ports:
-      - "8003:8003"
+      - "3001:3001"
     environment:
-      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-admin}:${RABBITMQ_PASSWORD:-admin}@rabbitmq:5672
+      - NODE_ENV=development
       - DATABASE_URL=postgresql://postgres:${DB_PASSWORD:-postgres}@postgres:5432/multitenant_saas
+      - JWT_KEY=${JWT_SECRET:-dev-secret-key}
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-admin}:${RABBITMQ_PASSWORD:-admin}@rabbitmq:5672
     depends_on:
-      rabbitmq:
-        condition: service_healthy
       postgres:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
 
   counselor-agent:

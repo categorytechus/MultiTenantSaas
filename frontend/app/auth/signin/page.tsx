@@ -1,6 +1,6 @@
 'use client';
 
-import { signIn } from 'aws-amplify/auth';
+import { signIn, signInWithRedirect } from 'aws-amplify/auth';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -32,7 +32,7 @@ export default function SignInPage() {
 
   const handleGoogleSignIn = async () => {
     try {
-      await signIn({
+      await signInWithRedirect({
         provider: 'Google',
       });
     } catch (err: any) {

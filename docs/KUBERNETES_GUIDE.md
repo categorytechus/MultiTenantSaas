@@ -449,11 +449,7 @@ Here's the full request flow in our project, showing how Kubernetes fits into th
 │  └──────────────┘    │ (validates JWT) │    │  ┌───────────────┐  │  │
 │         │            └────────────────┘    │  │ PostgreSQL    │  │  │
 │         ▼                                  │  │ (StatefulSet) │  │  │
-│  ┌──────────────┐                          │  └───────┬───────┘  │  │
-│  │ Lambda        │    DATABASE_URL          │          ▲          │  │
-│  │ Orchestrator  │────────────────────────▶│  ┌───────┴───────┐  │  │
-│  │ (permissions) │                          │  │ PgBouncer     │  │  │
-│  └──────────────┘                          │  │ (Deployment)  │  │  │
+│  │ Auth Gateway  │────────────────────────▶│  ┌───────┴───────┐  │  │
 │                                            │  └───────────────┘  │  │
 │  ┌──────────────┐       FUTURE             │                     │  │
 │  │ Next.js       │────────────────────────▶│  ┌───────────────┐  │  │
@@ -473,7 +469,7 @@ Here's the full request flow in our project, showing how Kubernetes fits into th
 ### The Data Flow
 1. **User request** hits API Gateway
 2. **Lambda Authorizer** validates the JWT token
-3. **Orchestrator Lambda** checks permissions, then processes the request
+3. **Auth Gateway** checks permissions, then processes the request
 4. App connects to **PgBouncer** (port 6432), which pools connections to **PostgreSQL** (port 5432)
 5. Async tasks will eventually be published to **RabbitMQ** (port 5672)
 6. **Fluent Bit** continuously collects all pod logs and ships them to **AWS CloudWatch**

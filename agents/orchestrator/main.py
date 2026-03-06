@@ -6,14 +6,14 @@ from common.rabbitmq import RabbitMQClient, publish_with_retry
 
 # Configuration
 DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://admin:admin@localhost:5432/multitenant_saas')
-QUEUE_NAME = 'agent.requests'
+QUEUE_NAME = 'tasks'
 
 mq_client = RabbitMQClient()
 
 def get_db_connection():
     return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
 
-def update_task_status(task_id, status, error_message=None, data=None):
+def update_task_status(task_id, org_id, status, session_id=None, error_message=None, data=None):
     with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -22,25 +22,12 @@ def update_task_status(task_id, status, error_message=None, data=None):
             )
             conn.commit()
     
-    # Emit event for WebSocket streaming
-    mq_client.publish('event.created', {
+    # Emit event for WebSocket streaming using events.{org_id} routing key
+    routing_key = f"events.{org_id}"
+    mq_client.publish(routing_key, {
         "task_id": task_id,
-        "status": status,
-        "data": data or {}
-    })
-
-def update_task_status(task_id, status, error_message=None, data=None):
-    with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "UPDATE agent_tasks SET status = %s, error_message = %s, updated_at = NOW() WHERE id = %s",
-                (status, error_message, task_id)
-            )
-            conn.commit()
-    
-    # Emit event for WebSocket streaming
-    mq_client.publish('event.created', {
-        "task_id": task_id,
+        "session_id": session_id,
+        "org_id": org_id,
         "status": status,
         "data": data or {}
     })
@@ -57,6 +44,7 @@ def callback(ch, method, properties, body):
     task_id = data.get('taskId')
     user_id = data.get('userId')
     org_id = data.get('orgId')
+    session_id = data.get('sessionId')
     prompt = data.get('prompt')
     action = data.get('action')
     resources = data.get('resources')
@@ -68,13 +56,14 @@ def callback(ch, method, properties, body):
 
     try:
         # 1. Update Status to Running (Creation already handled by Gateway)
-        update_task_status(task_id, 'running')
+        update_task_status(task_id, org_id, 'running', session_id=session_id)
 
         # 2. Invoke LangGraph Orchestrator
         initial_state = {
             "task_id": task_id,
             "org_id": org_id,
             "user_id": user_id,
+            "session_id": session_id,
             "prompt": prompt,
             "action": action,
             "resources": resources,
@@ -83,20 +72,23 @@ def callback(ch, method, properties, body):
         }
         
         from graph import run_orchestrator_graph_with_state
-        result = run_orchestrator_graph_with_state(initial_state)
+        # Pass session_id as LangGraph thread_id for conversation memory
+        config = {"configurable": {"thread_id": session_id}}
+        result = run_orchestrator_graph_with_state(initial_state, config)
 
         # 3. Final Status (Done)
         print(f" [x] Orchestration Complete: {result}")
+        update_task_status(task_id, org_id, 'completed', session_id=session_id, data=result)
         ch.basic_ack(delivery_tag=method.delivery_tag)
 
     except Exception as e:
         print(f" [!] Error in Orchestrator: {e}")
-        update_task_status(task_id, 'failed', str(e))
+        update_task_status(task_id, org_id, 'failed', session_id=session_id, error_message=str(e))
         
         # Implement retry logic
         headers = properties.headers or {}
         # Use specific routing key for retry to maintain org affinity
-        routing_key = f"agents.request.{org_id}"
+        routing_key = f"tasks.{org_id}"
         if not publish_with_retry(ch, routing_key, data, headers):
             # Max retries reached
             ch.basic_ack(delivery_tag=method.delivery_tag)
@@ -105,7 +97,7 @@ def callback(ch, method, properties, body):
 
 def main():
     # Consume with wildcards for all orgs
-    mq_client.consume(QUEUE_NAME, callback, routing_key='agents.request.#')
+    mq_client.consume(QUEUE_NAME, callback, routing_key='tasks.#')
 
 if __name__ == '__main__':
     main()

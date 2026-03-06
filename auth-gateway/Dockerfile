@@ -5,10 +5,8 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev
 
-COPY index.js ./
-COPY permissions.js ./
-COPY utils/ ./utils/
+COPY src/ ./src/
 
-EXPOSE 3000
+EXPOSE 3001
 
-CMD ["node", "index.js"]
+CMD ["node", "src/index.js"]

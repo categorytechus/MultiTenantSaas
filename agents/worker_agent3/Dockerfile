@@ -8,11 +8,12 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install python dependencies
-COPY requirements.txt .
+COPY worker_agent3/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy source code
-COPY . .
+# Copy shared code and service source
+COPY common ./common
+COPY worker_agent3/ .
 
 # Create non-root user for security
 RUN useradd -m -u 1001 appuser && chown -R appuser:appuser /app

@@ -6,7 +6,7 @@ metadata:
   namespace: data
 spec:
   forwardAuth:
-    address: http://auth-service.data.svc.cluster.local:3001/verify
+    address: http://auth-gateway.data.svc.cluster.local:3001/verify
     authResponseHeaders:
       - X-User-Id
       - X-Org-Id
@@ -16,7 +16,7 @@ spec:
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
-  name: orchestrator-ingress
+  name: auth-gateway-ingress
   namespace: data
 spec:
   entryPoints:
@@ -28,8 +28,8 @@ spec:
         - name: forward-auth
           namespace: data
       services:
-        - name: orchestrator-service
-          port: 3000
+        - name: auth-gateway
+          port: 3001
 ---
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute

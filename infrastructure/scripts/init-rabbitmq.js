@@ -1,4 +1,4 @@
-const { setupInfrastructure } = require('../../orchestrator/utils/rabbitmq');
+const { setupInfrastructure } = require('../../auth-gateway/src/utils/rabbitmq');
 
 const main = async () => {
     try {

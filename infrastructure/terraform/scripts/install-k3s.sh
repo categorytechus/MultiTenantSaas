@@ -10,8 +10,7 @@ curl -fL https://go.dev/dl/go1.24.0.linux-amd64.tar.gz | tar -C /usr/local -xz
 export PATH=$PATH:/usr/local/go/bin
 
 # Build ecr-credential-provider matching version
-K3S_VERSION="${ecr_provider_version}"
-git clone --depth=1 --branch ${K3S_VERSION} \
+git clone --depth=1 --branch ${ecr_provider_version} \
   https://github.com/kubernetes/cloud-provider-aws.git /tmp/cloud-provider-aws
 cd /tmp/cloud-provider-aws
 go build -o /usr/local/bin/ecr-credential-provider ./cmd/ecr-credential-provider/

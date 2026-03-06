@@ -33,7 +33,7 @@ const runVerification = async () => {
 
         if (res.status === 202) {
             console.log('\nSUCCESS: Request accepted by Gateway.');
-            console.log('Next Steps: Check RabbitMQ queue "agent.requests" and then the "agent_tasks" table in DB.');
+            console.log('Next Steps: Check RabbitMQ queue "tasks" and then the "agent_tasks" table in DB.');
         }
 
     } catch (err) {

@@ -38,8 +38,8 @@ Every request is intercepted by a **Lambda Authorizer**.
 - Rejects expired or tampered tokens.
 - Forwards the `org_id` and `permissions` to the downstream services via the `requestContext`.
 
-### Step 4: Orchestrator Evaluation
-The **Agent Orchestrator** performs the final check. Before executing any business logic, it verifies that the `permissions` list in the context strictly matches the required action for that specific API path.
+### Step 4: Auth Gateway Evaluation
+The **Auth Gateway** performs the final check. Before executing any business logic or queuing tasks, it verifies that the `permissions` list in the context strictly matches the required action for that specific API path.
 
 ---
 *Created by [Your Name/Team] - Day 4 Infrastructure Phase*

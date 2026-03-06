@@ -65,6 +65,8 @@ async function handleRequest(req, res, targetResource, targetAction, inputData) 
 
     const userId = decoded.sub;
     const orgId = decoded.org_id;
+    // Use caller-supplied sessionId (for continuing a conversation) or generate a new one
+    const sessionId = inputData.sessionId || require('crypto').randomUUID();
 
     try {
         // 1. RBAC Validation
@@ -80,13 +82,14 @@ async function handleRequest(req, res, targetResource, targetAction, inputData) 
         const resources = await discoverResources(userId, orgId);
 
         // 3. Immediate Task Creation
-        const taskId = await createTask(orgId, userId, inputData.prompt, resources, `${targetResource}:${targetAction}`);
+        const taskId = await createTask(orgId, userId, inputData.prompt, resources, `${targetResource}:${targetAction}`, sessionId);
 
-        // 4. Publish to RabbitMQ with Task ID
+        // 4. Publish to RabbitMQ with Task ID and Session ID
         await publishTask({
             taskId,
             userId,
             orgId,
+            sessionId,
             action: `${targetResource}:${targetAction}`,
             prompt: inputData.prompt || `Action: ${targetAction} on ${targetResource}`,
             input: inputData,
@@ -97,6 +100,7 @@ async function handleRequest(req, res, targetResource, targetAction, inputData) 
         return res.status(202).json({
             message: 'Request accepted and queued.',
             task_id: taskId,
+            session_id: sessionId,
             organization_id: orgId,
             action: `${targetResource}:${targetAction}`,
             status: 'ACCEPTED'

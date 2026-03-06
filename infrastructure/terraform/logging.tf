@@ -58,7 +58,6 @@ resource "aws_cloudtrail" "main" {
   depends_on = [aws_s3_bucket_policy.cloudtrail]
 }
 
-data "aws_caller_identity" "current" {}
 
 resource "aws_cloudwatch_log_group" "k3s_logs" {
   name              = "/${var.project_name}/k3s-logs"

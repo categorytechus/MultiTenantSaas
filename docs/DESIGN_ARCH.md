@@ -22,11 +22,11 @@ The platform is designed to support multiple independent organizations (tenants)
 - **Data Model**: Prisma-based multi-tenant schema that strictly links Users and Roles to an `Organization`.
 - **Lambda Authorizer**: Intercepts all API Gateway calls to validate **Enriched JWTs**.
 - **Enriched JWTs**: Contains the user's `org_id` and flattened `permissions`. Tokens are set to expire after **60 minutes** of inactivity.
-- **Zero-Trust Validation**: Permissions are validated twice—once at the API Gateway (Authorizer) and once at the service layer (Orchestrator).
+- **Zero-Trust Validation**: Permissions are validated twice—once at the API Gateway (Authorizer) and once at the service layer (Auth Gateway).
 
 ## 5. API & Orchestration Layer
 - **API Gateway**: Hybrid REST (/api/*) and WebSocket (task-status) entry points.
-- **Agent Orchestrator**: A specialized Lambda that receives authorized requests, evaluates fine-grained permissions, and coordinates tasks (via RabbitMQ).
+- **Auth Gateway**: A specialized Node microservice that receives authorized requests, evaluates fine-grained permissions, and coordinates tasks (via RabbitMQ).
 - **Front-end**: Next.js 16 application with App Router, using Prisma for secure database interaction.
 
 ## 6. Observability

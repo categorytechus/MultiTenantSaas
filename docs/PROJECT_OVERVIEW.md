@@ -45,7 +45,7 @@ MultiTenantSaas/
 │   │
 │   ├── lambdas/            # AWS Lambda functions (JavaScript / Node.js)
 │   │   ├── authorizer/     # JWT validation Lambda
-│   │   ├── orchestrator/   # Permission-gated business logic Lambda
+│   │   ├── auth-gateway/   # Permission-gated proxy microservice
 │   │   ├── stub/           # Placeholder Lambda for WebSocket
 │   │   └── utils/          # Shared auth & permission helpers
 │   │
@@ -119,7 +119,7 @@ Two API Gateways are provisioned:
 - Three resource paths: `/api/agents`, `/api/users`, `/api/orgs`
 - All routes use `ANY` HTTP method
 - All routes are protected by the **custom Lambda Authorizer** (JWT validation)
-- All routes integrate with the **Orchestrator Lambda** via `AWS_PROXY`
+- All routes integrate with the **Auth Gateway** via `AWS_PROXY`
 - Deployed to a `prod` stage
 
 **WebSocket API**:
@@ -136,7 +136,7 @@ Three Lambda functions are defined (all `nodejs18.x`):
 | Function | Source | Purpose |
 |---|---|---|
 | `api-stub` | `lambdas/stub/index.js` | Placeholder for WebSocket endpoints |
-| `orchestrator` | `lambdas/orchestrator/` (zipped directory) | Business logic with permission checking |
+| `auth-gateway` | `auth-gateway/` | Node microservice handling validation and RBAC |
 | `authorizer` | `lambdas/authorizer/` (zipped directory) | JWT validation for API Gateway |
 
 **Permissions** are configured so API Gateway can invoke each Lambda for both REST and WebSocket APIs.
@@ -179,7 +179,7 @@ All manifests deploy into a `data` namespace and define the data/messaging layer
 
 - **3-node StatefulSet** for high availability
 - Uses **k8s peer discovery** for automatic cluster formation
-- Handles **asynchronous task orchestration** — the Orchestrator Lambda publishes tasks here for background processing
+- Handles **asynchronous task orchestration** — the Auth Gateway publishes tasks here for background processing
 - Includes a `README.md` with cluster-specific notes
 
 ### 3.4 CloudWatch Logging (`cloudwatch-logging.yaml`)
@@ -215,26 +215,25 @@ All Lambda functions are written in **JavaScript (Node.js 18.x)**. They form the
 
 Both functions use `process.env.JWT_KEY` (falling back to `"development-secret"`).
 
-### 4.2 Agent Orchestrator (`lambdas/orchestrator/`)
+### 4.2 Auth Gateway (`auth-gateway/`)
 
-**Files:** `index.js`, `permissions.js`
+**Files:** `index.ts`, `middleware/rbac.ts`, `utils/rabbitmq.ts`
 
-**Purpose:** The central business logic Lambda. Every authorized REST API request (`/api/agents`, `/api/users`, `/api/orgs`) is routed here.
+**Purpose:** The central business logic service. Every authorized REST API request (`/api/agents`, `/api/users`, `/api/orgs`) is routed here after the generic Auth Service validates the JWT.
 
 **How it works:**
-1. Extracts the **Authorizer context** (org_id, permissions) from `event.requestContext.authorizer`
+1. Extracts the **Authorizer context** (org_id, permissions) from headers passed by Traefik/Auth Service.
 2. Determines the **required permission** based on the request path and HTTP method:
    - `POST /api/agents` → requires `agents:create`
    - `POST /api/users` → requires `users:manage`
    - `PUT /api/orgs` → requires `org:manage`
    - Everything else → requires `read`
-3. Calls `hasPermission()` to check if the user's permissions include the required one
+3. Calls RBAC middleware to check if the user's permissions include the required one
 4. If **denied** → returns `403 Forbidden` with a descriptive error
-5. If **allowed** → returns `200 OK` with a success message (placeholder for future RabbitMQ task publishing)
+5. If **allowed** → publishes task to RabbitMQ and returns `202 Accepted` or `200 OK`
 
-**`permissions.js`** provides:
-- `hasPermission(context, requiredPermission)` — parses the permissions JSON from the context and checks for either a wildcard (`*`) match (Global Admin) or an exact permission match
-- `getOrgId(context)` — extracts the `org_id` from the context
+**RBAC Middleware** provides:
+- Checks for either a wildcard (`*`) match (Global Admin) or an exact permission match
 
 ### 4.3 Stub Lambda (`lambdas/stub/`)
 
@@ -246,7 +245,7 @@ A minimal placeholder Lambda that returns `200 OK` for any event. Used as the in
 
 **Files:** `auth.js`, `permissions.js`
 
-These are **identical copies** of `authorizer/auth_util.js` and `orchestrator/permissions.js` respectively. They serve as reusable modules that can be imported by any Lambda or service that needs JWT or permission functionality.
+These are identical copies of `auth_util.js` serving as reusable modules.
 
 ---
 
@@ -351,7 +350,7 @@ Provides shortcuts for common operations:
 - Full AWS infrastructure via Terraform (VPC, EC2/k3s, API Gateway, Lambdas, Secrets, Logging)
 - Kubernetes data layer (PostgreSQL, PgBouncer, RabbitMQ, Fluent Bit)
 - Lambda Authorizer with JWT validation and enriched token generation
-- Lambda Orchestrator with fine-grained RBAC permission checking
+- Auth Gateway Node.js microservice with fine-grained RBAC permission checking
 - Prisma multi-tenant data model with User ↔ Organization ↔ Role relationships
 - Database seed script with default roles and permissions
 - Auth enrichment logic for JWT token generation
@@ -363,7 +362,7 @@ Provides shortcuts for common operations:
 - **Frontend UI** — no pages, routes, or React components exist
 - **User authentication flow** — login/signup pages and session management
 - **Real-time features** — WebSocket `task-status` route is using a stub Lambda
-- **RabbitMQ integration** — the Orchestrator acknowledges tasks but doesn't actually publish to RabbitMQ yet
+- **RabbitMQ integration** — the Auth Gateway acknowledges tasks but doesn't actually publish to all channels correctly yet
 - **CI/CD pipeline** — `.github/` directory exists but contents are minimal
 - **Production hardening** — SSH security group is open to `0.0.0.0/0`, JWT key is hardcoded as a fallback
 

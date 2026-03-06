@@ -5,6 +5,18 @@
 
 PROJECT_NAME="multi-tenant-saas"
 
+# If LLM_KEYS is not provided but OPENAI_API_KEY is, construct the JSON
+if [ -z "$LLM_KEYS" ] && [ -n "$OPENAI_API_KEY" ]; then
+    LLM_KEYS="{\"openai\":\"$OPENAI_API_KEY\"}"
+fi
+if [ -z "$LLM_KEYS" ] && [ -n "$ANTHROPIC_API_KEY" ]; then
+    LLM_KEYS="{\"anthropic\":\"$ANTHROPIC_API_KEY\"}"
+fi
+# Add more as needed (e.g., if both are present)
+if [ -n "$OPENAI_API_KEY" ] && [ -n "$ANTHROPIC_API_KEY" ]; then
+    LLM_KEYS="{\"openai\":\"$OPENAI_API_KEY\",\"anthropic\":\"$ANTHROPIC_API_KEY\"}"
+fi
+
 function create_or_update_secret() {
     local secret_name=$1
     local value=$2

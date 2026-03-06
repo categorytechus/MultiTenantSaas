@@ -6,21 +6,20 @@ This plan is organized into 6 progressive phases. Each phase builds on the previ
 
 ## Phase 1: JavaScript and Node.js Fundamentals (Week 1)
 
-You need this because all 3 Lambda functions in `backend/lambdas/` are written in plain JavaScript, and the frontend uses TypeScript.
+You need this because the auth-gateway microservice and legacy backend scripts are written in JavaScript/TypeScript.
 
 ### Core Concepts to Learn
 
 - **JavaScript basics:** variables (`const`, `let`), arrow functions (`=>`), template literals, destructuring, spread operator
-- **Async programming:** Promises, `async/await` -- this is critical because every Lambda handler is an `async function`
-- **Modules:** `require()` (CommonJS) -- used in all Lambda files, e.g. `const jwt = require('jsonwebtoken')`
-- **Node.js runtime:** What Node.js is (server-side JS), how `exports.handler` works, the event loop
+- **Async programming:** Promises, `async/await` -- critical for network and database requests
+- **Modules:** `require()` / `import` -- used in Node.js files, e.g. `import jwt from 'jsonwebtoken'`
+- **Node.js runtime:** What Node.js is (server-side JS), Express routing, and the event loop
 - **npm:** `package.json`, `npm install`, `node_modules`, dependency management
 
 ### Where to See This in the Project
 
-- [backend/lambdas/authorizer/index.js](backend/lambdas/authorizer/index.js) -- a Lambda handler using `async`, `require`, `exports.handler`
-- [backend/lambdas/orchestrator/index.js](backend/lambdas/orchestrator/index.js) -- path parsing, conditionals, destructuring
-- [backend/lambdas/authorizer/auth_util.js](backend/lambdas/authorizer/auth_util.js) -- JWT signing/verification with `jsonwebtoken`
+- [auth-gateway/src/index.ts](auth-gateway/src/index.ts) -- Express server, path parsing, conditionals, destructuring
+- [auth-gateway/src/utils/jwt.ts](auth-gateway/src/utils/jwt.ts) -- JWT signing/verification with `jsonwebtoken`
 
 ### Recommended YouTube Tutorials
 
@@ -40,64 +39,44 @@ You need this because all 3 Lambda functions in `backend/lambdas/` are written i
 
 ---
 
-## Phase 2: AWS Fundamentals and Lambda (Week 1-2)
+## Phase 2: AWS Fundamentals (Week 1-2)
 
-You need this because the entire backend runs on AWS services orchestrated by Terraform.
+You need this because the infrastructure runs on AWS services orchestrated by Terraform.
 
 ### Core AWS Concepts
 
-- **AWS Account & IAM:** Users, roles, policies -- the project defines IAM roles in [terraform/main.tf](terraform/main.tf) and [terraform/lambda.tf](terraform/lambda.tf)
-- **AWS Lambda:** Serverless functions triggered by events. Key concepts:
-  - **Handler:** The entry point function (`exports.handler = async (event, context) => { ... }`)
-  - **Event object:** Contains HTTP request data (path, method, headers, body)
-  - **Context object:** Contains runtime info (request ID, function name)
-  - **Cold starts:** First invocation takes longer
-  - **Packaging:** Code is zipped and uploaded (see `data "archive_file"` blocks in [terraform/lambda.tf](terraform/lambda.tf))
-- **API Gateway:** HTTP front door that routes requests to Lambdas. Two types in this project:
-  - **REST API** -- for `/api/agents`, `/api/users`, `/api/orgs`, `/api/validate-permissions`
-  - **WebSocket API** -- for real-time connections (currently a stub)
-  - Defined in [terraform/api_gateway.tf](terraform/api_gateway.tf)
-- **Lambda Authorizer:** A special Lambda that runs before your main Lambda to validate auth tokens -- this is the `authorizer` Lambda
+- **AWS Account & IAM:** Users, roles, policies -- the project defines IAM roles in [terraform/main.tf](terraform/main.tf)
+- **Traefik Ingress:** HTTP front door that routes requests to our microservices inside Kubernetes.
 - **Secrets Manager:** Stores sensitive values (DB password, JWT key, LLM keys) -- see [terraform/secrets.tf](terraform/secrets.tf)
-- **CloudWatch:** Logs and metrics -- the project uses it for Lambda logs and EC2 auto-shutdown alarms
-- **EC2:** Virtual server -- runs k3s (lightweight Kubernetes) for PostgreSQL and RabbitMQ
+- **CloudWatch:** Logs and metrics -- the project uses it for container logs and EC2 auto-shutdown alarms
+- **EC2:** Virtual server -- runs k3s (lightweight Kubernetes) for all services
 - **VPC:** Virtual private network -- the project creates one in [terraform/main.tf](terraform/main.tf)
 
-### The 3 Lambda Functions in This Project
+### The API Request Flow
 
 ```mermaid
 flowchart LR
-    Client([Client]) -->|"HTTP + Bearer Token"| APIGW[API Gateway]
-    APIGW -->|"Step 1: Validate"| Auth[Lambda Authorizer]
-    Auth -->|"Allow + org_id, permissions"| APIGW
-    APIGW -->|"Step 2: Route"| Orch[Lambda Orchestrator]
-    Orch -->|"Check permissions, return 200/403"| Client
-    APIGW -->|"WebSocket"| Stub[Lambda Stub]
+    Client([Client]) -->|"HTTP + Bearer Token"| Traefik[Traefik Ingress]
+    Traefik -->|"Step 1: ForwardAuth"| Auth[Auth Gateway /verify]
+    Auth -->|"Allow + Headers"| Traefik
+    Traefik -->|"Step 2: Route"| API[Backend Services]
+    API -->|"Response"| Client
 ```
 
-1. **Authorizer** (`backend/lambdas/authorizer/`) -- Validates JWT tokens, extracts `org_id` and `permissions`
-2. **Orchestrator** (`backend/lambdas/orchestrator/`) -- Receives authorized requests, checks RBAC permissions per endpoint
-3. **Stub** (`backend/lambdas/stub/`) -- Placeholder for WebSocket routes, returns 200 OK
+1. **Traefik Ingress** -- Receives external request
+2. **Auth Gateway (Verify)** -- Traefik sends request to Auth Gateway's `/verify` endpoint to validate JWT
+3. **Backend Route** -- If valid, request is forwarded to the appropriate microservice
 
 ### Recommended YouTube Tutorials
 
-- **AWS Lambda + API Gateway + Serverless (full picture):**
-  - [AWS Serverless with Lambda, API Gateway & EventBridge -- Full Beginner Course](https://www.youtube.com/watch?v=5rG-YgTHMC8) -- covers Lambda basics, building REST APIs with Lambda, EventBridge, SQS, SNS
 - **AWS IAM (roles & policies):**
   - [AWS IAM Users, Roles, and Policies in 5 Minutes](https://www.youtube.com/watch?v=xST_Qfg8i1E) -- quick conceptual overview, watch this first
-  - [AWS IAM Tutorial 2025 -- Users, Groups, Policies & MFA (16min)](https://www.youtube.com/watch?v=wwQl0n7C5-M) -- hands-on walkthrough with custom policies
-- **Lambda Authorizer (used in this project):**
-  - [Secure your API Gateway with Lambda Authorizer -- Step by Step (178K views)](https://www.youtube.com/watch?v=al5I9v5Y-kA) -- exactly what this project does: create authorizer, attach to API Gateway
-  - [Securing Your API with Lambda Authorizer -- AWS Demo](https://www.youtube.com/watch?v=OqWg4_L-4E0) -- another hands-on walkthrough
 - **AWS Secrets Manager:**
   - [AWS Secrets Manager Step-by-Step: Store, Rotate & Delete Secrets (5min)](https://youtube.com/watch?v=ItzzgWe7elE) -- quick practical demo
-  - [AWS Secrets Manager Tutorial -- Securely Store and Rotate (3min)](https://www.youtube.com/watch?v=GQaZiap2gSo) -- integration with Lambda, EC2, RDS
 
 ### Other Resources
 
 - **AWS Free Tier** -- sign up and experiment
-- **AWS Lambda Developer Guide** (official docs)
-- Practice: deploy a "Hello World" Lambda via the AWS Console
 
 ---
 
@@ -116,7 +95,7 @@ You need this because all AWS infrastructure is defined in the `terraform/` dire
 - **Commands:** `terraform init` (setup), `terraform plan` (preview), `terraform apply` (deploy), `terraform destroy` (teardown)
 - **Provider:** Configures which cloud to talk to -- AWS provider in [terraform/provider.tf](terraform/provider.tf)
 - **Data sources:** Read existing resources or generate values (e.g., `data "archive_file"` to zip Lambda code)
-- **References:** Resources reference each other, e.g., `aws_lambda_function.orchestrator.arn`
+- **References:** Resources reference each other, e.g., `aws_ecr_repository.auth_gateway.repository_url`
 
 ### Project Terraform File Map
 
@@ -125,8 +104,6 @@ You need this because all AWS infrastructure is defined in the `terraform/` dire
 | [terraform/provider.tf](terraform/provider.tf)       | AWS provider config (region us-east-1)                                |
 | [terraform/variables.tf](terraform/variables.tf)     | Input variables with defaults                                         |
 | [terraform/main.tf](terraform/main.tf)               | VPC, subnet, EC2 (k3s server), IAM, security groups, CloudWatch alarm |
-| [terraform/lambda.tf](terraform/lambda.tf)           | 3 Lambda functions, IAM roles, zip packaging                          |
-| [terraform/api_gateway.tf](terraform/api_gateway.tf) | REST API + WebSocket API + routes + authorizer attachment             |
 | [terraform/secrets.tf](terraform/secrets.tf)         | 3 Secrets Manager secrets + IAM policy for EC2                        |
 | [terraform/logging.tf](terraform/logging.tf)         | CloudTrail + S3 bucket + CloudWatch log group                         |
 | [terraform/outputs.tf](terraform/outputs.tf)         | Outputs (IPs, URLs, secret names)                                     |
@@ -166,24 +143,25 @@ flowchart TD
     Login([User Logs In]) --> Enrich["Auth Enrichment<br/>Queries Prisma for user roles"]
     Enrich --> JWT["Creates Enriched JWT<br/>Contains org_id + permissions"]
     JWT --> Request["Client sends request<br/>with Bearer token"]
-    Request --> AuthLambda["Authorizer Lambda<br/>Verifies JWT signature"]
-    AuthLambda --> OrcLambda["Orchestrator Lambda<br/>Checks hasPermission"]
-    OrcLambda --> Allow["200 OK"]
-    OrcLambda --> Deny["403 Forbidden"]
+    Request --> Traefik["Traefik ForwardAuth"]
+    Traefik --> AuthGWVerify["Auth Gateway /verify<br/>Verifies JWT signature"]
+    AuthGWVerify --> AuthGW["Auth Gateway Services<br/>Checks hasPermission"]
+    AuthGW --> Allow["200 OK / 202 Accepted"]
+    AuthGW --> Deny["403 Forbidden"]
 ```
 
 - **Prisma schema** in [frontend/prisma/schema.prisma](frontend/prisma/schema.prisma) -- defines Organization, User, Role, Permission, UserOrganizationRole
 - **Auth enrichment** in [frontend/src/lib/auth-enrichment.ts](frontend/src/lib/auth-enrichment.ts) -- queries DB for a user's roles in an org
-- **JWT creation** in [backend/lambdas/authorizer/auth_util.js](backend/lambdas/authorizer/auth_util.js) -- `createEnrichedToken()`
-- **Permission checks** in [backend/lambdas/orchestrator/permissions.js](backend/lambdas/orchestrator/permissions.js) -- `hasPermission()`, `getOrgId()`
+- **JWT creation** in [auth-gateway/src/utils/jwt.ts](auth-gateway/src/utils/jwt.ts) -- `createEnrichedToken()`
+- **Permission checks** in [auth-gateway/src/middleware/rbac.ts](auth-gateway/src/middleware/rbac.ts) -- `hasPermission()`, `getOrgId()`
 
-### 4b. API Gateway Request Flow
+### 4b. Traefik Ingress Routing
 
-Study [terraform/api_gateway.tf](terraform/api_gateway.tf) to understand:
+Study [infrastructure/k8s/ingress.yaml](infrastructure/k8s/ingress.yaml) to understand:
 
-- How REST routes (`/api/agents`, `/api/users`, etc.) are defined using `for_each`
-- How the Lambda Authorizer is attached to every route
-- How WebSocket routes work differently (route selection via `$request.body.action`)
+- How REST routes (`/api/*`) are routed
+- How the Traefik `ForwardAuth` middleware intercepts requests to validate JWTs
+- How WebSocket routes (`/ws`) work differently
 
 ### 4c. Infrastructure Architecture
 
@@ -192,23 +170,26 @@ Read [DESIGN_ARCH.md](DESIGN_ARCH.md) and [INFRA_RUNBOOK.md](INFRA_RUNBOOK.md) f
 ```mermaid
 flowchart TB
     subgraph aws [AWS Cloud]
-        APIGW[API Gateway] --> Lambdas[Lambda Functions]
         SM[Secrets Manager]
         CT[CloudTrail + S3]
         CW[CloudWatch]
         subgraph vpc [VPC 10.0.0.0/16]
             subgraph ec2 [EC2 t3.medium - k3s]
+                Traefik[Traefik Ingress]
+                AuthGW[Auth Gateway]
                 PG[(PostgreSQL 15)]
                 PGB[PgBouncer]
                 RMQ[RabbitMQ 3-node]
                 FB[Fluent Bit]
+                Traefik --> AuthGW
+                AuthGW --> PGB
+                AuthGW --> RMQ
             end
         end
-        Lambdas -.->|"future"| RMQ
         FB --> CW
         SM --> ec2
     end
-    Client([Client]) --> APIGW
+    Client([Client]) --> Traefik
 ```
 
 ---
@@ -298,13 +279,11 @@ The [Makefile](Makefile) ties everything together:
 
 | Priority | File                                          | Why                                    |
 | -------- | --------------------------------------------- | -------------------------------------- |
-| 1        | `backend/lambdas/authorizer/index.js`         | Simplest Lambda, shows handler pattern |
-| 2        | `backend/lambdas/authorizer/auth_util.js`     | JWT signing/verification               |
-| 3        | `backend/lambdas/orchestrator/index.js`       | Main business logic Lambda             |
-| 4        | `backend/lambdas/orchestrator/permissions.js` | RBAC permission checking               |
-| 5        | `frontend/prisma/schema.prisma`               | Data model for multi-tenancy           |
-| 6        | `frontend/src/lib/auth-enrichment.ts`         | How user data is loaded from DB        |
-| 7        | `terraform/lambda.tf`                         | How Lambdas are defined in Terraform   |
-| 8        | `terraform/api_gateway.tf`                    | How API routes are configured          |
-| 9        | `terraform/main.tf`                           | VPC, EC2, networking infrastructure    |
-| 10       | `Makefile`                                    | How to deploy everything               |
+| 1        | `auth-gateway/src/index.ts`       | Main business logic proxy             |
+| 2        | `auth-gateway/src/middleware/rbac.ts` | RBAC permission checking               |
+| 3        | `frontend/prisma/schema.prisma`               | Data model for multi-tenancy           |
+| 4        | `frontend/src/lib/auth-enrichment.ts`         | How user data is loaded from DB        |
+| 5        | `infrastructure/k8s/ingress.yaml`             | How Traefik routes and auth work       |
+| 6        | `infrastructure/k8s/auth-gateway.yaml`        | How the auth gateway is deployed       |
+| 7        | `terraform/main.tf`                           | VPC, EC2, networking infrastructure    |
+| 8        | `Makefile`                                    | How to deploy everything               |

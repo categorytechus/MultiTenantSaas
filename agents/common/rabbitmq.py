@@ -47,6 +47,47 @@ class RabbitMQClient:
         )
         print(f" [x] Sent to {routing_key}: {json.dumps(body)[:100]}...")
 
+    def call(self, routing_key: str, body: dict, exchange: str = DEFAULT_EXCHANGE, timeout: int = 30):
+        """Synchronous RPC call"""
+        if not self.channel or self.channel.is_closed:
+            self.connect()
+
+        # Declare an exclusive callback queue
+        result = self.channel.queue_declare(queue='', exclusive=True)
+        callback_queue = result.method.queue
+
+        response = None
+        corr_id = str(json.dumps(body).__hash__()) # Simple correlation ID
+
+        def on_response(ch, method, props, body):
+            nonlocal response
+            if props.correlation_id == corr_id:
+                response = json.loads(body)
+
+        self.channel.basic_consume(
+            queue=callback_queue,
+            on_message_callback=on_response,
+            auto_ack=True
+        )
+
+        self.channel.basic_publish(
+            exchange=exchange,
+            routing_key=routing_key,
+            properties=pika.BasicProperties(
+                reply_to=callback_queue,
+                correlation_id=corr_id,
+            ),
+            body=json.dumps(body)
+        )
+
+        start_time = time.time()
+        while response is None:
+            self.connection.process_data_events(time_limit=1)
+            if time.time() - start_time > timeout:
+                raise TimeoutError(f"RPC call to {routing_key} timed out after {timeout}s")
+
+        return response
+
     def consume(self, queue_name: str, callback: Callable, exchange: str = DEFAULT_EXCHANGE, routing_key: str = None, durable: bool = True):
         """Consume messages from a queue, optionally binding it to an exchange"""
         if not self.channel or self.channel.is_closed:

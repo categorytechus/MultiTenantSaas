@@ -12,8 +12,10 @@ const PORT = process.env.PORT || 3002;
 const JWT_KEY = process.env.JWT_KEY || 'development-secret';
 const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://admin:admin@rabbitmq.data.svc.cluster.local:5672';
 
-// task_id -> Set<WebSocket>
-const subscriptions = new Map();
+// session_id -> Set<WebSocket>
+// Replaces the old task_id-based subscriptions map.
+// The frontend subscribes once per chat session; task_id is still available inside each event payload.
+const sessionSubscriptions = new Map();
 
 // --------------- WebSocket Server ---------------
 
@@ -53,23 +55,25 @@ wss.on('connection', (ws, req) => {
             return;
         }
 
-        if (msg.action === 'subscribe' && msg.task_id) {
-            if (!subscriptions.has(msg.task_id)) {
-                subscriptions.set(msg.task_id, new Set());
+        if (msg.action === 'subscribe_session' && msg.session_id) {
+            // Subscribe to all events for this chat session
+            if (!sessionSubscriptions.has(msg.session_id)) {
+                sessionSubscriptions.set(msg.session_id, new Set());
             }
-            subscriptions.get(msg.task_id).add(ws);
-            ws.send(JSON.stringify({ status: 'ok', message: `subscribed to ${msg.task_id}` }));
+            sessionSubscriptions.get(msg.session_id).add(ws);
+            ws.send(JSON.stringify({ status: 'ok', message: `subscribed to session ${msg.session_id}` }));
         } else if (msg.action === 'ping') {
             ws.send(JSON.stringify({ status: 'ok', message: 'pong' }));
         } else {
-            ws.send(JSON.stringify({ status: 'ok', message: 'unknown action' }));
+            ws.send(JSON.stringify({ status: 'error', message: 'unknown action. Use subscribe_session or ping.' }));
         }
     });
 
     ws.on('close', () => {
-        for (const [taskId, clients] of subscriptions) {
+        // Clean up all session subscriptions for this socket
+        for (const [sessionId, clients] of sessionSubscriptions) {
             clients.delete(ws);
-            if (clients.size === 0) subscriptions.delete(taskId);
+            if (clients.size === 0) sessionSubscriptions.delete(sessionId);
         }
         console.log(`WS disconnected: user=${decoded.sub}`);
     });
@@ -92,33 +96,44 @@ async function startEventsConsumer() {
 
     const channel = await connection.createChannel();
 
-    await channel.assertExchange('saas_exchange', 'direct', { durable: true });
-    await channel.assertQueue('events', {
-        durable: true,
-        arguments: { 'x-dead-letter-exchange': 'dlx' }
+    // Use 'topic' exchange to match the rest of the system
+    await channel.assertExchange('saas_exchange', 'topic', { durable: true });
+
+    // Use an exclusive, non-durable queue for this specific instance (Broadcast pattern)
+    // This allows multiple replicas to each receive all events.
+    const q = await channel.assertQueue('', {
+        exclusive: true,
+        durable: false,
+        autoDelete: true
     });
-    await channel.bindQueue('events', 'saas_exchange', 'event.created');
 
-    console.log('Consuming from events queue...');
+    const queueName = q.queue;
 
-    channel.consume('events', (msg) => {
+    // Bind to the events.# pattern to catch all org-specific status updates
+    await channel.bindQueue(queueName, 'saas_exchange', 'events.#');
+
+    console.log(`Consuming from exclusive queue ${queueName} bound to events.#...`);
+
+    channel.consume(queueName, (msg) => {
         if (!msg) return;
 
         try {
             const payload = JSON.parse(msg.content.toString());
-            const taskId = payload.task_id;
+            const { task_id, session_id, org_id } = payload;
 
-            console.log(`Event received: task_id=${taskId}`);
+            console.log(`Event received: task_id=${task_id}, session_id=${session_id}, org_id=${org_id}, routing_key=${msg.fields.routingKey}`);
 
-            if (taskId && subscriptions.has(taskId)) {
+            if (session_id && sessionSubscriptions.has(session_id)) {
                 const notification = JSON.stringify({
                     type: 'task-status',
-                    task_id: taskId,
+                    task_id,       // still included so the frontend knows which specific task updated
+                    session_id,
                     data: payload
                 });
 
-                for (const ws of subscriptions.get(taskId)) {
-                    if (ws.readyState === ws.OPEN) {
+                for (const ws of sessionSubscriptions.get(session_id)) {
+                    // Safety check: only send if the WebSocket belongs to the correct org
+                    if (ws.readyState === ws.OPEN && ws.userContext.org_id === org_id) {
                         ws.send(notification);
                     }
                 }
