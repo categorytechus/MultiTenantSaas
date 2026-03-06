@@ -30,7 +30,7 @@ jobs:
         run: |
           find infrastructure/k8s -name "*.yaml" -type f | while read f; do
             echo "Checking $f"
-            python3 -c "import yaml; yaml.safe_load(open('$f'))"
+            python3 -c "import yaml; list(yaml.safe_load_all(open('$f')))"
           done
 
   lint:
