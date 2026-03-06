@@ -42,7 +42,26 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
+      - name: Cache auth dependencies
+        uses: actions/cache@v3
+        with:
+          path: auth/node_modules
+          key: auth-${{ hashFiles('auth/package-lock.json') }}
+      - name: Cache frontend dependencies
+        uses: actions/cache@v3
+        with:
+          path: frontend/node_modules
+          key: frontend-${{ hashFiles('frontend/package-lock.json') }}
+      - name: Cache auth-gateway dependencies
+        uses: actions/cache@v3
+        with:
+          path: auth-gateway/node_modules
+          key: auth-gateway-${{ hashFiles('auth-gateway/package-lock.json') }}
+      - name: Cache task-status dependencies
+        uses: actions/cache@v3
+        with:
+          path: task-status/node_modules
+          key: task-status-${{ hashFiles('task-status/package-lock.json') }}
       - name: Auth - Build
         run: |
           cd auth && npm ci && npm run build
