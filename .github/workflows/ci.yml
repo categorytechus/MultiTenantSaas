@@ -67,7 +67,7 @@ jobs:
           cd auth && npm ci && npm run build
       - name: Frontend - Lint
         run: |
-          cd frontend && npm ci && npx next lint
+          cd frontend && npm ci && npx next lint 
 
   build-verify:
     name: Build Verify (PR)
