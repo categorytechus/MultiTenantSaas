@@ -89,7 +89,7 @@ jobs:
       # components/ and src/ contain TypeScript/React code that also needs checking.
       - name: Frontend - Lint
         run: |
-          cd frontend && npm install && npx next lint --dir app --dir components --dir src
+          cd frontend && npm install && npx eslint app components src
 
   build-verify:
     name: Build Verify (PR)
