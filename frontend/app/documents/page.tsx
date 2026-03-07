@@ -8,7 +8,7 @@ interface Document {
   filename: string;
   file_size: number;
   mime_type: string;
-  tags: any;
+  tags: Record<string, string> | string[] | null;
   status: string;
   created_at: string;
 }
@@ -108,8 +108,8 @@ export default function DocumentsPage() {
       setShowUpload(false);
       setSelectedFile(null);
       fetchDocuments();
-    } catch (error: any) {
-      alert('Upload failed: ' + error.message);
+    } catch (error: unknown) {
+      alert('Upload failed: ' + (error instanceof Error ? error.message : 'Unknown error'));
     } finally {
       setUploading(false);
     }
@@ -127,7 +127,7 @@ export default function DocumentsPage() {
       } else {
         alert('Failed to get document URL');
       }
-    } catch (error) {
+    } catch (_error) {
       alert('Error viewing document');
     }
   };
@@ -148,7 +148,7 @@ export default function DocumentsPage() {
       } else {
         alert('Failed to delete document');
       }
-    } catch (error) {
+    } catch (_error) {
       alert('Error deleting document');
     }
   };
