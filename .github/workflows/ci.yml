@@ -38,36 +38,58 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+
+      # Cache each service's node_modules independently.
+      # restore-keys ensures a partial cache hit if the lock file changes,
+      # so only the delta is installed rather than everything from scratch.
       - name: Cache auth dependencies
         uses: actions/cache@v3
         with:
           path: auth/node_modules
           key: auth-${{ hashFiles('auth/package-lock.json') }}
+          restore-keys: |
+            auth-
+
       - name: Cache frontend dependencies
         uses: actions/cache@v3
         with:
           path: frontend/node_modules
           key: frontend-${{ hashFiles('frontend/package-lock.json') }}
+          restore-keys: |
+            frontend-
+
       - name: Cache auth-gateway dependencies
         uses: actions/cache@v3
         with:
           path: auth-gateway/node_modules
           key: auth-gateway-${{ hashFiles('auth-gateway/package-lock.json') }}
+          restore-keys: |
+            auth-gateway-
+
       - name: Cache task-status dependencies
         uses: actions/cache@v3
         with:
           path: task-status/node_modules
           key: task-status-${{ hashFiles('task-status/package-lock.json') }}
+          restore-keys: |
+            task-status-
+
+      # npm install (not npm ci) so the cached node_modules above are reused.
+      # npm ci would delete and reinstall node_modules every time, defeating the cache.
       - name: Auth - Build
         run: |
-          cd auth && npm ci && npm run build
+          cd auth && npm install && npm run build
+
+      # Lint all three source directories, not just app/.
+      # components/ and src/ contain TypeScript/React code that also needs checking.
       - name: Frontend - Lint
         run: |
-          cd frontend && npm ci && npx next lint 
+          cd frontend && npm install && npx next lint --dir app --dir components --dir src
 
   build-verify:
     name: Build Verify (PR)
