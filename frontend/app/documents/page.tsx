@@ -11,12 +11,23 @@ interface Document {
   tags: any;
   status: string;
   created_at: string;
+  upload_source?: string;
+  processing_speed?: string;
+}
+
+interface UploadMetadata {
+  userId: string;
+  docType: string;
+  isConfidential: boolean;
+  role?: string;
+  specificUser?: string;
+  description: string;
 }
 
 function formatFileSize(bytes: number) {
   if (bytes < 1024) return bytes + ' B';
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-  return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
+  return (bytes / 1024 / 1024).toFixed(2) + ' MB';
 }
 
 function formatDate(dateString: string) {
@@ -27,10 +38,23 @@ function formatDate(dateString: string) {
 export default function DocumentsPage() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showUpload, setShowUpload] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+
+  const [metadata, setMetadata] = useState<UploadMetadata>({
+    userId: '',
+    docType: '',
+    isConfidential: false,
+    role: '',
+    specificUser: '',
+    description: ''
+  });
 
   useEffect(() => {
     fetchDocuments();
@@ -52,18 +76,60 @@ export default function DocumentsPage() {
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setSelectedFile(e.target.files[0]);
-      setShowUpload(true);
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    const allowedTypes = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-powerpoint',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+    ];
+    
+    if (!allowedTypes.includes(file.type)) {
+      alert('Only PDF, DOC, DOCX, PPT, and PPTX files are allowed');
+      return;
     }
+
+    // Validate file size (15MB)
+    if (file.size > 15 * 1024 * 1024) {
+      alert('File size must be less than 15MB');
+      return;
+    }
+
+    setSelectedFile(file);
+    setShowUploadModal(true);
   };
 
   const handleUpload = async () => {
     if (!selectedFile) return;
+
+    // Validate metadata
+    if (!metadata.userId || !metadata.docType) {
+      alert('User ID and Document Type are required');
+      return;
+    }
+
+    if (!metadata.role && !metadata.specificUser) {
+      alert('Please select either a Role or a Specific User');
+      return;
+    }
+
     setUploading(true);
 
     try {
       const token = localStorage.getItem('accessToken');
+
+      // Prepare S3 tags
+      const s3Tags = {
+        'user-id': metadata.userId,
+        'doc-type': metadata.docType,
+        'confidential': metadata.isConfidential ? 'true' : 'false',
+        ...(metadata.role && { role: metadata.role }),
+        ...(metadata.specificUser && { 'specific-user': metadata.specificUser })
+      };
 
       // Step 1: Get presigned URL
       const urlRes = await fetch('http://localhost:4000/api/documents/presigned-url', {
@@ -73,7 +139,7 @@ export default function DocumentsPage() {
           filename: selectedFile.name,
           contentType: selectedFile.type,
           fileSize: selectedFile.size,
-          tags: { category: 'general', status: 'active' },
+          tags: s3Tags,
         }),
       });
 
@@ -98,16 +164,25 @@ export default function DocumentsPage() {
           s3Key: urlData.data.s3Key,
           fileSize: selectedFile.size,
           mimeType: selectedFile.type,
-          tags: { category: 'general', status: 'active' },
-          description: '',
+          tags: s3Tags,
+          description: metadata.description,
         }),
       });
 
       if (!metadataRes.ok) throw new Error('Failed to save document metadata');
 
-      setShowUpload(false);
+      setShowUploadModal(false);
       setSelectedFile(null);
+      setMetadata({
+        userId: '',
+        docType: '',
+        isConfidential: false,
+        role: '',
+        specificUser: '',
+        description: ''
+      });
       fetchDocuments();
+      alert('Document uploaded successfully!');
     } catch (error: any) {
       alert('Upload failed: ' + error.message);
     } finally {
@@ -124,8 +199,6 @@ export default function DocumentsPage() {
       const data = await res.json();
       if (data.success && data.data.downloadUrl) {
         window.open(data.data.downloadUrl, '_blank');
-      } else {
-        alert('Failed to get document URL');
       }
     } catch (error) {
       alert('Error viewing document');
@@ -145,16 +218,25 @@ export default function DocumentsPage() {
       if (data.success) {
         setDocuments(documents.filter(doc => doc.id !== docId));
         alert('Document deleted successfully');
-      } else {
-        alert('Failed to delete document');
       }
     } catch (error) {
       alert('Error deleting document');
     }
   };
 
-  const filteredDocs = documents.filter(doc =>
-    doc.filename.toLowerCase().includes(searchTerm.toLowerCase())
+  // Filter and paginate
+  const filteredDocs = documents.filter(doc => {
+    const matchesSearch = doc.filename.toLowerCase().includes(searchTerm.toLowerCase());
+    const docDate = new Date(doc.created_at);
+    const matchesStartDate = !startDate || docDate >= new Date(startDate);
+    const matchesEndDate = !endDate || docDate <= new Date(endDate);
+    return matchesSearch && matchesStartDate && matchesEndDate;
+  });
+
+  const totalPages = Math.ceil(filteredDocs.length / itemsPerPage);
+  const paginatedDocs = filteredDocs.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
   );
 
   return (
@@ -163,63 +245,51 @@ export default function DocumentsPage() {
         .content {
           padding: 32px;
         }
-        .content-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
+        .page-header {
+          font-size: 18px;
+          font-weight: 600;
+          color: #1a1a1a;
           margin-bottom: 24px;
         }
-        .page-title {
-          font-size: 24px;
-          font-weight: 700;
-          color: #1a1a1a;
-          letter-spacing: -0.5px;
-        }
+        
         .toolbar {
           display: flex;
           gap: 12px;
           align-items: center;
-          margin-bottom: 24px;
-        }
-        .search-box {
-          position: relative;
-          flex: 1;
-          max-width: 400px;
+          margin-bottom: 20px;
+          flex-wrap: wrap;
         }
         .search-input {
-          width: 100%;
-          padding: 10px 40px 10px 40px;
+          flex: 1;
+          min-width: 250px;
+          padding: 9px 14px;
           border: 1px solid #ebebeb;
-          border-radius: 8px;
-          font-family: 'DM Sans', sans-serif;
-          font-size: 14px;
+          border-radius: 6px;
+          font-size: 13px;
           outline: none;
-          transition: all 0.12s;
+          color: #1a1a1a;
         }
-        .search-input:focus {
-          border-color: #1a1a1a;
+        .date-input {
+          padding: 9px 14px;
+          border: 1px solid #ebebeb;
+          border-radius: 6px;
+          font-size: 13px;
+          outline: none;
+          width: 160px;
+          color: #1a1a1a;
         }
-        .search-icon {
-          position: absolute;
-          left: 14px;
-          top: 50%;
-          transform: translateY(-50%);
+        .date-sep {
+          font-size: 13px;
           color: #9a9a9a;
-          pointer-events: none;
         }
-        .search-icon svg {
-          width: 16px;
-          height: 16px;
-        }
-
         .btn-upload {
-          padding: 10px 20px;
-          background: #1a1a1a;
+          padding: 9px 18px;
+          background: #2f3640;
           color: white;
           border: none;
-          border-radius: 8px;
-          font-size: 14px;
-          font-weight: 600;
+          border-radius: 6px;
+          font-size: 13px;
+          font-weight: 500;
           cursor: pointer;
           display: flex;
           align-items: center;
@@ -227,14 +297,24 @@ export default function DocumentsPage() {
           transition: all 0.2s;
         }
         .btn-upload:hover {
-          background: #333;
-          transform: translateY(-1px);
+          background: #1a1f28;
+        }
+        .btn-download {
+          padding: 9px 14px;
+          background: white;
+          color: #2f3640;
+          border: 1px solid #ebebeb;
+          border-radius: 6px;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
         }
 
         .table-container {
           background: white;
           border: 1px solid #ebebeb;
-          border-radius: 12px;
+          border-radius: 8px;
           overflow: hidden;
         }
         .table {
@@ -242,93 +322,95 @@ export default function DocumentsPage() {
           border-collapse: collapse;
         }
         .table thead {
-          background: #f9f9f9;
-          border-bottom: 1px solid #ebebeb;
+          background: #fafafa;
         }
         .table th {
-          padding: 14px 20px;
+          padding: 12px 16px;
           text-align: left;
           font-size: 12px;
           font-weight: 600;
           color: #666;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
         }
         .table td {
-          padding: 16px 20px;
-          font-size: 14px;
+          padding: 14px 16px;
+          font-size: 13px;
           color: #1a1a1a;
-          border-bottom: 1px solid #f5f5f5;
+          border-top: 1px solid #f5f5f5;
         }
         .table tbody tr:hover {
           background: #fafafa;
         }
-        .table tbody tr:last-child td {
-          border-bottom: none;
-        }
 
-        .file-icon {
-          width: 32px;
-          height: 32px;
-          background: #f5f4f1;
-          border-radius: 8px;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          margin-right: 12px;
-          font-size: 16px;
-        }
         .filename {
-          display: inline-flex;
-          align-items: center;
           font-weight: 500;
+          color: #1a1a1a;
         }
         .badge {
           display: inline-block;
-          padding: 4px 10px;
-          border-radius: 6px;
+          padding: 3px 10px;
+          border-radius: 4px;
           font-size: 11px;
           font-weight: 600;
-          text-transform: uppercase;
         }
         .badge-success {
-          background: #f0fdf4;
-          color: #16a34a;
+          background: #e8f5e9;
+          color: #2e7d32;
         }
-        .badge-info {
-          background: #e0f2fe;
-          color: #0284c7;
+        .badge-image {
+          background: #e3f2fd;
+          color: #1976d2;
         }
+        .badge-document {
+          background: #fce4ec;
+          color: #c2185b;
+        }
+
         .action-btns {
           display: flex;
           gap: 8px;
         }
         .btn-icon {
           background: transparent;
-          border: 1px solid #ebebeb;
+          border: none;
           padding: 6px;
-          border-radius: 6px;
           cursor: pointer;
-          transition: all 0.12s;
+          color: #9a9a9a;
+          transition: color 0.2s;
         }
         .btn-icon:hover {
-          background: #f5f4f1;
-          border-color: #d8d8d8;
-        }
-        .btn-icon svg {
-          width: 16px;
-          height: 16px;
+          color: #1a1a1a;
         }
 
-        .empty-state {
-          text-align: center;
-          padding: 80px 20px;
-          color: #9a9a9a;
+        .pagination {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 16px;
+          border-top: 1px solid #f5f5f5;
         }
-        .empty-icon {
-          font-size: 64px;
-          margin-bottom: 16px;
+        .page-info {
+          font-size: 13px;
+          color: #666;
+        }
+        .page-btns {
+          display: flex;
+          gap: 8px;
+        }
+        .page-btn {
+          padding: 8px 16px;
+          background: #f5f5f5;
+          border: none;
+          border-radius: 6px;
+          font-size: 13px;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+        .page-btn:hover:not(:disabled) {
+          background: #e0e0e0;
+        }
+        .page-btn:disabled {
           opacity: 0.5;
+          cursor: not-allowed;
         }
 
         /* Modal */
@@ -340,19 +422,86 @@ export default function DocumentsPage() {
           align-items: center;
           justify-content: center;
           z-index: 2000;
-          backdrop-filter: blur(4px);
         }
         .modal {
           background: white;
-          border-radius: 16px;
-          padding: 32px;
+          border-radius: 12px;
+          padding: 28px;
           width: 90%;
-          max-width: 500px;
+          max-width: 550px;
+          max-height: 90vh;
+          overflow-y: auto;
         }
         .modal-title {
-          font-size: 20px;
-          font-weight: 700;
-          margin-bottom: 24px;
+          font-size: 18px;
+          font-weight: 600;
+          margin-bottom: 20px;
+          color: #1a1a1a;
+        }
+        .form-group {
+          margin-bottom: 18px;
+        }
+        .form-label {
+          display: block;
+          font-size: 13px;
+          font-weight: 500;
+          color: #1a1a1a;
+          margin-bottom: 6px;
+        }
+        .form-label .required {
+          color: #ef4444;
+          margin-left: 2px;
+        }
+        .form-input, .form-select, .form-textarea {
+          width: 100%;
+          padding: 10px 12px;
+          border: 1px solid #d1d5db;
+          border-radius: 6px;
+          font-size: 13px;
+          color: #1a1a1a;
+          outline: none;
+          transition: border 0.2s;
+        }
+        .form-input:focus, .form-select:focus, .form-textarea:focus {
+          border-color: #8b5cf6;
+        }
+        .form-textarea {
+          resize: vertical;
+          min-height: 80px;
+        }
+        .form-checkbox {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .form-checkbox input {
+          width: 18px;
+          height: 18px;
+        }
+        .form-checkbox label {
+          color: #1a1a1a;
+        }
+        .form-hint {
+          font-size: 12px;
+          color: #666;
+          margin-top: 4px;
+        }
+        .file-preview {
+          background: #f9f9f9;
+          border: 1px solid #e5e5e5;
+          padding: 16px;
+          border-radius: 8px;
+          margin-bottom: 20px;
+        }
+        .file-preview-name {
+          font-size: 14px;
+          font-weight: 500;
+          color: #1a1a1a;
+          margin-bottom: 4px;
+        }
+        .file-preview-size {
+          font-size: 12px;
+          color: #666;
         }
         .modal-btns {
           display: flex;
@@ -362,136 +511,257 @@ export default function DocumentsPage() {
         }
         .btn-secondary {
           padding: 10px 20px;
-          background: transparent;
-          border: 1px solid #ebebeb;
-          border-radius: 8px;
+          background: #f5f5f5;
+          border: none;
+          border-radius: 6px;
           font-size: 14px;
-          font-weight: 600;
+          font-weight: 500;
           cursor: pointer;
-          transition: all 0.12s;
+          color: #1a1a1a;
         }
-        .btn-secondary:hover {
-          background: #f5f4f1;
+        .btn-primary {
+          padding: 10px 20px;
+          background: #8b5cf6;
+          color: white;
+          border: none;
+          border-radius: 6px;
+          font-size: 14px;
+          font-weight: 500;
+          cursor: pointer;
+        }
+        .btn-primary:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
         }
       `}</style>
 
       <div className="content">
-        <div className="content-header">
-          <h1 className="page-title">Intelligent Document Processing</h1>
-        </div>
+        <div className="page-header">Data Extracted Files</div>
 
         <div className="toolbar">
-          <div className="search-box">
-            <div className="search-icon">
-              <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <circle cx="11" cy="11" r="8"/>
-                <path d="m21 21-4.35-4.35"/>
-              </svg>
-            </div>
-            <input
-              type="text"
-              className="search-input"
-              placeholder="Search by file name..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-
+          <input
+            type="text"
+            className="search-input"
+            placeholder="Search by file name..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+          <input
+            type="date"
+            className="date-input"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+          />
+          <span className="date-sep">to</span>
+          <input
+            type="date"
+            className="date-input"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+          />
           <label className="btn-upload">
-            <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+            <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
             </svg>
-            Choose File
-            <input type="file" style={{ display: 'none' }} onChange={handleFileSelect} />
+            Choose file
+            <input type="file" style={{ display: 'none' }} onChange={handleFileSelect} accept=".pdf,.doc,.docx,.ppt,.pptx" />
           </label>
+          <button className="btn-download">
+            <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
+            </svg>
+          </button>
         </div>
 
         <div className="table-container">
           {loading ? (
-            <div className="empty-state">
-              <div>Loading...</div>
-            </div>
-          ) : filteredDocs.length === 0 ? (
-            <div className="empty-state">
-              <div className="empty-icon">📄</div>
-              <div style={{ fontSize: '16px', fontWeight: 500, marginBottom: '8px' }}>No documents yet</div>
-              <div style={{ fontSize: '14px' }}>Upload your first document to get started</div>
-            </div>
+            <div style={{ padding: '60px', textAlign: 'center', color: '#9a9a9a' }}>Loading...</div>
+          ) : paginatedDocs.length === 0 ? (
+            <div style={{ padding: '60px', textAlign: 'center', color: '#9a9a9a' }}>No documents found</div>
           ) : (
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>File Name</th>
-                  <th>Category</th>
-                  <th>Document Type</th>
-                  <th>Size</th>
-                  <th>Status</th>
-                  <th>Date Modified</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredDocs.map((doc) => (
-                  <tr key={doc.id}>
-                    <td>
-                      <div className="filename">{doc.filename}</div>
-                    </td>
-                    <td>
-                      <span className="badge badge-info">
-                        {doc.tags?.category || 'General'}
-                      </span>
-                    </td>
-                    <td>{doc.mime_type.split('/')[1].toUpperCase()}</td>
-                    <td>{formatFileSize(doc.file_size)}</td>
-                    <td>
-                      <span className="badge badge-success">
-                        {doc.status}
-                      </span>
-                    </td>
-                    <td>{formatDate(doc.created_at)}</td>
-                    <td>
-                      <div className="action-btns">
-                        <button className="btn-icon" title="View" onClick={() => handleView(doc.id)}>
-                          <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                            <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-                            <path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
-                          </svg>
-                        </button>
-                        <button className="btn-icon" title="Delete" onClick={() => handleDelete(doc.id)}>
-                          <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                            <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                          </svg>
-                        </button>
-                      </div>
-                    </td>
+            <>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>File Name</th>
+                    <th>Category</th>
+                    <th>Document Type</th>
+                    <th>Size</th>
+                    <th>Processing Speed</th>
+                    <th>Upload From</th>
+                    <th>Action</th>
+                    <th>Status</th>
+                    <th>Date Modified</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {paginatedDocs.map((doc) => (
+                    <tr key={doc.id}>
+                      <td>
+                        <span className="filename">{doc.filename}</span>
+                      </td>
+                      <td>
+                        <span className={`badge ${
+                          doc.mime_type.includes('image') ? 'badge-image' : 'badge-document'
+                        }`}>
+                          {doc.mime_type.includes('image') ? 'Image' : 'Document'}
+                        </span>
+                      </td>
+                      <td>{doc.mime_type.split('/')[1].toUpperCase()}</td>
+                      <td>{formatFileSize(doc.file_size)}</td>
+                      <td>{doc.processing_speed || '-'}</td>
+                      <td>{doc.upload_source || 'Web Upload'}</td>
+                      <td>
+                        <div className="action-btns">
+                          <button className="btn-icon" title="View" onClick={() => handleView(doc.id)}>
+                            <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
+                            </svg>
+                          </button>
+                          <button className="btn-icon" title="Edit">
+                            <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+                            </svg>
+                          </button>
+                        </div>
+                      </td>
+                      <td>
+                        <span className="badge badge-success">{doc.status}</span>
+                      </td>
+                      <td>{formatDate(doc.created_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              <div className="pagination">
+                <div className="page-info">Page {currentPage} of {totalPages}</div>
+                <div className="page-btns">
+                  <button
+                    className="page-btn"
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                  >
+                    Previous
+                  </button>
+                  <button
+                    className="page-btn"
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            </>
           )}
         </div>
       </div>
 
       {/* Upload Modal */}
-      {showUpload && selectedFile && (
-        <div className="modal-overlay" onClick={() => !uploading && setShowUpload(false)}>
+      {showUploadModal && selectedFile && (
+        <div className="modal-overlay" onClick={() => !uploading && setShowUploadModal(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2 className="modal-title">Upload Document</h2>
-            <div style={{ marginBottom: '24px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '16px', background: '#f9f9f9', borderRadius: '8px' }}>
-                <span style={{ fontSize: '24px' }}>📄</span>
-                <div>
-                  <div style={{ fontSize: '14px', fontWeight: 500 }}>{selectedFile.name}</div>
-                  <div style={{ fontSize: '12px', color: '#9a9a9a' }}>{formatFileSize(selectedFile.size)}</div>
-                </div>
+            <h2 className="modal-title">Upload Document - Metadata</h2>
+
+            <div className="file-preview">
+              <div className="file-preview-name">{selectedFile.name}</div>
+              <div className="file-preview-size">{formatFileSize(selectedFile.size)}</div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">
+                User ID <span className="required">*</span>
+              </label>
+              <input
+                type="text"
+                className="form-input"
+                value={metadata.userId}
+                onChange={(e) => setMetadata({ ...metadata, userId: e.target.value })}
+                placeholder="e.g., admin, user123"
+              />
+              <div className="form-hint">S3 Tag: user-id</div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">
+                Document Type <span className="required">*</span>
+              </label>
+              <input
+                type="text"
+                className="form-input"
+                value={metadata.docType}
+                onChange={(e) => setMetadata({ ...metadata, docType: e.target.value })}
+                placeholder="e.g., student_guide, invoice, report"
+              />
+              <div className="form-hint">S3 Tag: doc-type</div>
+            </div>
+
+            <div className="form-group">
+              <div className="form-checkbox">
+                <input
+                  type="checkbox"
+                  checked={metadata.isConfidential}
+                  onChange={(e) => setMetadata({ ...metadata, isConfidential: e.target.checked })}
+                />
+                <label className="form-label" style={{ marginBottom: 0 }}>Mark as Confidential</label>
               </div>
             </div>
+
+            <div className="form-group">
+              <label className="form-label">
+                Role <span className="required">*</span>
+              </label>
+              <select
+                className="form-select"
+                value={metadata.role}
+                onChange={(e) => setMetadata({ ...metadata, role: e.target.value, specificUser: '' })}
+              >
+                <option value="">Select a role</option>
+                <option value="admin">Admin</option>
+                <option value="manager">Manager</option>
+                <option value="employee">Employee</option>
+                <option value="guest">Guest</option>
+              </select>
+              <div className="form-hint">OR assign to specific user below</div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Specific User</label>
+              <input
+                type="text"
+                className="form-input"
+                value={metadata.specificUser}
+                onChange={(e) => setMetadata({ ...metadata, specificUser: e.target.value, role: '' })}
+                placeholder="Enter user email or ID"
+                disabled={!!metadata.role}
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Description</label>
+              <textarea
+                className="form-textarea"
+                value={metadata.description}
+                onChange={(e) => setMetadata({ ...metadata, description: e.target.value })}
+                placeholder="Add a description for this document..."
+              />
+            </div>
+
             <div className="modal-btns">
-              <button className="btn-secondary" onClick={() => setShowUpload(false)} disabled={uploading}>
+              <button
+                className="btn-secondary"
+                onClick={() => setShowUploadModal(false)}
+                disabled={uploading}
+              >
                 Cancel
               </button>
-              <button className="btn-upload" onClick={handleUpload} disabled={uploading}>
-                {uploading ? 'Uploading...' : 'Upload'}
+              <button
+                className="btn-primary"
+                onClick={handleUpload}
+                disabled={uploading}
+              >
+                {uploading ? 'Uploading...' : 'Upload Document'}
               </button>
             </div>
           </div>

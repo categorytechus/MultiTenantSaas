@@ -3,7 +3,7 @@
 import { useState, useRef, ChangeEvent, DragEvent } from 'react';
 
 interface UploadProps {
-  onUploadComplete?: (document: any) => void;
+  onUploadComplete?: (document: Record<string, unknown>) => void;
 }
 
 export default function DocumentUpload({ onUploadComplete }: UploadProps) {
@@ -176,8 +176,8 @@ export default function DocumentUpload({ onUploadComplete }: UploadProps) {
       xhr.setRequestHeader('Content-Type', file.type);
       xhr.send(file);
 
-    } catch (err: any) {
-      setError(err.message || 'Upload failed');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Upload failed');
       setUploading(false);
       setProgress(0);
     }

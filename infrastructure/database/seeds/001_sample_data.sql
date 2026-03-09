@@ -76,6 +76,8 @@ INSERT INTO permissions (id, resource, action, description) VALUES
     ('p0000015-0000-0000-0000-000000000015', 'agents', 'run', 'Execute AI agents'),
     ('p0000016-0000-0000-0000-000000000016', 'agents', 'view_results', 'View agent results'),
     ('p0000017-0000-0000-0000-000000000017', 'agents', 'cancel', 'Cancel running agents'),
+    ('p0000019-0000-0000-0000-000000000019', 'agents', 'create', 'Create new agents via REST'),
+    ('p0000020-0000-0000-0000-000000000020', 'users', 'manage', 'Manage users via REST'),
     
     -- Audit permissions
     ('p0000018-0000-0000-0000-000000000018', 'audit_logs', 'view_all', 'View all audit logs');
@@ -136,7 +138,7 @@ INSERT INTO agent_tasks (id, organization_id, user_id, agent_type, status, input
     ('t1111111-1111-1111-1111-111111111111', 
      '11111111-1111-1111-1111-111111111111', 
      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 
-     'counselor', 
+     'worker_agent1', 
      'completed',
      '{"query": "I need help with college admissions", "context": "high school senior"}');
 
@@ -145,7 +147,7 @@ INSERT INTO agent_tasks (id, organization_id, user_id, agent_type, status, input
     ('t2222222-2222-2222-2222-222222222222', 
      '22222222-2222-2222-2222-222222222222', 
      'cccccccc-cccc-cccc-cccc-cccccccccccc', 
-     'support', 
+     'worker_agent3', 
      'running',
      '{"question": "How do I reset my password?", "urgency": "medium"}');
 

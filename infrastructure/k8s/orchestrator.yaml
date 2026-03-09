@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orchestrator
+  namespace: data
+  labels:
+    app: orchestrator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: orchestrator
+  template:
+    metadata:
+      labels:
+        app: orchestrator
+    spec:
+      containers:
+        - name: orchestrator
+          image: __ECR_ORCHESTRATOR_IMAGE__
+          imagePullPolicy: Always
+          env:
+            - name: RABBITMQ_URL
+              value: "amqp://admin:admin@rabbitmq.data.svc.cluster.local:5672"
+            - name: DATABASE_URL
+              value: "postgresql://postgres:postgres@postgresql.data.svc.cluster.local:5432/multitenant_saas"
+          resources:
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+            requests:
+              cpu: "250m"
+              memory: "256Mi"

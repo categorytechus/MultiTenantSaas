@@ -150,7 +150,7 @@ CREATE TABLE agent_tasks (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    agent_type VARCHAR(50) NOT NULL CHECK (agent_type IN ('counselor', 'enrollment', 'support')),
+    agent_type VARCHAR(50) NOT NULL CHECK (agent_type IN ('worker_agent1', 'worker_agent2', 'worker_agent3', 'orchestrator')),
     status VARCHAR(50) DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'completed', 'failed', 'cancelled')),
     input_data JSONB NOT NULL,
     retry_count INTEGER DEFAULT 0,

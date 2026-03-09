@@ -1,0 +1,187 @@
+name: Build and Push to ECR
+
+on:
+  push:
+    branches: [ main, dev, "infra/*" ]
+  pull_request:
+    branches: [ main, dev ]
+
+jobs:
+  terraform-validate:
+    name: Terraform Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+      - name: Terraform Init
+        run: cd infrastructure/terraform && terraform init -backend=false
+      - name: Terraform Validate
+        run: cd infrastructure/terraform && terraform validate
+
+  k8s-validate:
+    name: K8s Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install dependencies
+        run: pip install pyyaml
+      - name: Validate K8s Manifests
+        run: |
+          find infrastructure/k8s -name "*.yaml" -type f | while read f; do
+            echo "Checking $f"
+            python3 -c "import yaml; list(yaml.safe_load_all(open('$f')))"
+          done
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Cache each service's node_modules independently.
+      # restore-keys ensures a partial cache hit if the lock file changes,
+      # so only the delta is installed rather than everything from scratch.
+      - name: Cache auth dependencies
+        uses: actions/cache@v3
+        with:
+          path: auth/node_modules
+          key: auth-${{ hashFiles('auth/package-lock.json') }}
+          restore-keys: |
+            auth-
+
+      - name: Cache frontend dependencies
+        uses: actions/cache@v3
+        with:
+          path: frontend/node_modules
+          key: frontend-${{ hashFiles('frontend/package-lock.json') }}
+          restore-keys: |
+            frontend-
+
+      - name: Cache auth-gateway dependencies
+        uses: actions/cache@v3
+        with:
+          path: auth-gateway/node_modules
+          key: auth-gateway-${{ hashFiles('auth-gateway/package-lock.json') }}
+          restore-keys: |
+            auth-gateway-
+
+      - name: Cache task-status dependencies
+        uses: actions/cache@v3
+        with:
+          path: task-status/node_modules
+          key: task-status-${{ hashFiles('task-status/package-lock.json') }}
+          restore-keys: |
+            task-status-
+
+      # npm install (not npm ci) so the cached node_modules above are reused.
+      # npm ci would delete and reinstall node_modules every time, defeating the cache.
+      - name: Auth - Build
+        run: |
+          cd auth && npm install && npm run build
+
+      # Lint all three source directories, not just app/.
+      # components/ and src/ contain TypeScript/React code that also needs checking.
+      - name: Frontend - Lint
+        run: |
+          cd frontend && npm install && npx eslint app components src
+
+  build-verify:
+    name: Build Verify (PR)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build Images (no push)
+        env:
+          PROJECT_NAME: multi-tenant-saas
+        run: |
+          SERVICES=(
+            "auth-service:auth"
+            "auth-gateway:auth-gateway"
+            "orchestrator-service:agents/orchestrator"
+            "worker-agent1:agents/worker_agent1"
+            "worker-agent2:agents/worker_agent2"
+            "worker-agent3:agents/worker_agent3"
+            "frontend:frontend"
+            "task-status-service:task-status"
+          )
+          for service in "${SERVICES[@]}"; do
+            REPO_NAME="${service%%:*}"
+            CONTEXT="${service#*:}"
+            echo "==> Building ${PROJECT_NAME}-${REPO_NAME}..."
+            if [[ $CONTEXT == agents/* ]]; then
+              docker build -t ${PROJECT_NAME}-${REPO_NAME}:pr -f ./$CONTEXT/Dockerfile ./agents
+            else
+              docker build -t ${PROJECT_NAME}-${REPO_NAME}:pr ./$CONTEXT
+            fi
+          done
+
+  build-and-push:
+    name: Build and Push
+    runs-on: ubuntu-latest
+    needs: [terraform-validate, k8s-validate]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1 # Adjust as needed or use a secret
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build, Tag, and Push Images
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          PROJECT_NAME: multi-tenant-saas # Consistent with Terraform var
+        run: |
+          # List of services and their paths
+          # Format: "repo_name:path_to_docker_context"
+          SERVICES=(
+            "auth-service:auth"
+            "auth-gateway:auth-gateway"
+            "orchestrator-service:agents/orchestrator"
+            "worker-agent1:agents/worker_agent1"
+            "worker-agent2:agents/worker_agent2"
+            "worker-agent3:agents/worker_agent3"
+            "frontend:frontend"
+            "task-status-service:task-status"
+          )
+
+          for service in "${SERVICES[@]}"; do
+            REPO_NAME="${service%%:*}"
+            CONTEXT="${service#*:}"
+            
+            FULL_REPO_NAME="${PROJECT_NAME}-${REPO_NAME}"
+            IMAGE_TAG="${ECR_REGISTRY}/${FULL_REPO_NAME}:latest"
+            
+            echo "==> Building ${IMAGE_TAG}..."
+            
+            # Special handling for agents to include 'common' dir
+            if [[ $CONTEXT == agents/* ]]; then
+              echo "    Context: agents/"
+              echo "    Dockerfile: $CONTEXT/Dockerfile"
+              docker build -t $IMAGE_TAG -f ./$CONTEXT/Dockerfile ./agents
+            else
+              echo "    Context: $CONTEXT/"
+              docker build -t $IMAGE_TAG ./$CONTEXT
+            fi
+            
+            echo "==> Pushing ${IMAGE_TAG}..."
+            docker push $IMAGE_TAG
+          done
