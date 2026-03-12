@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Layout from '../../components/Layout';
+import KnowledgeBaseSync from '../../components/KnowledgeBaseSync';
 
 interface Document {
   id: string;
@@ -267,7 +268,6 @@ export default function DocumentsPage() {
           border-radius: 6px;
           font-size: 13px;
           outline: none;
-          color: #1a1a1a;
         }
         .date-input {
           padding: 9px 14px;
@@ -276,7 +276,6 @@ export default function DocumentsPage() {
           font-size: 13px;
           outline: none;
           width: 160px;
-          color: #1a1a1a;
         }
         .date-sep {
           font-size: 13px;
@@ -517,7 +516,6 @@ export default function DocumentsPage() {
           font-size: 14px;
           font-weight: 500;
           cursor: pointer;
-          color: #1a1a1a;
         }
         .btn-primary {
           padding: 10px 20px;
@@ -537,6 +535,8 @@ export default function DocumentsPage() {
 
       <div className="content">
         <div className="page-header">Data Extracted Files</div>
+
+        <KnowledgeBaseSync />
 
         <div className="toolbar">
           <input

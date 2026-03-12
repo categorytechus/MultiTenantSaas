@@ -19,3 +19,8 @@ output "bucket_region" {
   description = "The AWS region of the S3 bucket"
   value       = aws_s3_bucket.documents.region
 }
+
+output "documents_bucket_arn" {
+  description = "ARN of the documents S3 bucket"
+  value       = aws_s3_bucket.documents.arn
+}

@@ -10,6 +10,7 @@ import {
   isValidFileSize,
   S3_BUCKET,
 } from '../config/s3.config';
+import { autoSyncAfterUpload } from './knowledgebase.controller';
 
 /**
  * Generate presigned URL for file upload
@@ -46,22 +47,21 @@ export async function generateUploadUrl(req: Request, res: Response) {
     // Generate S3 key
     const s3Key = generateS3Key(organizationId, userId, filename);
 
-    // Prepare S3 tags
+    // Prepare S3 tags (now including new metadata tags)
     const s3Tags = {
-      'user-id': userId,
+      'user-id': tags?.['user-id'] || userId,
       'org-id': organizationId,
       owner: tags?.owner || userId,
       category: tags?.category || 'general',
       status: tags?.status || 'active',
+      ...(tags?.['doc-type'] && { 'doc-type': tags['doc-type'] }),
+      ...(tags?.confidential && { confidential: tags.confidential }),
       ...(tags?.role && { role: tags.role }),
+      ...(tags?.['specific-user'] && { 'specific-user': tags['specific-user'] }),
     };
 
     // Generate presigned URL
     const uploadUrl = await generatePresignedUploadUrl(s3Key, contentType, s3Tags);
-
-    // console.log('Generated presigned URL:', uploadUrl);
-    // console.log('S3 Key:', s3Key);
-    // console.log('Content-Type:', contentType);
 
     return res.status(200).json({
       success: true,
@@ -100,6 +100,13 @@ export async function createDocument(req: Request, res: Response) {
       });
     }
 
+    // Extract metadata from tags for dedicated columns
+    const userIdTag = tags?.['user-id'] || null;
+    const docType = tags?.['doc-type'] || null;
+    const isConfidential = tags?.confidential === 'true' || tags?.confidential === true;
+    const assignedRole = tags?.role || null;
+    const assignedUser = tags?.['specific-user'] || null;
+
     const query = `
       INSERT INTO documents (
         filename,
@@ -110,10 +117,15 @@ export async function createDocument(req: Request, res: Response) {
         mime_type,
         user_id,
         organization_id,
+        user_id_tag,
+        doc_type,
+        is_confidential,
+        assigned_role,
+        assigned_user,
         tags,
         description,
         status
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
       RETURNING *
     `;
 
@@ -126,12 +138,22 @@ export async function createDocument(req: Request, res: Response) {
       mimeType,
       userId,
       organizationId,
+      userIdTag,
+      docType,
+      isConfidential,
+      assignedRole,
+      assignedUser,
       JSON.stringify(tags || {}),
       description || null,
       'active',
     ];
 
     const result = await pool.query(query, values);
+
+    // Trigger auto-sync to Knowledge Base (non-blocking)
+    autoSyncAfterUpload(organizationId, userId).catch(err => {
+      console.error('Auto-sync failed:', err);
+    });
 
     return res.status(201).json({
       success: true,
@@ -165,6 +187,11 @@ export async function listDocuments(req: Request, res: Response) {
         s3_key,
         file_size,
         mime_type,
+        user_id_tag,
+        doc_type,
+        is_confidential,
+        assigned_role,
+        assigned_user,
         tags,
         description,
         status,
@@ -279,6 +306,39 @@ export async function updateDocument(req: Request, res: Response) {
       updates.push(`tags = $${paramIndex}`);
       values.push(JSON.stringify(tags));
       paramIndex++;
+
+      // Also update dedicated metadata columns if tags change
+      const userIdTag = tags?.['user-id'];
+      const docType = tags?.['doc-type'];
+      const isConfidential = tags?.confidential === 'true' || tags?.confidential === true;
+      const assignedRole = tags?.role;
+      const assignedUser = tags?.['specific-user'];
+
+      if (userIdTag !== undefined) {
+        updates.push(`user_id_tag = $${paramIndex}`);
+        values.push(userIdTag);
+        paramIndex++;
+      }
+      if (docType !== undefined) {
+        updates.push(`doc_type = $${paramIndex}`);
+        values.push(docType);
+        paramIndex++;
+      }
+      if (tags.confidential !== undefined) {
+        updates.push(`is_confidential = $${paramIndex}`);
+        values.push(isConfidential);
+        paramIndex++;
+      }
+      if (assignedRole !== undefined) {
+        updates.push(`assigned_role = $${paramIndex}`);
+        values.push(assignedRole);
+        paramIndex++;
+      }
+      if (assignedUser !== undefined) {
+        updates.push(`assigned_user = $${paramIndex}`);
+        values.push(assignedUser);
+        paramIndex++;
+      }
     }
 
     if (description !== undefined) {
