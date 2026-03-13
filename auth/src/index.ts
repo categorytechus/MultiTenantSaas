@@ -7,6 +7,7 @@ import organizationRoutes from './routes/organization.routes';
 import testRoutes from './routes/test.routes';
 import passport from './config/passport';
 import documentRoutes from './routes/document.routes';
+import knowledgeBaseRoutes from './routes/knowledgebase.routes';
 
 // Load environment variables
 dotenv.config();
@@ -40,6 +41,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/organizations', organizationRoutes);
 app.use('/api/test', testRoutes);
 app.use('/api/documents', documentRoutes);
+app.use('/api/knowledge-base', knowledgeBaseRoutes);
 
 // 404 handler
 app.use((req: Request, res: Response) => {
