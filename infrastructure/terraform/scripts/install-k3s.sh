@@ -8,6 +8,9 @@ apt-get install -y jq unzip postgresql-client curl git
 # Install Go
 curl -fL https://go.dev/dl/go1.24.0.linux-amd64.tar.gz | tar -C /usr/local -xz
 export PATH=$PATH:/usr/local/go/bin
+export HOME=/root
+export GOPATH=/root/go
+export GOMODCACHE=/root/go/pkg/mod
 
 # Build ecr-credential-provider matching version
 git clone --depth=1 --branch ${ecr_provider_version} \

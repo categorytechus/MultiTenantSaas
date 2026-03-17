@@ -1,0 +1,17 @@
+{
+  "name": "multi-tenant-saas-tests",
+  "version": "1.0.0",
+  "description": "Test suite for Multi-Tenant SaaS Agent API and Workers",
+  "scripts": {
+    "test": "node test_agent_api.js",
+    "test:local": "AUTH_GATEWAY_URL=http://localhost:3001 WS_URL=ws://localhost:3002/ws/task-status node test_agent_api.js",
+    "test:ws": "node test_ws_routing.js",
+    "test:flow": "node verify_flow.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "jsonwebtoken": "^9.0.0",
+    "ws": "^8.14.0",
+    "amqplib": "^0.10.0"
+  }
+}

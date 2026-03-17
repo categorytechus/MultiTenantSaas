@@ -15,18 +15,16 @@ echo "==> Reading ECR repository URLs from Terraform outputs..."
 
 AUTH_REPO=$(cd "$TF_DIR" && "$TF_BIN" output -raw auth_service_repository_url)
 GATEWAY_REPO=$(cd "$TF_DIR" && "$TF_BIN" output -raw auth_gateway_repository_url)
+STATUS_REPO=$(cd "$TF_DIR" && "$TF_BIN" output -raw task_status_service_repository_url)
 FRONTEND_REPO=$(cd "$TF_DIR" && "$TF_BIN" output -raw frontend_repository_url)
 AGENT1_REPO=$(cd "$TF_DIR" && "$TF_BIN" output -raw worker_agent1_repository_url)
-AGENT2_REPO=$(cd "$TF_DIR" && "$TF_BIN" output -raw worker_agent2_repository_url)
-AGENT3_REPO=$(cd "$TF_DIR" && "$TF_BIN" output -raw worker_agent3_repository_url)
 ORCH_REPO=$(cd "$TF_DIR" && "$TF_BIN" output -raw orchestrator_repository_url)
 
 echo "    auth-service:         $AUTH_REPO:latest"
 echo "    auth-gateway:         $GATEWAY_REPO:latest"
+echo "    task-status-service:  $STATUS_REPO:latest"
 echo "    frontend:             $FRONTEND_REPO:latest"
 echo "    worker-agent1:        $AGENT1_REPO:latest"
-echo "    worker-agent2:        $AGENT2_REPO:latest"
-echo "    worker-agent3:        $AGENT3_REPO:latest"
 echo "    orchestrator:         $ORCH_REPO:latest"
 
 # Create temp directory for rendered manifests
@@ -37,7 +35,7 @@ echo ""
 echo "==> Rendering K8s manifests with ECR image URLs..."
 
 # Substitute placeholders and write to temp files
-for manifest in auth-service.yaml auth-gateway.yaml frontend.yaml worker-agent1.yaml worker-agent2.yaml worker-agent3.yaml orchestrator.yaml; do
+for manifest in auth-service.yaml auth-gateway.yaml task-status-service.yaml frontend.yaml worker-agent1.yaml orchestrator.yaml; do
     if [ ! -f "$K8S_DIR/$manifest" ]; then
         echo "    Skipping missing manifest: $manifest"
         continue
@@ -45,10 +43,9 @@ for manifest in auth-service.yaml auth-gateway.yaml frontend.yaml worker-agent1.
     sed \
         -e "s|__ECR_AUTH_IMAGE__|${AUTH_REPO}:latest|g" \
         -e "s|__ECR_GATEWAY_IMAGE__|${GATEWAY_REPO}:latest|g" \
+        -e "s|__ECR_TASK_STATUS_IMAGE__|${STATUS_REPO}:latest|g" \
         -e "s|__ECR_FRONTEND_IMAGE__|${FRONTEND_REPO}:latest|g" \
         -e "s|__ECR_AGENT1_IMAGE__|${AGENT1_REPO}:latest|g" \
-        -e "s|__ECR_AGENT2_IMAGE__|${AGENT2_REPO}:latest|g" \
-        -e "s|__ECR_AGENT3_IMAGE__|${AGENT3_REPO}:latest|g" \
         -e "s|__ECR_ORCHESTRATOR_IMAGE__|${ORCH_REPO}:latest|g" \
         "$K8S_DIR/$manifest" > "$TMPDIR/$manifest"
     echo "    Rendered: $manifest"
@@ -61,7 +58,6 @@ kubectl --insecure-skip-tls-verify create namespace data --dry-run=client -o yam
 
 echo ""
 echo "==> Applying infrastructure manifests..."
-kubectl --insecure-skip-tls-verify apply -f "$K8S_DIR/jwt-secret.yaml"
 kubectl --insecure-skip-tls-verify apply -f "$K8S_DIR/postgresql.yaml"
 kubectl --insecure-skip-tls-verify apply -f "$K8S_DIR/rabbitmq/rabbitmq.yaml"
 kubectl --insecure-skip-tls-verify apply -f "$K8S_DIR/pgbouncer.yaml"

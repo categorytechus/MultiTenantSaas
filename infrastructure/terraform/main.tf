@@ -58,6 +58,15 @@ resource "aws_security_group" "k3s" {
     cidr_blocks = ["0.0.0.0/0"] # Should be restricted in prod
   }
 
+    # PostgreSQL (Not recommended for Production)
+  ingress {
+    from_port   = 5432
+    to_port     = 5432
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"] 
+  }
+
+
   # k3s API
   ingress {
     from_port   = 6443
@@ -161,6 +170,15 @@ resource "aws_instance" "k3s_server" {
 
   key_name = aws_key_pair.k3s_key.key_name
 
+  root_block_device {
+    volume_size           = 30
+    volume_type           = "gp3"
+    iops                  = 4000
+    throughput            = 125
+    encrypted             = true
+    delete_on_termination = true
+  }
+
   tags = {
     Name = "${var.project_name}-k3s-server"
   }
@@ -183,20 +201,20 @@ resource "local_file" "ssh_key" {
 }
 
 # Auto-shutdown after 60 mins of inactivity (CPU < 5%)
-resource "aws_cloudwatch_metric_alarm" "auto_shutdown" {
-  alarm_name          = "${var.project_name}-auto-shutdown"
-  comparison_operator = "LessThanThreshold"
-  evaluation_periods  = "12" # 12 * 5 mins = 60 mins
-  metric_name         = "CPUUtilization"
-  namespace           = "AWS/EC2"
-  period              = "300" # 5 minutes
-  statistic           = "Average"
-  threshold           = "5" # 5% CPU threshold
-  alarm_description   = "Stop instance if inactive for 60 minutes"
-  
-  dimensions = {
-    InstanceId = aws_instance.k3s_server.id
-  }
-
-  alarm_actions = ["arn:aws:automate:${var.aws_region}:ec2:stop"]
-}
+# resource "aws_cloudwatch_metric_alarm" "auto_shutdown" {
+#   alarm_name          = "${var.project_name}-auto-shutdown"
+#   comparison_operator = "LessThanThreshold"
+#   evaluation_periods  = "12" # 12 * 5 mins = 60 mins
+#   metric_name         = "CPUUtilization"
+#   namespace           = "AWS/EC2"
+#   period              = "300" # 5 minutes
+#   statistic           = "Average"
+#   threshold           = "10" # 10% CPU threshold
+#   alarm_description   = "Stop instance if inactive for 60 minutes"
+#   
+#   dimensions = {
+#     InstanceId = aws_instance.k3s_server.id
+#   }
+# 
+#   alarm_actions = ["arn:aws:automate:${var.aws_region}:ec2:stop"]
+# }

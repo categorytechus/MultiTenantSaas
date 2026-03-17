@@ -1,4 +1,0 @@
-strands-agents
-python-dotenv
-pika
-langchain-openai

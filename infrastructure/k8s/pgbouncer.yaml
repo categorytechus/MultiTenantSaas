@@ -13,13 +13,11 @@ data:
     pool_mode = session
     max_client_conn = 100
     default_pool_size = 20
-    admin_users = saas_admin
+    admin_users = postgres
     ignore_startup_parameters = extra_float_digits,search_path
 
     [databases]
-    saas_db = host=postgres-headless.data.svc.cluster.local port=5432 dbname=saas_db
-  userlist.txt: |
-    "saas_admin" "md56965440787e91d51a66ff52ff9d3fbc9"
+    multitenant_saas = host=postgres-headless.data.svc.cluster.local port=5432 dbname=multitenant_saas
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -48,7 +46,7 @@ spec:
               mountPath: /etc/pgbouncer/pgbouncer.ini
               subPath: pgbouncer.ini
               readOnly: true
-            - name: config
+            - name: userlist
               mountPath: /etc/pgbouncer/userlist.txt
               subPath: userlist.txt
               readOnly: true
@@ -56,6 +54,9 @@ spec:
         - name: config
           configMap:
             name: pgbouncer-config
+        - name: userlist
+          secret:
+            secretName: pgbouncer-userlist
 ---
 apiVersion: v1
 kind: Service

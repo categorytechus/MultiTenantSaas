@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Layout from '../../components/Layout';
+import ChatInterface from '../../components/ChatInterface';
 
 interface Org { id: string; name: string; slug: string; role: string; }
 interface User { id: string; email: string; full_name?: string; }
@@ -202,21 +203,27 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="cards">
-          <div className="card">
-            <div className="card-em">🤖</div>
-            <div className="card-title">Counselor Agent</div>
-            <div className="card-desc">AI-powered counseling with LangGraph orchestration</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '24px', marginTop: '24px' }}>
+          <div className="cards" style={{ gridTemplateColumns: '1fr 1fr' }}>
+            <div className="card">
+              <div className="card-em">🤖</div>
+              <div className="card-title">Counselor Agent</div>
+              <div className="card-desc">AI-powered counseling with LangGraph orchestration</div>
+            </div>
+            <div className="card">
+              <div className="card-em">📋</div>
+              <div className="card-title">Enrollment Agent</div>
+              <div className="card-desc">Automate enrollment via CrewAI multi-agent system</div>
+            </div>
+            <div className="card" style={{ gridColumn: 'span 2' }}>
+              <div className="card-em">💬</div>
+              <div className="card-title">Support Agent</div>
+              <div className="card-desc">24/7 intelligent support via Amazon Strands</div>
+            </div>
           </div>
-          <div className="card">
-            <div className="card-em">📋</div>
-            <div className="card-title">Enrollment Agent</div>
-            <div className="card-desc">Automate enrollment via CrewAI multi-agent system</div>
-          </div>
-          <div className="card">
-            <div className="card-em">💬</div>
-            <div className="card-title">Support Agent</div>
-            <div className="card-desc">24/7 intelligent support via Amazon Strands</div>
+          
+          <div>
+            <ChatInterface orgId={cur?.id || ''} />
           </div>
         </div>
       </div>

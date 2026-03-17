@@ -28,7 +28,10 @@ spec:
             - name: RABBITMQ_URL
               value: "amqp://admin:admin@rabbitmq.data.svc.cluster.local:5672"
             - name: DATABASE_URL
-              value: "postgresql://postgres:postgres@postgresql.data.svc.cluster.local:5432/multitenant_saas"
+              valueFrom:
+                secretKeyRef:
+                  name: database-url
+                  key: url
             - name: JWT_KEY
               valueFrom:
                 secretKeyRef:

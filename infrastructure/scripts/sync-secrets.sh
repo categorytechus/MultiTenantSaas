@@ -8,6 +8,16 @@ NAMESPACE="data"
 
 KUBECTL="kubectl --insecure-skip-tls-verify"
 
+# Detect Python 3 command (python3 on Linux/macOS, python on Windows/Git Bash)
+if command -v python3 &>/dev/null; then
+    PYTHON=python3
+elif command -v python &>/dev/null; then
+    PYTHON=python
+else
+    echo "Error: Python 3 is required but neither 'python3' nor 'python' was found in PATH."
+    exit 1
+fi
+
 function sync_secret() {
     local secret_name=$1
     local k8s_secret_name=$2
@@ -44,8 +54,37 @@ $KUBECTL create namespace "$NAMESPACE" --dry-run=client -o yaml | $KUBECTL apply
 # Sync DB password
 sync_secret "${PROJECT_NAME}-db-password" "db-credentials" "password"
 
-# Sync JWT key
-sync_secret "${PROJECT_NAME}-jwt-key" "jwt-key"
+# Create database-url secret (full connection string from AWS db password)
+DB_PASSWORD=$(aws secretsmanager get-secret-value --secret-id "${PROJECT_NAME}-db-password" --query SecretString --output text | tr -d '\n\r')
+if [ -n "$DB_PASSWORD" ]; then
+    echo "Syncing database-url (from AWS db-password)..."
+    DB_PASSWORD_ESCAPED=$(printf '%s' "$DB_PASSWORD" | $PYTHON -c "import sys, urllib.parse; print(urllib.parse.quote(sys.stdin.read(), safe=''))")
+    if [ -z "$DB_PASSWORD_ESCAPED" ]; then
+        echo "Error: Failed to URL-encode DB_PASSWORD. Check that Python 3 is installed and working."
+        echo "  Tried command: $PYTHON"
+        exit 1
+    fi
+    DATABASE_URL="postgresql://postgres:${DB_PASSWORD_ESCAPED}@postgres.data.svc.cluster.local:5432/multitenant_saas"
+    $KUBECTL create secret generic "database-url" \
+        --namespace "$NAMESPACE" \
+        --from-literal=url="$DATABASE_URL" \
+        --dry-run=client -o yaml | $KUBECTL apply -f -
+    # Create pgbouncer userlist from same password (postgres user, md5 format)
+    echo "Syncing pgbouncer-userlist (from AWS db-password)..."
+    PGBOUNCER_MD5=$(printf '%s' "$DB_PASSWORD" | $PYTHON -c "import sys,hashlib; p=sys.stdin.read().rstrip(); print('md5'+hashlib.md5((p+'postgres').encode()).hexdigest())")
+    USERLIST_CONTENT="\"postgres\" \"$PGBOUNCER_MD5\""
+    $KUBECTL create secret generic "pgbouncer-userlist" \
+        --namespace "$NAMESPACE" \
+        --from-literal=userlist.txt="$USERLIST_CONTENT" \
+        --dry-run=client -o yaml | $KUBECTL apply -f -
+else
+    echo "Error: AWS secret ${PROJECT_NAME}-db-password is empty or missing."
+    echo "Run: Set DB_PASSWORD in .env, then make bootstrap-secrets"
+    exit 1
+fi
+
+# Sync JWT key (must match K8s secret name "jwt-secret" with key "JWT_KEY" used by auth-gateway, auth-service, task-status-service)
+sync_secret "${PROJECT_NAME}-jwt-key" "jwt-secret" "JWT_KEY"
 
 # Sync LLM keys
 sync_secret "${PROJECT_NAME}-llm-keys" "llm-keys"

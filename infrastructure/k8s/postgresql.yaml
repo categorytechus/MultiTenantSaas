@@ -71,12 +71,12 @@ spec:
               memory: "256Mi"
           readinessProbe:
             exec:
-              command: ["pg_isready", "-U", "saas_admin", "-d", "saas_db"]
+              command: ["pg_isready", "-U", "postgres", "-d", "multitenant_saas"]
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             exec:
-              command: ["pg_isready", "-U", "saas_admin", "-d", "saas_db"]
+              command: ["pg_isready", "-U", "postgres", "-d", "multitenant_saas"]
             initialDelaySeconds: 15
             periodSeconds: 20
   volumeClaimTemplates:

@@ -58,25 +58,6 @@ resource "aws_ecr_repository" "worker_agent1" {
   }
 }
 
-resource "aws_ecr_repository" "worker_agent2" {
-  name                 = "${var.project_name}-worker-agent2"
-  image_tag_mutability = "MUTABLE"
-  force_delete         = true
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-}
-
-resource "aws_ecr_repository" "worker_agent3" {
-  name                 = "${var.project_name}-worker-agent3"
-  image_tag_mutability = "MUTABLE"
-  force_delete         = true
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-}
 
 # Lifecycle policies to keep only the last 10 images
 /*
@@ -230,51 +211,4 @@ EOF
 */
 
 /*
-resource "aws_ecr_lifecycle_policy" "agent2_policy" {
-  repository = aws_ecr_repository.worker_agent2.name
-
-  policy = <<EOF
-{
-    "rules": [
-        {
-            "rulePriority": 1,
-            "description": "Keep last 10 images",
-            "selection": {
-                "tagStatus": "any",
-                "countType": "imageCountMoreThan",
-                "countNumber": 10
-            },
-            "action": {
-                "type": "expire"
-            }
-        }
-    ]
-}
-EOF
-}
-*/
-
-/*
-resource "aws_ecr_lifecycle_policy" "agent3_policy" {
-  repository = aws_ecr_repository.worker_agent3.name
-
-  policy = <<EOF
-{
-    "rules": [
-        {
-            "rulePriority": 1,
-            "description": "Keep last 10 images",
-            "selection": {
-                "tagStatus": "any",
-                "countType": "imageCountMoreThan",
-                "countNumber": 10
-            },
-            "action": {
-                "type": "expire"
-            }
-        }
-    ]
-}
-EOF
-}
 */

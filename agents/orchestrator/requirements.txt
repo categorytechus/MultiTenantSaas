@@ -3,3 +3,5 @@ psycopg2-binary==2.9.9
 langgraph==0.0.15
 python-dotenv==1.0.1
 langchain-openai
+grpcio>=1.64.0
+grpcio-tools>=1.64.0

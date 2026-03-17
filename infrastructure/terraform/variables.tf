@@ -13,7 +13,7 @@ variable "project_name" {
 variable "instance_type" {
   description = "EC2 instance type"
   type        = string
-  default     = "t3.medium" # Minimal for k3s + workloads
+  default     = "t3.large"
 }
 
 variable "ami_id" {

@@ -22,6 +22,11 @@ spec:
           env:
             - name: RABBITMQ_URL
               value: "amqp://admin:admin@rabbitmq.data.svc.cluster.local:5672"
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: llm-keys
+                  key: value
           resources:
             limits:
               cpu: "500m"

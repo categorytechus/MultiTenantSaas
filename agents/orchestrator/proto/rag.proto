@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package rbac_rag;
+
+// The RAG Service definition
+service RagService {
+  // Retrieves relevant documents based on a query and a set of allowed asset IDs
+  rpc RetrieveDocuments (RetrievalRequest) returns (RetrievalResponse);
+}
+
+// Request containing the user query and the pre-filtered allowed asset IDs
+message RetrievalRequest {
+  string query = 1;
+  string user_id = 2; // For logging/tracking purposes
+  // The RBAC pre-computed list of asset IDs the user is allowed to search within
+  repeated string allowed_asset_ids = 3; 
+  // Optional: Conversation history if RAG service handles context augmentation directly
+  repeated Message context = 4;
+}
+
+// Represents a Turn/Message in a conversation history
+message Message {
+  string role = 1; // "user", "assistant", "system"
+  string content = 2;
+}
+
+// Response containing the top N reranked document chunks
+message RetrievalResponse {
+  repeated Document chunks = 1;
+}
+
+// Represents an individual retrieved chunk
+message Document {
+  string page_content = 1;
+  // Use a map for metadata (e.g., source, asset_id, page_number)
+  map<string, string> metadata = 2;
+  // Optional reranker score
+  float score = 3; 
+}

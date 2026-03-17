@@ -43,18 +43,18 @@ sudo cat /etc/rancher/k3s/k3s.yaml
 ```
 
 ## 4. Secrets Management
-Bootstrap secrets in AWS Secrets Manager:
+The DB password is stored in AWS Secrets Manager and is the single source of truth everywhere (Postgres, auth-gateway, orchestrator).
+
+**Bootstrap** (one-time or when rotating secrets). Set values in `.env` (DB_PASSWORD, JWT_KEY, LLM_KEYS), then:
 ```bash
-export DB_PASSWORD="your-strong-password"
-export JWT_KEY="your-jwt-secret"
-export LLM_KEYS='{"openai": "sk-...", "anthropic": "..."}'
-./backend/scripts/bootstrap-aws-secrets.sh
+make bootstrap-secrets
 ```
 
-Sync secrets to Kubernetes:
+**Sync to Kubernetes** (runs automatically before deploy; also run after rotating secrets):
 ```bash
-./backend/scripts/sync-secrets.sh
+make sync-secrets
 ```
+Sync creates: `db-credentials` (Postgres), `database-url` (auth-gateway, orchestrator), `pgbouncer-userlist` (PgBouncer), `jwt-secret`, `llm-keys`.
 
 ## 5. Deployment (Day 1 & 2)
 ```bash

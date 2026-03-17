@@ -76,8 +76,8 @@ services:
       - "3001:3001"
     environment:
       - NODE_ENV=development
-      - DATABASE_URL=postgresql://postgres:${DB_PASSWORD:-postgres}@postgres:5432/multitenant_saas
       - JWT_KEY=${JWT_SECRET:-dev-secret-key}
+      - DATABASE_URL=postgresql://postgres:${DB_PASSWORD:-postgres}@postgres:5432/multitenant_saas
       - RABBITMQ_URL=amqp://${RABBITMQ_USER:-admin}:${RABBITMQ_PASSWORD:-admin}@rabbitmq:5672
     depends_on:
       postgres:
@@ -85,42 +85,73 @@ services:
       rabbitmq:
         condition: service_healthy
 
-  counselor-agent:
+  chat-service:
     build:
-      context: ./agents/counselor
-      dockerfile: ../../counselor-agent.Dockerfile
-    container_name: multitenant-counselor
+      context: .
+      dockerfile: chat-service/Dockerfile
+    container_name: multitenant-chat
     ports:
-      - "8000:8000"
+      - "8004:3002"   # REST/FastAPI Health
+      - "50052:50052" # gRPC
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - DATABASE_URL=postgresql://postgres:${DB_PASSWORD:-postgres}@postgres:5432/multitenant_saas
+      - RAG_SERVICE_ADDR=rag-service:50051
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+      rag-service:
+        condition: service_started
 
-  enrollment-agent:
+  orchestrator:
     build:
-      context: ./agents/enrollment
-      dockerfile: ../../enrollment-agent.Dockerfile
-    container_name: multitenant-enrollment
-    ports:
-      - "8001:8001"
+      context: .
+      dockerfile: agents/orchestrator/Dockerfile
+    container_name: multitenant-orchestrator
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - DATABASE_URL=postgresql://postgres:${DB_PASSWORD:-postgres}@postgres:5432/multitenant_saas
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-admin}:${RABBITMQ_PASSWORD:-admin}@rabbitmq:5672
+      - CHAT_SERVICE_ADDR=chat-service:50052
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      chat-service:
+        condition: service_started
 
-  support-agent:
+  worker-agent1:
     build:
-      context: ./agents/support
-      dockerfile: ../../support-agent.Dockerfile
-    container_name: multitenant-support
-    ports:
-      - "8002:8002"
+      context: .
+      dockerfile: agents/worker_agent1/Dockerfile
+    container_name: multitenant-worker-1
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - DATABASE_URL=postgresql://postgres:${DB_PASSWORD:-postgres}@postgres:5432/multitenant_saas
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-admin}:${RABBITMQ_PASSWORD:-admin}@rabbitmq:5672
+      - CHAT_SERVICE_ADDR=chat-service:50052
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+
+  rag-service:
+    build:
+      context: .
+      dockerfile: rag/Dockerfile
+    container_name: multitenant-rag
+    ports:
+      - "8003:8000"   # REST/FastAPI Health check
+      - "50051:50051" # gRPC
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - S3_VECTOR_BUCKET=${S3_VECTOR_BUCKET:-dev-local-bucket}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-mock}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-mock}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
     depends_on:
       - postgres
 

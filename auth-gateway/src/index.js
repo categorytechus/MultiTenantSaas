@@ -1,16 +1,39 @@
 const express = require('express');
 const { verifyToken, createEnrichedToken } = require('./auth_util');
-const { checkPermission, discoverResources, createTask, getTaskStatus } = require('./utils/db');
-const { publishTask } = require('./utils/rabbitmq');
+const { Pool } = require('pg');
+const amqp = require('amqplib');
+const http = require('http');
 
 const app = express();
 app.use(express.json());
 
 const PORT = process.env.PORT || 3001;
+const DB_URL = process.env.DATABASE_URL || 'postgresql://admin:admin@localhost:5432/multitenant_saas';
+const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://guest:guest@rabbitmq:5672';
+const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || 'http://auth-service:4000';
 
-/**
- * Helper to extract context from token
- */
+const pool = new Pool({ connectionString: DB_URL });
+
+let channel;
+async function initMQ() {
+    try {
+        const conn = await amqp.connect(RABBITMQ_URL);
+        conn.on('error', (err) => console.error('RabbitMQ connection error', err.message));
+        channel = await conn.createChannel();
+        channel.on('error', (err) => console.error('RabbitMQ channel error', err.message));
+        
+        await channel.assertExchange('saas_exchange', 'topic', { durable: true });
+        
+        await channel.assertQueue('tasks', { durable: true, arguments: { 'x-dead-letter-exchange': 'dlx' } });
+        await channel.bindQueue('tasks', 'saas_exchange', 'tasks.#');
+        
+        console.log('RabbitMQ connected and topology declared in Auth Gateway');
+    } catch (e) {
+        console.error('MQ Init failed', e);
+    }
+}
+initMQ();
+
 const getContext = (req) => {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
@@ -19,174 +42,123 @@ const getContext = (req) => {
 };
 
 /**
- * Traefik ForwardAuth endpoint.
+ * Simple proxy/forwarder for synchronous management routes
  */
-app.get('/verify', (req, res) => {
-    const decoded = getContext(req);
+const forwardToAuthService = (req, res) => {
+    const targetUrl = new URL(req.originalUrl, AUTH_SERVICE_URL);
+    
+    const options = {
+        method: req.method,
+        headers: {
+            ...req.headers,
+            host: new URL(AUTH_SERVICE_URL).host
+        }
+    };
 
-    if (!decoded) {
-        return res.status(401).json({ error: 'Invalid or expired token' });
+    const proxyReq = http.request(targetUrl, options, (proxyRes) => {
+        res.writeHead(proxyRes.statusCode, proxyRes.headers);
+        proxyRes.pipe(res, { end: true });
+    });
+
+    req.pipe(proxyReq, { end: true });
+    
+    proxyReq.on('error', (err) => {
+        console.error('Proxy error:', err);
+        res.status(502).json({ error: 'Bad Gateway', message: 'Auth Service unavailable' });
+    });
+};
+
+// --- Synchronous Management Path (Proxy to Auth Service) ---
+app.use('/api/auth', forwardToAuthService);
+app.use('/api/organizations', forwardToAuthService);
+app.use('/api/orgs', (req, res) => {
+    // Alias /api/orgs to /api/organizations
+    req.url = req.url.replace('/api/orgs', '/api/organizations');
+    forwardToAuthService(req, res);
+});
+app.use('/api/users', forwardToAuthService);
+
+// --- Asynchronous Agentic Path (Task Submission) ---
+async function submitTask(req, res, actionType, requiredPermission) {
+    const decoded = getContext(req);
+    if (!decoded) return res.status(401).json({ error: 'Unauthorized' });
+
+    const perms = decoded.permissions || [];
+    if (!perms.includes(requiredPermission)) {
+        return res.status(403).json({ error: 'Forbidden', message: `Missing permission: ${requiredPermission}` });
     }
 
+    const { sub: userId, org_id: orgId } = decoded;
+    const { prompt, sessionId } = req.body;
+    const taskId = require('crypto').randomUUID();
+
+    try {
+        const sId = sessionId || require('crypto').randomUUID();
+
+        await pool.query(
+            'INSERT INTO agent_tasks (id, organization_id, user_id, agent_type, status, input_data, session_id) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+            [taskId, orgId, userId, 'orchestrator', 'pending', JSON.stringify({ prompt }), sId]
+        );
+
+        const msg = JSON.stringify({
+            taskId, userId, orgId, prompt, action: actionType, sessionId: sId
+        });
+        
+        const routingKey = `tasks.${orgId}`;
+        channel.publish('saas_exchange', routingKey, Buffer.from(msg), { persistent: true });
+
+        return res.status(202).json({ task_id: taskId, session_id: sId, action: actionType, message: 'Task accepted' });
+    } catch (e) {
+        console.error('Submission failed', e);
+        return res.status(500).json({ error: 'Internal Server Error' });
+    }
+}
+
+app.post('/api/chat', (req, res) => submitTask(req, res, 'agents:run', 'agents:run'));
+app.post('/api/agents/start', (req, res) => submitTask(req, res, 'agents:create', 'agents:create'));
+app.post('/api/agents/:agentId/run', (req, res) => submitTask(req, res, `agents:${req.params.agentId}`, 'agents:run'));
+
+// --- Task Status Polling ---
+app.get('/api/agents/:taskId', async (req, res) => {
+    const decoded = getContext(req);
+    if (!decoded) return res.status(401).json({ error: 'Unauthorized' });
+
+    const { org_id: orgId } = decoded;
+    try {
+        const result = await pool.query(
+            `SELECT t.id, t.status, t.created_at, t.completed_at, r.result_data
+             FROM agent_tasks t
+             LEFT JOIN agent_results r ON t.id = r.task_id
+             WHERE t.id = $1 AND t.organization_id = $2`,
+            [req.params.taskId, orgId]
+        );
+        if (result.rows.length === 0) return res.status(404).json({ error: 'Task not found' });
+        return res.status(200).json(result.rows[0]);
+    } catch (e) {
+        console.error('Status poll failed', e);
+        return res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+app.get('/verify', (req, res) => {
+    const decoded = getContext(req);
+    if (!decoded) return res.status(401).json({ error: 'Invalid or expired token' });
     res.set({
         'X-User-Id': decoded.sub,
         'X-Org-Id': decoded.org_id,
         'X-Permissions': JSON.stringify(decoded.permissions),
         'X-Email': decoded.email
     });
-
     return res.status(200).json({ status: 'authenticated' });
 });
 
-/**
- * Token creation endpoint.
- * Expects { user: { id, email }, org_id, permissions }.
- */
 app.post('/token', (req, res) => {
     const { user, org_id, permissions } = req.body;
-
-    if (!user?.id || !user?.email || !org_id || !Array.isArray(permissions)) {
-        return res.status(400).json({
-            error: 'Bad Request',
-            message: 'Required: { user: { id, email }, org_id, permissions: [...] }'
-        });
-    }
-
-    const token = createEnrichedToken(user, org_id, permissions);
+    if (!user?.id || !user?.email || !org_id) return res.status(400).json({ error: 'Bad Request' });
+    const token = createEnrichedToken(user, org_id, permissions || []);
     return res.status(200).json({ token });
 });
 
-/**
- * Common handler for all orchestrator-bound requests.
- */
-async function handleRequest(req, res, targetResource, targetAction, inputData) {
-    const decoded = getContext(req);
-    if (!decoded) return res.status(401).json({ error: 'Unauthorized' });
+app.get('/health', (_req, res) => res.status(200).json({ status: 'ok' }));
 
-    const userId = decoded.sub;
-    const orgId = decoded.org_id;
-    // Use caller-supplied sessionId (for continuing a conversation) or generate a new one
-    const sessionId = inputData.sessionId || require('crypto').randomUUID();
-
-    try {
-        // 1. RBAC Validation
-        const hasPerm = await checkPermission(userId, orgId, targetResource, targetAction);
-        if (!hasPerm) {
-            return res.status(403).json({
-                error: 'Forbidden',
-                message: `You do not have permission to ${targetAction} ${targetResource}.`
-            });
-        }
-
-        // 2. Resource Discovery
-        const resources = await discoverResources(userId, orgId);
-
-        // 3. Immediate Task Creation
-        const taskId = await createTask(orgId, userId, inputData.prompt, resources, `${targetResource}:${targetAction}`, sessionId);
-
-        // 4. Publish to RabbitMQ with Task ID and Session ID
-        await publishTask({
-            taskId,
-            userId,
-            orgId,
-            sessionId,
-            action: `${targetResource}:${targetAction}`,
-            prompt: inputData.prompt || `Action: ${targetAction} on ${targetResource}`,
-            input: inputData,
-            resources,
-            timestamp: new Date().toISOString()
-        });
-
-        return res.status(202).json({
-            message: 'Request accepted and queued.',
-            task_id: taskId,
-            session_id: sessionId,
-            organization_id: orgId,
-            action: `${targetResource}:${targetAction}`,
-            status: 'ACCEPTED'
-        });
-    } catch (err) {
-        console.error(`Error in /api/${targetResource}:`, err);
-        return res.status(500).json({ error: 'Internal Server Error' });
-    }
-}
-
-/**
- * POST /api/chat
- */
-app.post('/api/chat', async (req, res) => {
-    return handleRequest(req, res, 'agents', 'run', req.body);
-});
-
-/**
- * REST Endpoint: POST /api/agents/start -- requires agents:create
- */
-app.post('/api/agents/start', async (req, res) => {
-    return handleRequest(req, res, 'agents', 'create', req.body);
-});
-
-/**
- * REST Endpoint: GET /api/agents/:taskId -- status polling
- */
-app.get('/api/agents/:taskId', async (req, res) => {
-    const decoded = getContext(req);
-    if (!decoded) return res.status(401).json({ error: 'Unauthorized' });
-
-    try {
-        const task = await getTaskStatus(req.params.taskId, decoded.org_id);
-        if (!task) return res.status(404).json({ error: 'Task not found' });
-
-        return res.status(200).json(task);
-    } catch (err) {
-        console.error('Error in GET /api/agents/:taskId:', err);
-        return res.status(500).json({ error: 'Internal Server Error' });
-    }
-});
-
-/**
- * REST Endpoint: POST /api/users -- requires users:manage
- */
-app.post('/api/users', async (req, res) => {
-    return handleRequest(req, res, 'users', 'manage', req.body);
-});
-
-/**
- * REST Endpoint: PUT /api/orgs -- requires organizations:update
- */
-app.put('/api/orgs', async (req, res) => {
-    return handleRequest(req, res, 'organizations', 'update', req.body);
-});
-
-/**
- * RBAC Validation Endpoint: POST /api/permissions/validate
- * Expects { userId, orgId, resource, action }
- */
-app.post('/api/permissions/validate', async (req, res) => {
-    const { userId, orgId, resource, action } = req.body;
-
-    if (!userId || !orgId || !resource || !action) {
-        return res.status(400).json({ error: 'Missing required fields' });
-    }
-
-    try {
-        const hasPerm = await checkPermission(userId, orgId, resource, action);
-        return res.status(200).json({
-            authorized: hasPerm,
-            userId,
-            orgId,
-            resource,
-            action
-        });
-    } catch (err) {
-        console.error('Error in /api/permissions/validate:', err);
-        return res.status(500).json({ error: 'Internal Server Error' });
-    }
-});
-
-app.get('/health', (_req, res) => {
-    res.status(200).json({ status: 'ok' });
-});
-
-app.listen(PORT, () => {
-    console.log(`Auth Gateway listening on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`Auth Gateway listening on port ${PORT}`));

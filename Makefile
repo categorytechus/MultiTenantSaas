@@ -1,21 +1,22 @@
+SHELL := bash
+.SHELLFLAGS := -c
+
 ifneq (,$(wildcard ./.env))
     include .env
     export
 endif
 
-.PHONY: deploy-infra deploy-ecr terraform-apply k8s-deploy k8s-deploy-ecr sync-secrets bootstrap-secrets docker-build docker-load ecr-push ecr-login update-kubeconfig help
+.PHONY: deploy-infra deploy-ecr redeploy-ecr terraform-apply k8s-deploy k8s-deploy-ecr sync-secrets bootstrap-secrets docker-build docker-load ecr-push ecr-login update-kubeconfig help test test-local test-remote
 
-# Get current EC2 IP from Terraform
+# Get ECR config from Terraform state, EC2 IP from AWS CLI (survives instance stop/start)
 TERRAFORM_BIN := $(abspath bin/terraform)
-EC2_IP := $(shell cd infrastructure/terraform && $(TERRAFORM_BIN) output -raw ec2_public_ip)
-REGION := $(shell cd infrastructure/terraform && $(TERRAFORM_BIN) output -raw aws_region)
+EC2_IP := $(shell aws ec2 describe-instances --filters "Name=tag:Name,Values=multi-tenant-saas-k3s-server" "Name=instance-state-name,Values=running" --query "Reservations[].Instances[].PublicIpAddress" --output text 2>/dev/null)
+REGION := $(shell cd infrastructure/terraform && $(TERRAFORM_BIN) output -raw aws_region 2>/dev/null || echo "us-east-1")
 REGISTRY := $(shell cd infrastructure/terraform && $(TERRAFORM_BIN) output -raw ecr_registry_url)
 AUTH_REPO := $(shell cd infrastructure/terraform && $(TERRAFORM_BIN) output -raw auth_service_repository_url)
 GATEWAY_REPO := $(shell cd infrastructure/terraform && $(TERRAFORM_BIN) output -raw auth_gateway_repository_url)
 FRONTEND_REPO := $(shell cd infrastructure/terraform && $(TERRAFORM_BIN) output -raw frontend_repository_url)
 AGENT1_REPO := $(shell cd infrastructure/terraform && $(TERRAFORM_BIN) output -raw worker_agent1_repository_url)
-AGENT2_REPO := $(shell cd infrastructure/terraform && $(TERRAFORM_BIN) output -raw worker_agent2_repository_url)
-AGENT3_REPO := $(shell cd infrastructure/terraform && $(TERRAFORM_BIN) output -raw worker_agent3_repository_url)
 ORCHESTRATOR_REPO := $(shell cd infrastructure/terraform && $(TERRAFORM_BIN) output -raw orchestrator_repository_url)
 STATUS_REPO := $(shell cd infrastructure/terraform && $(TERRAFORM_BIN) output -raw task_status_service_repository_url)
 KUBECONFIG_FILE := $(subst \,/,$(HOME))/.kube/config-multi-tenant-saas
@@ -37,10 +38,14 @@ help:
 	@echo "  make db-migrate        - Run database migrations"
 	@echo "  make db-seed           - Seed database with sample data"
 	@echo "  make deploy-ecr        - End-to-end: terraform + build + push + deploy + migrate"
+	@echo "  make redeploy-ecr      - Build + push + deploy + migrate (skip terraform)"
 
 deploy-infra: terraform-apply docker-build docker-load k8s-deploy
 
 deploy-ecr: terraform-apply ecr-push k8s-deploy-ecr db-migrate
+
+# Same as deploy-ecr but skips terraform (use when infra is already provisioned)
+redeploy-ecr: ecr-push k8s-deploy-ecr db-migrate
 
 terraform-init:
 	cd infrastructure/terraform && $(TERRAFORM_BIN) init
@@ -52,9 +57,7 @@ docker-build:
 	docker build -t auth-service:latest ./auth
 	docker build -t auth-gateway:latest ./auth-gateway
 	docker build -t worker-agent1:latest -f ./agents/worker_agent1/Dockerfile ./agents
-	docker build -t worker-agent2:latest -f ./agents/worker_agent2/Dockerfile ./agents
-	docker build -t worker-agent3:latest -f ./agents/worker_agent3/Dockerfile ./agents
-	docker build -t orchestrator:latest -f ./agents/orchestrator/Dockerfile ./agents
+	docker build -t orchestrator:latest -f ./agents/orchestrator/Dockerfile .
 	docker build -t frontend:latest ./frontend
 
 ecr-login:
@@ -66,16 +69,12 @@ ecr-push: ecr-login
 	docker build -t $(FRONTEND_REPO):latest ./frontend
 	docker build -t $(STATUS_REPO):latest ./task-status
 	docker build -t $(AGENT1_REPO):latest -f ./agents/worker_agent1/Dockerfile ./agents
-	docker build -t $(AGENT2_REPO):latest -f ./agents/worker_agent2/Dockerfile ./agents
-	docker build -t $(AGENT3_REPO):latest -f ./agents/worker_agent3/Dockerfile ./agents
-	docker build -t $(ORCHESTRATOR_REPO):latest -f ./agents/orchestrator/Dockerfile ./agents
+	docker build -t $(ORCHESTRATOR_REPO):latest -f ./agents/orchestrator/Dockerfile .
 	docker push $(AUTH_REPO):latest
 	docker push $(GATEWAY_REPO):latest
 	docker push $(FRONTEND_REPO):latest
 	docker push $(STATUS_REPO):latest
 	docker push $(AGENT1_REPO):latest
-	docker push $(AGENT2_REPO):latest
-	docker push $(AGENT3_REPO):latest
 	docker push $(ORCHESTRATOR_REPO):latest
 
 
@@ -89,6 +88,7 @@ docker-load:
 	ssh -i infrastructure/multi-tenant-saas-key.pem ubuntu@$$(cd infrastructure/terraform && $(TERRAFORM_BIN) output -raw ec2_public_ip) "sudo k3s ctr images import /tmp/auth-service.tar && sudo k3s ctr images import /tmp/auth-gateway.tar && sudo k3s ctr images import /tmp/task-status-service.tar"
 
 update-kubeconfig:
+	@if [ -z "$(EC2_IP)" ]; then echo "ERROR: EC2_IP is empty. Is the instance running?"; exit 1; fi
 	@echo "Fetching kubeconfig from $(EC2_IP)..."
 	@mkdir -p $(dir $(KUBECONFIG_FILE))
 	ssh -i $(SSH_KEY) -o StrictHostKeyChecking=no ubuntu@$(EC2_IP) \
@@ -110,11 +110,11 @@ k8s-deploy: update-kubeconfig
 	KUBECONFIG=$(KUBECONFIG_FILE) kubectl --insecure-skip-tls-verify apply -f infrastructure/k8s/task-status-service.yaml
 	KUBECONFIG=$(KUBECONFIG_FILE) kubectl --insecure-skip-tls-verify apply -f infrastructure/k8s/orchestrator.yaml
 	KUBECONFIG=$(KUBECONFIG_FILE) kubectl --insecure-skip-tls-verify apply -f infrastructure/k8s/worker-agent1.yaml
-	KUBECONFIG=$(KUBECONFIG_FILE) kubectl --insecure-skip-tls-verify apply -f infrastructure/k8s/worker-agent2.yaml
-	KUBECONFIG=$(KUBECONFIG_FILE) kubectl --insecure-skip-tls-verify apply -f infrastructure/k8s/worker-agent3.yaml
 	KUBECONFIG=$(KUBECONFIG_FILE) kubectl --insecure-skip-tls-verify apply -f infrastructure/k8s/ingress.yaml
 
 k8s-deploy-ecr: update-kubeconfig
+	@echo "Syncing secrets from AWS (db-credentials, database-url, jwt-secret, llm-keys)..."
+	KUBECONFIG=$(KUBECONFIG_FILE) ./infrastructure/scripts/sync-secrets.sh
 	KUBECONFIG=$(KUBECONFIG_FILE) ./infrastructure/scripts/k8s-deploy-ecr.sh
 
 sync-secrets: update-kubeconfig
@@ -129,11 +129,47 @@ db-migrate: update-kubeconfig
 	@echo "Running database migrations..."
 	@for file in infrastructure/database/migrations/*.sql; do \
 		echo "Applying $$file..."; \
-		KUBECONFIG=$(KUBECONFIG_FILE) kubectl --insecure-skip-tls-verify exec -i pod/postgres-0 -n data -- psql -U saas_admin -d saas_db < $$file; \
+		KUBECONFIG=$(KUBECONFIG_FILE) kubectl --insecure-skip-tls-verify exec -i pod/postgres-0 -n data -- psql -U postgres -d multitenant_saas < $$file; \
 	done
 	@echo "Migrations complete."
 
 db-seed: update-kubeconfig
 	@echo "Seeding database..."
-	KUBECONFIG=$(KUBECONFIG_FILE) kubectl --insecure-skip-tls-verify exec -i pod/postgres-0 -n data -- psql -U saas_admin -d saas_db < infrastructure/database/seeds/001_sample_data.sql
+	KUBECONFIG=$(KUBECONFIG_FILE) kubectl --insecure-skip-tls-verify exec -i pod/postgres-0 -n data -- psql -U postgres -d multitenant_saas < infrastructure/database/seeds/001_sample_data.sql
 	@echo "Seeding complete."
+
+# ============================================================================
+# Testing (Node.js)
+# ============================================================================
+test-install:
+	cd tests && npm install
+
+test-local: test-install
+	@echo "Running tests against local services..."
+	cd tests && AUTH_GATEWAY_URL=http://localhost:3001 WS_URL=ws://localhost:3002/ws/task-status npm test
+
+test-remote: test-install
+	@echo "Running tests against remote cluster ($(EC2_IP))..."
+	cd tests && AUTH_GATEWAY_URL=http://$(EC2_IP) WS_URL=ws://$(EC2_IP)/ws/task-status npm test
+
+test: test-local
+
+# ============================================================================
+# Testing (Python)
+# ============================================================================
+test-py-install:
+	pip install -r tests/requirements.txt
+
+test-py-local: test-py-install
+	@echo "Running Python tests against local services..."
+	AUTH_GATEWAY_URL=http://localhost:3001 WS_URL=ws://localhost:3002/ws/task-status python tests/test_agent_api.py
+
+test-py-remote: test-py-install
+	@echo "Running Python tests against remote cluster ($(EC2_IP))..."
+	AUTH_GATEWAY_URL=http://$(EC2_IP) WS_URL=ws://$(EC2_IP)/ws/task-status python tests/test_agent_api.py
+
+test-py: test-py-remote
+
+test-pytest:
+	@echo "Running tests with pytest..."
+	AUTH_GATEWAY_URL=http://localhost:3001 WS_URL=ws://localhost:3002/ws/task-status pytest tests/test_agent_api.py -v

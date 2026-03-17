@@ -4,32 +4,24 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from common.rabbitmq import RabbitMQClient, publish_with_retry
 
-# Configuration
-DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://admin:admin@localhost:5432/multitenant_saas')
+from common.database import update_task_status as db_update_status
 QUEUE_NAME = 'tasks'
 
 mq_client = RabbitMQClient()
 
-def get_db_connection():
-    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
-
 def update_task_status(task_id, org_id, status, session_id=None, error_message=None, data=None):
-    with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "UPDATE agent_tasks SET status = %s, error_message = %s, updated_at = NOW() WHERE id = %s",
-                (status, error_message, task_id)
-            )
-            conn.commit()
+    # 1. Update Database
+    db_update_status(task_id, status, data)
     
-    # Emit event for WebSocket streaming using events.{org_id} routing key
+    # 2. Emit event for WebSocket streaming using events.{org_id} routing key
     routing_key = f"events.{org_id}"
     mq_client.publish(routing_key, {
         "task_id": task_id,
         "session_id": session_id,
         "org_id": org_id,
         "status": status,
-        "data": data or {}
+        "data": data or {},
+        "error": error_message
     })
 
 def callback(ch, method, properties, body):
@@ -74,12 +66,13 @@ def callback(ch, method, properties, body):
         from graph import run_orchestrator_graph_with_state
         # Pass session_id as LangGraph thread_id for conversation memory
         config = {"configurable": {"thread_id": session_id}}
-        result = run_orchestrator_graph_with_state(initial_state, config)
+        
+        # This call now handles its own finalization (DB update + WebSocket push)
+        run_orchestrator_graph_with_state(initial_state, config)
 
-        # 3. Final Status (Done)
-        print(f" [x] Orchestration Complete: {result}")
-        update_task_status(task_id, org_id, 'completed', session_id=session_id, data=result)
+        print(f" [x] Orchestration execution finished for task: {task_id}")
         ch.basic_ack(delivery_tag=method.delivery_tag)
+
 
     except Exception as e:
         print(f" [!] Error in Orchestrator: {e}")

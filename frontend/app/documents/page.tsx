@@ -438,7 +438,7 @@ export default function DocumentsPage() {
                     </td>
                     <td>
                       <span className="badge badge-info">
-                        {doc.tags?.category || 'General'}
+                        {doc.tags && !Array.isArray(doc.tags) ? doc.tags.category || 'General' : 'General'}
                       </span>
                     </td>
                     <td>{doc.mime_type.split('/')[1].toUpperCase()}</td>
