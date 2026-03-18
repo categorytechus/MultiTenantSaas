@@ -2,21 +2,18 @@
 
 import { useState, useEffect } from 'react';
 import Layout from '../../components/Layout';
-import KnowledgeBaseSync from '../../components/KnowledgeBaseSync';
 
-interface Document {
+interface WebUrl {
   id: string;
-  filename: string;
-  file_size: number;
-  mime_type: string;
+  url: string;
+  title: string;
   tags: any;
   status: string;
   created_at: string;
-  upload_source?: string;
   processing_speed?: string;
 }
 
-interface UploadMetadata {
+interface UrlMetadata {
   userId: string;
   docType: string;
   isConfidential: boolean;
@@ -25,22 +22,16 @@ interface UploadMetadata {
   description: string;
 }
 
-function formatFileSize(bytes: number) {
-  if (bytes < 1024) return bytes + ' B';
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
-  return (bytes / 1024 / 1024).toFixed(2) + ' MB';
-}
-
 function formatDate(dateString: string) {
   const date = new Date(dateString);
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-export default function DocumentsPage() {
-  const [documents, setDocuments] = useState<Document[]>([]);
+export default function WebUrlPage() {
+  const [urls, setUrls] = useState<WebUrl[]>([]);
   const [loading, setLoading] = useState(true);
   const [showUploadModal, setShowUploadModal] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [inputUrl, setInputUrl] = useState('');
   const [uploading, setUploading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [startDate, setStartDate] = useState('');
@@ -48,7 +39,7 @@ export default function DocumentsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  const [metadata, setMetadata] = useState<UploadMetadata>({
+  const [metadata, setMetadata] = useState<UrlMetadata>({
     userId: '',
     docType: '',
     isConfidential: false,
@@ -58,55 +49,29 @@ export default function DocumentsPage() {
   });
 
   useEffect(() => {
-    fetchDocuments();
+    // Fetch URLs from backend (mock for now)
+    setLoading(false);
+    setUrls([]);
   }, []);
 
-  const fetchDocuments = async () => {
+  const handleUrlSubmit = () => {
+    if (!inputUrl.trim()) {
+      alert('Please enter a URL');
+      return;
+    }
+
+    // Validate URL format
     try {
-      const token = localStorage.getItem('accessToken');
-      const res = await fetch('http://localhost:4000/api/documents', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const data = await res.json();
-      if (data.success) setDocuments(data.data);
-    } catch (error) {
-      console.error('Error fetching documents:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // Validate file type
-    const allowedTypes = [
-      'application/pdf',
-      'application/msword',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'application/vnd.ms-powerpoint',
-      'application/vnd.openxmlformats-officedocument.presentationml.presentation'
-    ];
-
-    if (!allowedTypes.includes(file.type)) {
-      alert('Only PDF, DOC, DOCX, PPT, and PPTX files are allowed');
+      new URL(inputUrl);
+    } catch {
+      alert('Please enter a valid URL');
       return;
     }
 
-    // Validate file size (15MB)
-    if (file.size > 15 * 1024 * 1024) {
-      alert('File size must be less than 15MB');
-      return;
-    }
-
-    setSelectedFile(file);
     setShowUploadModal(true);
   };
 
   const handleUpload = async () => {
-    if (!selectedFile) return;
-
     // Validate metadata
     if (!metadata.userId || !metadata.docType) {
       alert('User ID and Document Type are required');
@@ -123,8 +88,8 @@ export default function DocumentsPage() {
     try {
       const token = localStorage.getItem('accessToken');
 
-      // Prepare S3 tags
-      const s3Tags = {
+      // Prepare tags
+      const tags = {
         'user-id': metadata.userId,
         'doc-type': metadata.docType,
         'confidential': metadata.isConfidential ? 'true' : 'false',
@@ -132,48 +97,21 @@ export default function DocumentsPage() {
         ...(metadata.specificUser && { 'specific-user': metadata.specificUser })
       };
 
-      // Step 1: Get presigned URL
-      const urlRes = await fetch('http://localhost:4000/api/documents/presigned-url', {
+      // Save URL with metadata (implement backend endpoint)
+      const res = await fetch('http://localhost:4000/api/web-urls', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
-          filename: selectedFile.name,
-          contentType: selectedFile.type,
-          fileSize: selectedFile.size,
-          tags: s3Tags,
-        }),
-      });
-
-      const urlData = await urlRes.json();
-      if (!urlData.success) throw new Error(urlData.message);
-
-      // Step 2: Upload to S3
-      const uploadRes = await fetch(urlData.data.uploadUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': selectedFile.type },
-        body: selectedFile,
-      });
-
-      if (!uploadRes.ok) throw new Error('Upload to S3 failed');
-
-      // Step 3: Save metadata
-      const metadataRes = await fetch('http://localhost:4000/api/documents', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          filename: selectedFile.name,
-          s3Key: urlData.data.s3Key,
-          fileSize: selectedFile.size,
-          mimeType: selectedFile.type,
-          tags: s3Tags,
+          url: inputUrl,
+          tags,
           description: metadata.description,
         }),
       });
 
-      if (!metadataRes.ok) throw new Error('Failed to save document metadata');
+      if (!res.ok) throw new Error('Failed to save URL');
 
       setShowUploadModal(false);
-      setSelectedFile(null);
+      setInputUrl('');
       setMetadata({
         userId: '',
         docType: '',
@@ -182,8 +120,7 @@ export default function DocumentsPage() {
         specificUser: '',
         description: ''
       });
-      fetchDocuments();
-      alert('Document uploaded successfully!');
+      alert('URL saved successfully!');
     } catch (error: any) {
       alert('Upload failed: ' + error.message);
     } finally {
@@ -191,51 +128,40 @@ export default function DocumentsPage() {
     }
   };
 
-  const handleView = async (docId: string) => {
-    try {
-      const token = localStorage.getItem('accessToken');
-      const res = await fetch(`http://localhost:4000/api/documents/${docId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const data = await res.json();
-      if (data.success && data.data.downloadUrl) {
-        window.open(data.data.downloadUrl, '_blank');
-      }
-    } catch (error) {
-      alert('Error viewing document');
-    }
+  const handleView = (url: string) => {
+    window.open(url, '_blank');
   };
 
-  const handleDelete = async (docId: string) => {
-    if (!confirm('Are you sure you want to delete this document?')) return;
-
+  const handleDelete = async (urlId: string) => {
+    if (!confirm('Are you sure you want to delete this URL?')) return;
+    
     try {
       const token = localStorage.getItem('accessToken');
-      const res = await fetch(`http://localhost:4000/api/documents/${docId}`, {
+      const res = await fetch(`http://localhost:4000/api/web-urls/${urlId}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
       });
-      const data = await res.json();
-      if (data.success) {
-        setDocuments(documents.filter(doc => doc.id !== docId));
-        alert('Document deleted successfully');
+      if (res.ok) {
+        setUrls(urls.filter(u => u.id !== urlId));
+        alert('URL deleted successfully');
       }
     } catch (error) {
-      alert('Error deleting document');
+      alert('Error deleting URL');
     }
   };
 
   // Filter and paginate
-  const filteredDocs = documents.filter(doc => {
-    const matchesSearch = doc.filename.toLowerCase().includes(searchTerm.toLowerCase());
-    const docDate = new Date(doc.created_at);
-    const matchesStartDate = !startDate || docDate >= new Date(startDate);
-    const matchesEndDate = !endDate || docDate <= new Date(endDate);
+  const filteredUrls = urls.filter(url => {
+    const matchesSearch = url.url.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         url.title?.toLowerCase().includes(searchTerm.toLowerCase());
+    const urlDate = new Date(url.created_at);
+    const matchesStartDate = !startDate || urlDate >= new Date(startDate);
+    const matchesEndDate = !endDate || urlDate <= new Date(endDate);
     return matchesSearch && matchesStartDate && matchesEndDate;
   });
 
-  const totalPages = Math.ceil(filteredDocs.length / itemsPerPage);
-  const paginatedDocs = filteredDocs.slice(
+  const totalPages = Math.ceil(filteredUrls.length / itemsPerPage);
+  const paginatedUrls = filteredUrls.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
   );
@@ -268,6 +194,7 @@ export default function DocumentsPage() {
           border-radius: 6px;
           font-size: 13px;
           outline: none;
+          color: #1a1a1a;
         }
         .date-input {
           padding: 9px 14px;
@@ -276,6 +203,7 @@ export default function DocumentsPage() {
           font-size: 13px;
           outline: none;
           width: 160px;
+          color: #1a1a1a;
         }
         .date-sep {
           font-size: 13px;
@@ -340,9 +268,17 @@ export default function DocumentsPage() {
           background: #fafafa;
         }
 
-        .filename {
-          font-weight: 500;
-          color: #1a1a1a;
+        .url-link {
+          color: #3b82f6;
+          text-decoration: none;
+          max-width: 300px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          display: inline-block;
+        }
+        .url-link:hover {
+          text-decoration: underline;
         }
         .badge {
           display: inline-block;
@@ -354,14 +290,6 @@ export default function DocumentsPage() {
         .badge-success {
           background: #e8f5e9;
           color: #2e7d32;
-        }
-        .badge-image {
-          background: #e3f2fd;
-          color: #1976d2;
-        }
-        .badge-document {
-          background: #fce4ec;
-          color: #c2185b;
         }
 
         .action-btns {
@@ -485,22 +413,16 @@ export default function DocumentsPage() {
           color: #666;
           margin-top: 4px;
         }
-        .file-preview {
+        .url-preview {
           background: #f9f9f9;
           border: 1px solid #e5e5e5;
           padding: 16px;
           border-radius: 8px;
           margin-bottom: 20px;
-        }
-        .file-preview-name {
-          font-size: 14px;
-          font-weight: 500;
+          word-break: break-all;
+          font-size: 13px;
           color: #1a1a1a;
-          margin-bottom: 4px;
-        }
-        .file-preview-size {
-          font-size: 12px;
-          color: #666;
+          font-weight: 500;
         }
         .modal-btns {
           display: flex;
@@ -534,15 +456,13 @@ export default function DocumentsPage() {
       `}</style>
 
       <div className="content">
-        <div className="page-header">Data Extracted Files</div>
-
-        <KnowledgeBaseSync />
+        <div className="page-header">Web URLs</div>
 
         <div className="toolbar">
           <input
             type="text"
             className="search-input"
-            placeholder="Search by file name..."
+            placeholder="Search by URL or title..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -559,82 +479,92 @@ export default function DocumentsPage() {
             value={endDate}
             onChange={(e) => setEndDate(e.target.value)}
           />
-          <label className="btn-upload">
+          <button className="btn-upload" onClick={handleUrlSubmit}>
             <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
+              <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
             </svg>
-            Choose file
-            <input type="file" style={{ display: 'none' }} onChange={handleFileSelect} accept=".pdf,.doc,.docx,.ppt,.pptx" />
-          </label>
+            Add URL
+          </button>
           <button className="btn-download">
             <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" />
+              <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
             </svg>
           </button>
+        </div>
+
+        {/* URL Input */}
+        <div style={{ marginBottom: '20px' }}>
+          <input
+            type="url"
+            className="search-input"
+            placeholder="Enter URL (e.g., https://example.com)"
+            value={inputUrl}
+            onChange={(e) => setInputUrl(e.target.value)}
+            style={{ width: '100%' }}
+          />
         </div>
 
         <div className="table-container">
           {loading ? (
             <div style={{ padding: '60px', textAlign: 'center', color: '#9a9a9a' }}>Loading...</div>
-          ) : paginatedDocs.length === 0 ? (
-            <div style={{ padding: '60px', textAlign: 'center', color: '#9a9a9a' }}>No documents found</div>
+          ) : paginatedUrls.length === 0 ? (
+            <div style={{ padding: '60px', textAlign: 'center', color: '#9a9a9a' }}>
+              No URLs found. Add a URL above to get started.
+            </div>
           ) : (
             <>
               <table className="table">
                 <thead>
                   <tr>
-                    <th>File Name</th>
+                    <th>URL</th>
+                    <th>Title</th>
                     <th>Category</th>
-                    <th>Document Type</th>
-                    <th>Size</th>
                     <th>Processing Speed</th>
-                    <th>Upload From</th>
                     <th>Action</th>
                     <th>Status</th>
-                    <th>Date Modified</th>
+                    <th>Date Added</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {paginatedDocs.map((doc) => (
-                    <tr key={doc.id}>
+                  {paginatedUrls.map((url) => (
+                    <tr key={url.id}>
                       <td>
-                        <span className="filename">{doc.filename}</span>
+                        <a href={url.url} target="_blank" rel="noopener noreferrer" className="url-link">
+                          {url.url}
+                        </a>
                       </td>
+                      <td>{url.title || '-'}</td>
                       <td>
-                        <span className={`badge ${doc.mime_type.includes('image') ? 'badge-image' : 'badge-document'
-                          }`}>
-                          {doc.mime_type.includes('image') ? 'Image' : 'Document'}
+                        <span className="badge badge-success">
+                          {url.tags?.['doc-type'] || 'General'}
                         </span>
                       </td>
-                      <td>{doc.mime_type.split('/')[1].toUpperCase()}</td>
-                      <td>{formatFileSize(doc.file_size)}</td>
-                      <td>{doc.processing_speed || '-'}</td>
-                      <td>{doc.upload_source || 'Web Upload'}</td>
+                      <td>{url.processing_speed || '-'}</td>
                       <td>
                         <div className="action-btns">
-                          <button className="btn-icon" title="View" onClick={() => handleView(doc.id)}>
+                          <button className="btn-icon" title="Visit" onClick={() => handleView(url.url)}>
                             <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
-                              <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
+                              <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
                             </svg>
                           </button>
                           <button className="btn-icon" title="Edit">
                             <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
-                              <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+                              <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
                             </svg>
                           </button>
                         </div>
                       </td>
                       <td>
-                        <span className="badge badge-success">{doc.status}</span>
+                        <span className="badge badge-success">{url.status}</span>
                       </td>
-                      <td>{formatDate(doc.created_at)}</td>
+                      <td>{formatDate(url.created_at)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
 
               <div className="pagination">
-                <div className="page-info">Page {currentPage} of {totalPages}</div>
+                <div className="page-info">Page {currentPage} of {totalPages || 1}</div>
                 <div className="page-btns">
                   <button
                     className="page-btn"
@@ -658,14 +588,13 @@ export default function DocumentsPage() {
       </div>
 
       {/* Upload Modal */}
-      {showUploadModal && selectedFile && (
+      {showUploadModal && inputUrl && (
         <div className="modal-overlay" onClick={() => !uploading && setShowUploadModal(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2 className="modal-title">Upload Document - Metadata</h2>
+            <h2 className="modal-title">Add URL - Metadata</h2>
 
-            <div className="file-preview">
-              <div className="file-preview-name">{selectedFile.name}</div>
-              <div className="file-preview-size">{formatFileSize(selectedFile.size)}</div>
+            <div className="url-preview">
+              {inputUrl}
             </div>
 
             <div className="form-group">
@@ -679,7 +608,7 @@ export default function DocumentsPage() {
                 onChange={(e) => setMetadata({ ...metadata, userId: e.target.value })}
                 placeholder="e.g., admin, user123"
               />
-              <div className="form-hint">S3 Tag: user-id</div>
+              <div className="form-hint">Tag: user-id</div>
             </div>
 
             <div className="form-group">
@@ -691,9 +620,9 @@ export default function DocumentsPage() {
                 className="form-input"
                 value={metadata.docType}
                 onChange={(e) => setMetadata({ ...metadata, docType: e.target.value })}
-                placeholder="e.g., student_guide, invoice, report"
+                placeholder="e.g., article, documentation, resource"
               />
-              <div className="form-hint">S3 Tag: doc-type</div>
+              <div className="form-hint">Tag: doc-type</div>
             </div>
 
             <div className="form-group">
@@ -743,7 +672,7 @@ export default function DocumentsPage() {
                 className="form-textarea"
                 value={metadata.description}
                 onChange={(e) => setMetadata({ ...metadata, description: e.target.value })}
-                placeholder="Add a description for this document..."
+                placeholder="Add a description for this URL..."
               />
             </div>
 
@@ -760,7 +689,7 @@ export default function DocumentsPage() {
                 onClick={handleUpload}
                 disabled={uploading}
               >
-                {uploading ? 'Uploading...' : 'Upload Document'}
+                {uploading ? 'Saving...' : 'Save URL'}
               </button>
             </div>
           </div>

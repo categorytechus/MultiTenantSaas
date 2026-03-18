@@ -87,6 +87,8 @@ export default function Layout({ children }: LayoutProps) {
   const getBreadcrumb = () => {
     if (pathname === '/dashboard') return { section: 'Dashboard', page: 'Overview' };
     if (pathname === '/documents') return { section: 'Knowledge Base', page: 'Documents' };
+    if (pathname === '/web-urls') return { section: 'Knowledge Base', page: 'Web URLs' };
+    if (pathname === '/ai_assistant') return { section: 'Home', page: 'AI Assistant' };
     return { section: 'Dashboard', page: 'Overview' };
   };
 
@@ -112,13 +114,11 @@ export default function Layout({ children }: LayoutProps) {
         .sidebar {
           width: 240px;
           background: white;
-          border-right: 1px solid #ebebeb;
           display: flex;
           flex-direction: column;
         }
         .sidebar-top {
           padding: 20px;
-          border-bottom: 1px solid #ebebeb;
         }
         .brand {
           font-size: 16px;
@@ -134,13 +134,12 @@ export default function Layout({ children }: LayoutProps) {
 
         .nav-section {
           padding: 16px 0;
-          border-bottom: 1px solid #ebebeb;
         }
         .nav-label {
           padding: 0 20px 8px;
           font-size: 11px;
           font-weight: 600;
-          color: #bbb;
+          color: #9a9a9a;
           text-transform: uppercase;
           letter-spacing: 0.5px;
         }
@@ -150,7 +149,7 @@ export default function Layout({ children }: LayoutProps) {
           gap: 12px;
           padding: 10px 20px;
           font-size: 14px;
-          color: #666;
+          color: #1a1a1a;
           cursor: pointer;
           transition: all 0.12s;
           text-decoration: none;
@@ -161,7 +160,7 @@ export default function Layout({ children }: LayoutProps) {
           color: #1a1a1a;
         }
         .nav-item.active {
-          background: #f5f4f1;
+          background: #F5F2F1;
           color: #1a1a1a;
           font-weight: 600;
           border-left-color: #1a1a1a;
@@ -169,16 +168,38 @@ export default function Layout({ children }: LayoutProps) {
         .nav-item svg {
           width: 18px;
           height: 18px;
-          opacity: 0.5;
+          opacity: 0.7;
         }
         .nav-item.active svg {
           opacity: 1;
         }
 
+        /* AI Assistant Special Styling */
+        .nav-ai {
+          background: linear-gradient(135deg, rgba(139, 92, 246, 0.08) 0%, rgba(59, 130, 246, 0.08) 100%);
+        }
+        .nav-ai:hover {
+          background: linear-gradient(135deg, rgba(139, 92, 246, 0.12) 0%, rgba(59, 130, 246, 0.12) 100%);
+        }
+        .nav-ai.active {
+          background: linear-gradient(135deg, rgba(139, 92, 246, 0.15) 0%, rgba(59, 130, 246, 0.15) 100%);
+          border-left-color: #8b5cf6;
+        }
+        .nav-ai svg {
+          color: #8b5cf6;
+          opacity: 1;
+        }
+        .nav-ai-text {
+          background: linear-gradient(135deg, #8b5cf6 0%, #3b82f6 100%);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
+          font-weight: 600;
+        }
+
         .sidebar-footer {
           margin-top: auto;
           padding: 16px 20px;
-          border-top: 1px solid #ebebeb;
         }
         .user-profile {
           display: flex;
@@ -208,7 +229,7 @@ export default function Layout({ children }: LayoutProps) {
         }
         .user-email {
           font-size: 11px;
-          color: #9a9a9a;
+          color: #666;
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
@@ -241,18 +262,18 @@ export default function Layout({ children }: LayoutProps) {
         .topbar {
           height: 60px;
           background: white;
-          border-bottom: 1px solid #ebebeb;
           display: flex;
           align-items: center;
           justify-content: space-between;
           padding: 0 32px;
+          border-radius: 0 0 20px 0px;
         }
         .breadcrumb {
           display: flex;
           align-items: center;
           gap: 8px;
           font-size: 14px;
-          color: #9a9a9a;
+          color: #666;
         }
         .breadcrumb-active {
           color: #1a1a1a;
@@ -309,6 +330,7 @@ export default function Layout({ children }: LayoutProps) {
           padding: 12px 16px;
           cursor: pointer;
           transition: background 0.1s;
+          color: #1a1a1a;
         }
         .drop-item:hover { background: #f5f4f1; }
 
@@ -377,6 +399,13 @@ export default function Layout({ children }: LayoutProps) {
               </svg>
               Dashboard
             </a>
+            <a href="/ai_assistant" className={`nav-item nav-ai${pathname === '/ai_assistant' ? ' active' : ''}`}>
+              <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"/>
+                <circle cx="18" cy="5" r="3"/>
+              </svg>
+              <span className="nav-ai-text">AI Assistant</span>
+            </a>
           </div>
 
           <div className="nav-section">
@@ -386,6 +415,12 @@ export default function Layout({ children }: LayoutProps) {
                 <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
               </svg>
               Documents
+            </a>
+            <a href="/web-urls" className={`nav-item${pathname === '/web-urls' ? ' active' : ''}`}>
+              <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
+              </svg>
+              Web URLs
             </a>
           </div>
 

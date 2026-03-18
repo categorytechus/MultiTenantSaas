@@ -36,3 +36,34 @@ module "s3" {
   }
 }
 
+# Add Bedrock Knowledge Base module
+module "bedrock_kb" {
+  source = "../../modules/bedrock-kb"
+
+  environment          = var.environment
+  aws_region          = var.aws_region
+  documents_bucket_arn = module.s3.documents_bucket_arn
+
+  common_tags = var.common_tags
+}
+
+# Add outputs
+output "knowledge_base_id" {
+  value = module.bedrock_kb.knowledge_base_id
+}
+
+output "data_source_id" {
+  value = module.bedrock_kb.data_source_id
+}
+
+variable "common_tags" {
+  description = "Common tags applied to all resources"
+  type        = map(string)
+
+  default = {
+    Project     = "multi-tenant-saas"
+    Environment = "dev"
+    ManagedBy   = "terraform"
+  }
+}
+
