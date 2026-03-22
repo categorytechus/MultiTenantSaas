@@ -1,1 +1,24 @@
+# Credentials — never push
 credentials.txt
+
+# Generated output — too large, copyrighted PDFs
+output/
+
+# Data files
+*.csv
+*.json.bak
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+venv/
+env/
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db
