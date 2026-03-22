@@ -1,0 +1,9 @@
+{
+  "economictimes.indiatimes.com": {
+    "login_url":       "https://economictimes.indiatimes.com/login",
+    "email_selector":  "input[name='email'], input[type='email'], #email",
+    "pass_selector":   "input[name='password'], input[type='password'], #password",
+    "submit_selector": "button[type='submit'], input[type='submit'], .login-btn",
+    "success_check":   "logout"
+  }
+}

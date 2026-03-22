@@ -1,0 +1,80 @@
+{
+  "topic": "real estate",
+  "topic_aliases": [
+    "housing market",
+    "mortgage",
+    "property",
+    "REIT",
+    "foreclosure"
+  ],
+  "max_results": 8,
+  "summary_lines": 3,
+  "request_delay": 1.5,
+  "query_delay": 4.0,
+  "output_folder": "output",
+  "credentials_file": "credentials.txt",
+  "login_enabled": false,
+  "blocked_domains": [
+    "youtube.com",
+    "youtu.be",
+    "twitter.com",
+    "x.com",
+    "t.me",
+    "telegram.org",
+    "reddit.com",
+    "facebook.com",
+    "instagram.com",
+    "google.com/finance",
+    "scribd.com"
+  ],
+  "queries": [
+    {
+      "label": "market_trends",
+      "query": "real estate market trends USA 2025"
+    },
+    {
+      "label": "home_prices",
+      "query": "US housing prices forecast 2025"
+    },
+    {
+      "label": "commercial",
+      "query": "commercial real estate market outlook 2025"
+    },
+    {
+      "label": "mortgage_rates",
+      "query": "mortgage rates housing market 2025"
+    },
+    {
+      "label": "multifamily",
+      "query": "multifamily real estate investment trends 2025"
+    },
+    {
+      "label": "foreclosures",
+      "query": "foreclosure rates US housing market 2025"
+    },
+    {
+      "label": "rental_market",
+      "query": "US rental market trends rent prices 2025"
+    },
+    {
+      "label": "hud_listings",
+      "query": "HUD home listings affordable housing 2025"
+    },
+    {
+      "label": "nar_pdf",
+      "query": "site:nar.realtor filetype:pdf 2025 housing report"
+    },
+    {
+      "label": "attom_pdf",
+      "query": "site:attomdata.com real estate report PDF 2025"
+    },
+    {
+      "label": "freddiemac_pdf",
+      "query": "site:freddiemac.com housing outlook report PDF 2025"
+    },
+    {
+      "label": "fanniemae_pdf",
+      "query": "site:fanniemae.com housing forecast report PDF 2025"
+    }
+  ]
+}

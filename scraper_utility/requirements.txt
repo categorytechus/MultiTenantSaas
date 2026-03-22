@@ -1,0 +1,9 @@
+ddgs
+requests
+beautifulsoup4
+trafilatura
+sumy
+lxml
+nltk
+selenium
+webdriver-manager
