@@ -24,9 +24,6 @@ spec:
   routes:
     - match: PathPrefix(`/api`)
       kind: Rule
-      middlewares:
-        - name: forward-auth
-          namespace: data
       services:
         - name: auth-gateway
           port: 3001

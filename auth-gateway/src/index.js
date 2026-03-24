@@ -54,12 +54,19 @@ const getContext = (req) => {
 const forwardToAuthService = (req, res) => {
     const targetUrl = new URL(req.originalUrl, AUTH_SERVICE_URL);
     
+    const headers = { ...req.headers };
+    headers.host = new URL(AUTH_SERVICE_URL).host;
+
+    let bodyStr = null;
+    if (req.body && Object.keys(req.body).length > 0) {
+        bodyStr = JSON.stringify(req.body);
+        headers['content-length'] = Buffer.byteLength(bodyStr);
+        headers['content-type'] = 'application/json';
+    }
+
     const options = {
         method: req.method,
-        headers: {
-            ...req.headers,
-            host: new URL(AUTH_SERVICE_URL).host
-        }
+        headers: headers
     };
 
     const proxyReq = http.request(targetUrl, options, (proxyRes) => {
@@ -67,10 +74,7 @@ const forwardToAuthService = (req, res) => {
         proxyRes.pipe(res, { end: true });
     });
 
-    if (req.body && Object.keys(req.body).length > 0) {
-        const bodyStr = JSON.stringify(req.body);
-        options.headers['content-length'] = Buffer.byteLength(bodyStr);
-        options.headers['content-type'] = 'application/json';
+    if (bodyStr) {
         proxyReq.write(bodyStr);
     }
     proxyReq.end();
