@@ -6,8 +6,8 @@ const http = require('http');
 const cors = require('cors');
 
 const app = express();
-app.use(express.json());
 app.use(cors());
+const jsonParser = express.json();
 
 const PORT = process.env.PORT || 3001;
 const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://guest:guest@rabbitmq:5672';
@@ -76,8 +76,10 @@ const forwardToAuthService = (req, res) => {
 
     if (bodyStr) {
         proxyReq.write(bodyStr);
+        proxyReq.end();
+    } else {
+        req.pipe(proxyReq, { end: true });
     }
-    proxyReq.end();
     
     proxyReq.on('error', (err) => {
         console.error('Proxy error:', err);
@@ -135,9 +137,9 @@ async function submitTask(req, res, actionType, requiredPermission) {
     }
 }
 
-app.post('/api/chat', (req, res) => submitTask(req, res, '', 'agents:run'));
-app.post('/api/agents/start', (req, res) => submitTask(req, res, 'agents:create', 'agents:create'));
-app.post('/api/agents/:agentId/run', (req, res) => submitTask(req, res, `agents:${req.params.agentId}`, 'agents:run'));
+app.post('/api/chat', jsonParser, (req, res) => submitTask(req, res, '', 'agents:run'));
+app.post('/api/agents/start', jsonParser, (req, res) => submitTask(req, res, 'agents:create', 'agents:create'));
+app.post('/api/agents/:agentId/run', jsonParser, (req, res) => submitTask(req, res, `agents:${req.params.agentId}`, 'agents:run'));
 
 // --- Task Status Polling ---
 app.get('/api/agents/:taskId', async (req, res) => {
