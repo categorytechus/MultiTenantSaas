@@ -30,6 +30,27 @@ spec:
                 secretKeyRef:
                   name: jwt-secret
                   key: JWT_KEY
+            - name: DB_HOST
+              value: "pgbouncer.data.svc.cluster.local"
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USER
+              value: "postgres"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: DB_PASSWORD
+            - name: DB_NAME
+              value: "multitenant_saas"
+            - name: GOOGLE_CLIENT_ID
+              value: "placeholder"
+            - name: GOOGLE_CLIENT_SECRET
+              value: "placeholder"
+            - name: GOOGLE_CALLBACK_URL
+              value: "http://localhost/api/auth/google/callback"
+            - name: CLIENT_URL
+              value: "http://localhost"
           livenessProbe:
             httpGet:
               path: /health
