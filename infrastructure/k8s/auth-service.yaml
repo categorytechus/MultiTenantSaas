@@ -21,10 +21,10 @@ spec:
           image: __ECR_AUTH_IMAGE__
           imagePullPolicy: Always
           ports:
-            - containerPort: 3001
+            - containerPort: 4000
           env:
             - name: PORT
-              value: "3001"
+              value: "4000"
             - name: JWT_KEY
               valueFrom:
                 secretKeyRef:
@@ -40,7 +40,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: db-credentials
-                  key: DB_PASSWORD
+                  key: password
             - name: DB_NAME
               value: "multitenant_saas"
             - name: GOOGLE_CLIENT_ID
@@ -54,13 +54,13 @@ spec:
           livenessProbe:
             httpGet:
               path: /health
-              port: 3001
+              port: 4000
             initialDelaySeconds: 5
             periodSeconds: 10
           readinessProbe:
             httpGet:
               path: /health
-              port: 3001
+              port: 4000
             initialDelaySeconds: 3
             periodSeconds: 5
 ---
@@ -74,5 +74,5 @@ spec:
     app: auth-service
   ports:
     - name: http
-      port: 3001
-      targetPort: 3001
+      port: 4000
+      targetPort: 4000
