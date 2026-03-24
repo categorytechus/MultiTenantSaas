@@ -16,10 +16,13 @@ COPY agents/common ./common
 COPY agents/orchestrator/ .
 
 # Generate gRPC stubs
-RUN python -m grpc_tools.protoc -I./proto --python_out=./proto --grpc_python_out=./proto ./proto/rag.proto
+RUN python -m grpc_tools.protoc -I./proto --python_out=./proto --grpc_python_out=./proto ./proto/rag.proto && \
+    touch ./proto/__init__.py && \
+    # Fix relative imports in generated code
+    sed -i 's/^import rag_pb2 as rag__pb2/from . import rag_pb2 as rag__pb2/' ./proto/rag_pb2_grpc.py
 
 ENV PYTHONUNBUFFERED=1
-ENV PYTHONPATH=/app
+ENV PYTHONPATH=/app:/app/proto
 
 CMD ["python", "main.py"]
 

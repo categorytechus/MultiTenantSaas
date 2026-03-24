@@ -4,12 +4,14 @@ const express = require('express');
 const { WebSocketServer } = require('ws');
 const jwt = require('jsonwebtoken');
 const amqp = require('amqplib');
+const cors = require('cors');
 
 const app = express();
+app.use(cors());
 const server = http.createServer(app);
 
 const PORT = process.env.PORT || 3002;
-const JWT_KEY = process.env.JWT_KEY || 'development-secret';
+const JWT_KEY = process.env.JWT_KEY || 'dev-secret-key';
 const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://admin:admin@rabbitmq.data.svc.cluster.local:5672';
 
 // session_id -> Set<WebSocket>

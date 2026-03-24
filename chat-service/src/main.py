@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 class ChatServiceServicer(rag_pb2_grpc.ChatServiceServicer):
     def __init__(self):
-        self.llm = ChatOpenAI(model="gpt-4o", temperature=0)
+        self.llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
         self.rag_service_addr = os.getenv('RAG_SERVICE_ADDR', 'rag-service:50051')
 
     async def GenerateAnswer(self, request, context):

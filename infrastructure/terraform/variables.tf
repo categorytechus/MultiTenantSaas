@@ -22,17 +22,17 @@ variable "ami_id" {
   default     = "ami-053b0d53c279acc90" # Ubuntu 22.04 LTS in us-east-1
 }
 
-variable "cognito_callback_urls" {
-  description = "Callback URLs for Cognito"
-  type        = list(string)
-}
+# variable "cognito_callback_urls" {
+#   description = "Callback URLs for Cognito"
+#   type        = list(string)
+# }
 
-variable "google_client_id" {
-  description = "Google OAuth client ID"
-  type        = string
-}
+# variable "google_client_id" {
+#   description = "Google OAuth client ID"
+#   type        = string
+# }
 
-variable "cognito_logout_urls" {
-  description = "Logout URLs for Cognito"
-  type        = list(string)
-}
+# variable "cognito_logout_urls" {
+#   description = "Logout URLs for Cognito"
+#   type        = list(string)
+# }

@@ -8,6 +8,7 @@ import testRoutes from './routes/test.routes';
 import passport from './config/passport';
 import documentRoutes from './routes/document.routes';
 import knowledgeBaseRoutes from './routes/knowledgebase.routes';
+import webUrlRoutes from './routes/weburl.routes';
 
 // Load environment variables
 dotenv.config();
@@ -16,10 +17,8 @@ const app: Application = express();
 const PORT = process.env.PORT || 4000;
 
 // Middleware
-app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
-  credentials: true,
-}));
+// CORS configuration
+app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser(process.env.COOKIE_SECRET));
@@ -42,6 +41,7 @@ app.use('/api/organizations', organizationRoutes);
 app.use('/api/test', testRoutes);
 app.use('/api/documents', documentRoutes);
 app.use('/api/knowledge-base', knowledgeBaseRoutes);
+app.use('/api/web-urls', webUrlRoutes);
 
 // 404 handler
 app.use((req: Request, res: Response) => {

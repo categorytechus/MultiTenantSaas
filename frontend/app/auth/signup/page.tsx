@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { apiFetch } from '../../../src/lib/api';
+import CONFIG from '../../../src/lib/config';
 
 export default function SignUpPage() {
   const router = useRouter();
@@ -26,15 +28,13 @@ export default function SignUpPage() {
 
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:4000/api/auth/signup', {
+      const res = await apiFetch<{ data: { accessToken: string, refreshToken: string } }>('/auth/signup', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password, name }),
       });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.message);
-      localStorage.setItem('accessToken', data.data.accessToken);
-      localStorage.setItem('refreshToken', data.data.refreshToken);
+      if (!res.success) throw new Error(res.error);
+      localStorage.setItem('accessToken', res.data.data.accessToken);
+      localStorage.setItem('refreshToken', res.data.data.refreshToken);
       router.push('/dashboard');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Something went wrong');
@@ -134,7 +134,7 @@ export default function SignUpPage() {
 
           {error && <div className="err">{error}</div>}
 
-          <button className="g-btn" type="button" onClick={() => { window.location.href = 'http://localhost:4000/api/auth/google'; }}>
+          <button className="g-btn" type="button" onClick={() => { window.location.href = `${CONFIG.AUTH_API_URL}/auth/google`; }}>
             <svg viewBox="0 0 24 24">
               <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
               <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>

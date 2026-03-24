@@ -50,8 +50,8 @@ export const createWebUrl = async (req: Request, res: Response) => {
     `;
 
     const values = [
-      user.organizationId,
-      user.userId,
+      user.org_id,
+      user.sub,
       url,
       title || null,
       userIdTag,
@@ -106,7 +106,7 @@ export const getWebUrls = async (req: Request, res: Response) => {
       ORDER BY created_at DESC
     `;
 
-    const result = await pool.query(query, [user.organizationId]);
+    const result = await pool.query(query, [user.org_id]);
 
     return res.json({
       success: true,
@@ -132,7 +132,7 @@ export const getWebUrl = async (req: Request, res: Response) => {
       SELECT * FROM web_urls
       WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL
     `;
-    const result = await pool.query(query, [id, user.organizationId]);
+    const result = await pool.query(query, [id, user.org_id]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({
@@ -167,7 +167,7 @@ export const updateWebUrl = async (req: Request, res: Response) => {
       SELECT id FROM web_urls
       WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL
     `;
-    const checkResult = await pool.query(checkQuery, [id, user.organizationId]);
+    const checkResult = await pool.query(checkQuery, [id, user.org_id]);
 
     if (checkResult.rows.length === 0) {
       return res.status(404).json({
@@ -210,7 +210,7 @@ export const updateWebUrl = async (req: Request, res: Response) => {
       description || null,
       JSON.stringify(tags || {}),
       id,
-      user.organizationId
+      user.org_id
     ];
 
     const result = await pool.query(updateQuery, values);
@@ -241,7 +241,7 @@ export const deleteWebUrl = async (req: Request, res: Response) => {
       SELECT id FROM web_urls
       WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL
     `;
-    const checkResult = await pool.query(checkQuery, [id, user.organizationId]);
+    const checkResult = await pool.query(checkQuery, [id, user.org_id]);
 
     if (checkResult.rows.length === 0) {
       return res.status(404).json({
@@ -256,7 +256,7 @@ export const deleteWebUrl = async (req: Request, res: Response) => {
       SET deleted_at = NOW()
       WHERE id = $1 AND organization_id = $2
     `;
-    await pool.query(deleteQuery, [id, user.organizationId]);
+    await pool.query(deleteQuery, [id, user.org_id]);
 
     return res.json({
       success: true,

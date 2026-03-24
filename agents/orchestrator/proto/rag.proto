@@ -2,10 +2,16 @@ syntax = "proto3";
 
 package rbac_rag;
 
-// The RAG Service definition
+// The RAG Service definition (Vector search provider)
 service RagService {
   // Retrieves relevant documents based on a query and a set of allowed asset IDs
   rpc RetrieveDocuments (RetrievalRequest) returns (RetrievalResponse);
+}
+
+// The Chat Service definition (LLM reasoning provider)
+service ChatService {
+  // Generates a RAG-augmented answer for a given query
+  rpc GenerateAnswer (ChatRequest) returns (ChatResponse);
 }
 
 // Request containing the user query and the pre-filtered allowed asset IDs
@@ -36,4 +42,18 @@ message Document {
   map<string, string> metadata = 2;
   // Optional reranker score
   float score = 3; 
+}
+
+// Request for generating an augmented answer
+message ChatRequest {
+  string query = 1;
+  string user_id = 2;
+  repeated string allowed_asset_ids = 3;
+  repeated Message context = 4;
+}
+
+// Response for generate answer
+message ChatResponse {
+  string answer = 1;
+  repeated Document chunks = 2;
 }

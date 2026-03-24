@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { apiFetch } from '../src/lib/api';
 
 interface SyncJob {
   ingestion_job_id: string;
@@ -20,15 +21,13 @@ export default function KnowledgeBaseSync() {
     setError(null);
 
     try {
-      const token = localStorage.getItem('accessToken');
-      const res = await fetch('http://localhost:4000/api/knowledge-base/sync', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` }
+      interface SyncResponse { data: { ingestionJobId: string; status: string } }
+      const res = await apiFetch<SyncResponse>('/knowledge-base/sync', {
+        method: 'POST'
       });
 
-      const data = await res.json();
-
-      if (data.success) {
+      if (res.success) {
+        const data = res.data;
         setLastSync({
           ingestion_job_id: data.data.ingestionJobId,
           status: data.data.status,
@@ -38,10 +37,11 @@ export default function KnowledgeBaseSync() {
         });
         alert('Knowledge base sync started successfully!');
       } else {
-        setError(data.message);
+        setError(res.error || 'Unknown error');
       }
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      const e = err as Error;
+      setError(e.message);
     } finally {
       setSyncing(false);
     }

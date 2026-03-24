@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import { apiFetch, getWebSocketUrl } from '../src/lib/api';
 
 interface Message {
   id: string;
@@ -29,7 +30,7 @@ export default function ChatInterface({ orgId }: { orgId: string }) {
     if (!token) return;
 
     // Connect to WebSocket
-    const ws = new WebSocket(`ws://localhost:3002/ws/task-status?token=${token}`);
+    const ws = new WebSocket(getWebSocketUrl('/ws/task-status'));
     wsRef.current = ws;
 
     ws.onopen = () => {
@@ -89,7 +90,6 @@ export default function ChatInterface({ orgId }: { orgId: string }) {
   const sendMessage = async () => {
     if (!input.trim()) return;
 
-    const token = localStorage.getItem('accessToken');
     const userMsg: Message = {
       id: Math.random().toString(36),
       role: 'user',
@@ -101,19 +101,18 @@ export default function ChatInterface({ orgId }: { orgId: string }) {
     setInput('');
 
     try {
-      const res = await fetch('http://localhost:3001/api/chat', {
+      interface ChatResponse { sessionId?: string; taskId: string }
+      const res = await apiFetch<ChatResponse>('/chat', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
+        apiType: 'CHAT',
         body: JSON.stringify({
           prompt: input,
           sessionId: sessionId
         })
       });
 
-      const data = await res.json();
+      if (!res.success) throw new Error(res.error);
+      const data = res.data;
       if (data.sessionId && !sessionId) {
         setSessionId(data.sessionId);
         // Subscribe to this session on the WS

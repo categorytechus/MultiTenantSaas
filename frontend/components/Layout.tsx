@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, ReactNode } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import { apiFetch } from '../src/lib/api';
 
 interface Org { id: string; name: string; slug: string; role: string; }
 interface User { id: string; email: string; full_name?: string; }
@@ -42,15 +43,18 @@ export default function Layout({ children }: LayoutProps) {
       if (!token) { router.push('/auth/signin'); return; }
       try {
         const [uRes, oRes] = await Promise.all([
-          fetch('http://localhost:4000/api/auth/me', { headers: { Authorization: `Bearer ${token}` } }),
-          fetch('http://localhost:4000/api/organizations', { headers: { Authorization: `Bearer ${token}` } }),
+          apiFetch<{ data: User }>('/auth/me'),
+          apiFetch<{ data: Org[] }>('/organizations'),
         ]);
-        const uData = await uRes.json();
-        const oData = await oRes.json();
-        if (!uData.success) throw new Error('Unauthorized');
-        setUser(uData.data);
-        if (oData.success && oData.data.length > 0) { setOrgs(oData.data); setCur(oData.data[0]); }
-      } catch { router.push('/auth/signin'); }
+        if (!uRes.success) throw new Error('Unauthorized');
+        setUser(uRes.data.data);
+        if (oRes.success && oRes.data.data.length > 0) { 
+          setOrgs(oRes.data.data); 
+          setCur(oRes.data.data[0]); 
+        }
+      } catch { 
+        router.push('/auth/signin'); 
+      }
       finally { setLoading(false); }
     })();
   }, [router]);
@@ -60,16 +64,14 @@ export default function Layout({ children }: LayoutProps) {
     setSwitching(true);
     const token = localStorage.getItem('accessToken');
     try {
-      const res = await fetch('http://localhost:4000/api/organizations/switch', {
+      const res = await apiFetch<{ data: { accessToken: string, refreshToken: string, organization: { role: string } } }>('/organizations/switch', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ organizationId: org.id }),
       });
-      const data = await res.json();
-      if (data.success) {
-        localStorage.setItem('accessToken', data.data.accessToken);
-        localStorage.setItem('refreshToken', data.data.refreshToken);
-        setCur({ ...org, role: data.data.organization.role });
+      if (res.success) {
+        localStorage.setItem('accessToken', res.data.data.accessToken);
+        localStorage.setItem('refreshToken', res.data.data.refreshToken);
+        setCur({ ...org, role: res.data.data.organization.role });
         window.location.reload(); // Refresh to update permissions
       }
     } finally { setSwitching(false); setOpen(false); }

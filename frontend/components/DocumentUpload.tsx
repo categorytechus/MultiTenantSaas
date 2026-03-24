@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, ChangeEvent, DragEvent } from 'react';
+import { apiFetch } from '../src/lib/api';
 
 interface UploadProps {
   onUploadComplete?: (document: Record<string, unknown>) => void;
@@ -95,15 +96,9 @@ export default function DocumentUpload({ onUploadComplete }: UploadProps) {
     setError('');
 
     try {
-      const token = localStorage.getItem('accessToken');
-
       // Step 1: Get presigned URL
-      const presignedRes = await fetch('http://localhost:4000/api/documents/presigned-url', {
+      const presignedRes = await apiFetch('/documents/presigned-url', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
         body: JSON.stringify({
           filename: file.name,
           contentType: file.type,
@@ -112,11 +107,10 @@ export default function DocumentUpload({ onUploadComplete }: UploadProps) {
         }),
       });
 
-      const presignedData = await presignedRes.json();
-
-      if (!presignedData.success) {
-        throw new Error(presignedData.message);
+      if (!presignedRes.success) {
+        throw new Error(presignedRes.error);
       }
+      const presignedData = presignedRes.data as any;
 
       const { uploadUrl, s3Key } = presignedData.data;
 
@@ -133,12 +127,8 @@ export default function DocumentUpload({ onUploadComplete }: UploadProps) {
       xhr.addEventListener('load', async () => {
         if (xhr.status === 200) {
           // Step 3: Save metadata to database
-          const metadataRes = await fetch('http://localhost:4000/api/documents', {
+          const metadataRes = await apiFetch('/documents', {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`,
-            },
             body: JSON.stringify({
               filename: file.name,
               s3Key,
@@ -149,19 +139,17 @@ export default function DocumentUpload({ onUploadComplete }: UploadProps) {
             }),
           });
 
-          const metadataData = await metadataRes.json();
-
-          if (metadataData.success) {
+          if (metadataRes.success) {
             setProgress(100);
             setTimeout(() => {
               setFile(null);
               setProgress(0);
               setDescription('');
               setUploading(false);
-              onUploadComplete?.(metadataData.data);
+              onUploadComplete?.((metadataRes.data as any).data);
             }, 500);
           } else {
-            throw new Error(metadataData.message);
+            throw new Error(metadataRes.error);
           }
         } else {
           throw new Error('Upload failed');

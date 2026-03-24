@@ -3,13 +3,14 @@
 import { useState, useEffect } from 'react';
 import Layout from '../../components/Layout';
 import KnowledgeBaseSync from '../../components/KnowledgeBaseSync';
+import { apiFetch } from '../../src/lib/api';
 
 interface Document {
   id: string;
   filename: string;
   file_size: number;
   mime_type: string;
-  tags: any;
+  tags: Record<string, string>;
   status: string;
   created_at: string;
   upload_source?: string;
@@ -63,12 +64,10 @@ export default function DocumentsPage() {
 
   const fetchDocuments = async () => {
     try {
-      const token = localStorage.getItem('accessToken');
-      const res = await fetch('http://localhost:4000/api/documents', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const data = await res.json();
-      if (data.success) setDocuments(data.data);
+      const res = await apiFetch<{ data: Document[] }>('/documents');
+      if (res.success) {
+        setDocuments(res.data.data);
+      }
     } catch (error) {
       console.error('Error fetching documents:', error);
     } finally {
@@ -107,7 +106,6 @@ export default function DocumentsPage() {
   const handleUpload = async () => {
     if (!selectedFile) return;
 
-    // Validate metadata
     if (!metadata.userId || !metadata.docType) {
       alert('User ID and Document Type are required');
       return;
@@ -121,9 +119,6 @@ export default function DocumentsPage() {
     setUploading(true);
 
     try {
-      const token = localStorage.getItem('accessToken');
-
-      // Prepare S3 tags
       const s3Tags = {
         'user-id': metadata.userId,
         'doc-type': metadata.docType,
@@ -133,9 +128,8 @@ export default function DocumentsPage() {
       };
 
       // Step 1: Get presigned URL
-      const urlRes = await fetch('http://localhost:4000/api/documents/presigned-url', {
+      const urlRes = await apiFetch<{ data: { uploadUrl: string, s3Key: string } }>('/documents/presigned-url', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           filename: selectedFile.name,
           contentType: selectedFile.type,
@@ -144,11 +138,10 @@ export default function DocumentsPage() {
         }),
       });
 
-      const urlData = await urlRes.json();
-      if (!urlData.success) throw new Error(urlData.message);
+      if (!urlRes.success) throw new Error(urlRes.error);
 
-      // Step 2: Upload to S3
-      const uploadRes = await fetch(urlData.data.uploadUrl, {
+      // Step 2: Upload to S3 (Direct fetch as it's an external signed URL)
+      const uploadRes = await fetch(urlRes.data.data.uploadUrl, {
         method: 'PUT',
         headers: { 'Content-Type': selectedFile.type },
         body: selectedFile,
@@ -157,12 +150,11 @@ export default function DocumentsPage() {
       if (!uploadRes.ok) throw new Error('Upload to S3 failed');
 
       // Step 3: Save metadata
-      const metadataRes = await fetch('http://localhost:4000/api/documents', {
+      const metadataRes = await apiFetch('/documents', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           filename: selectedFile.name,
-          s3Key: urlData.data.s3Key,
+          s3Key: urlRes.data.data.s3Key,
           fileSize: selectedFile.size,
           mimeType: selectedFile.type,
           tags: s3Tags,
@@ -170,7 +162,7 @@ export default function DocumentsPage() {
         }),
       });
 
-      if (!metadataRes.ok) throw new Error('Failed to save document metadata');
+      if (!metadataRes.success) throw new Error(metadataRes.error);
 
       setShowUploadModal(false);
       setSelectedFile(null);
@@ -184,8 +176,9 @@ export default function DocumentsPage() {
       });
       fetchDocuments();
       alert('Document uploaded successfully!');
-    } catch (error: any) {
-      alert('Upload failed: ' + error.message);
+    } catch (error: unknown) {
+      const e = error as Error;
+      alert('Upload failed: ' + e.message);
     } finally {
       setUploading(false);
     }
@@ -193,13 +186,9 @@ export default function DocumentsPage() {
 
   const handleView = async (docId: string) => {
     try {
-      const token = localStorage.getItem('accessToken');
-      const res = await fetch(`http://localhost:4000/api/documents/${docId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const data = await res.json();
-      if (data.success && data.data.downloadUrl) {
-        window.open(data.data.downloadUrl, '_blank');
+      const res = await apiFetch<{ data: { downloadUrl: string } }>(`/documents/${docId}`);
+      if (res.success && res.data.data.downloadUrl) {
+        window.open(res.data.data.downloadUrl, '_blank');
       }
     } catch (error) {
       alert('Error viewing document');
@@ -210,13 +199,10 @@ export default function DocumentsPage() {
     if (!confirm('Are you sure you want to delete this document?')) return;
 
     try {
-      const token = localStorage.getItem('accessToken');
-      const res = await fetch(`http://localhost:4000/api/documents/${docId}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` }
+      const res = await apiFetch(`/documents/${docId}`, {
+        method: 'DELETE'
       });
-      const data = await res.json();
-      if (data.success) {
+      if (res.success) {
         setDocuments(documents.filter(doc => doc.id !== docId));
         alert('Document deleted successfully');
       }
@@ -620,6 +606,11 @@ export default function DocumentsPage() {
                           <button className="btn-icon" title="Edit">
                             <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
                               <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+                            </svg>
+                          </button>
+                          <button className="btn-icon" title="Delete" onClick={() => handleDelete(doc.id)}>
+                            <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
                             </svg>
                           </button>
                         </div>

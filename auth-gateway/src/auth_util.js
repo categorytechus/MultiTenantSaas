@@ -8,7 +8,7 @@ const jwt = require('jsonwebtoken');
  * @returns {string} Signed JWT
  */
 exports.createEnrichedToken = (user, orgId, permissions) => {
-    const secret = process.env.JWT_KEY || 'development-secret';
+    const secret = process.env.JWT_KEY || 'dev-secret-key';
 
     const payload = {
         sub: user.id,
@@ -25,7 +25,7 @@ exports.createEnrichedToken = (user, orgId, permissions) => {
 };
 
 exports.verifyToken = (token) => {
-    const secret = process.env.JWT_KEY || 'development-secret';
+    const secret = process.env.JWT_KEY || 'dev-secret-key';
     try {
         return jwt.verify(token, secret);
     } catch (err) {

@@ -1,0 +1,42 @@
+name: Deploy to AWS ECR & K3s
+
+on:
+  push:
+    branches:
+      - dev
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Set up SSH Key for EC2 Deployment
+        run: |
+          # The remote K3s deploy script expects this private key file to exist:
+          echo "${{ secrets.AWS_EC2_SSH_KEY }}" > infrastructure/multi-tenant-saas-key.pem
+          chmod 600 infrastructure/multi-tenant-saas-key.pem
+
+      - name: Initialize Terraform
+        # Ensure terraform is initialized so the makefile terraform queries work
+        run: |
+          cd infrastructure/terraform
+          terraform init
+
+      - name: Build, Push, and Deploy
+        # This will run the ECR push, K8s manifest apply, and DB migrations exactly like your machine
+        run: make redeploy-ecr

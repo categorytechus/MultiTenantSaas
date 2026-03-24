@@ -6,7 +6,7 @@ import { generateTokenPair } from '../utils/jwt';
  * Get user's organizations
  */
 export const getUserOrganizations = async (req: Request, res: Response): Promise<void> => {
-  const userId = (req as any).user?.userId;
+  const userId = (req as any).user?.sub;
 
   try {
     const result = await pool.query(
@@ -42,7 +42,7 @@ export const getUserOrganizations = async (req: Request, res: Response): Promise
  * Returns new JWT tokens with the selected organization
  */
 export const switchOrganization = async (req: Request, res: Response): Promise<void> => {
-  const userId = (req as any).user?.userId;
+  const userId = (req as any).user?.sub;
   const email = (req as any).user?.email;
   const { organizationId } = req.body;
 
@@ -82,9 +82,9 @@ export const switchOrganization = async (req: Request, res: Response): Promise<v
 
     // Generate new tokens with organization context
     const tokens = generateTokenPair({
-      userId,
+      sub: userId,
       email,
-      organizationId,
+      org_id: organizationId,
       permissions,
     });
 
@@ -115,8 +115,8 @@ export const switchOrganization = async (req: Request, res: Response): Promise<v
  * Get current organization details
  */
 export const getCurrentOrganization = async (req: Request, res: Response): Promise<void> => {
-  const userId = (req as any).user?.userId;
-  const organizationId = (req as any).user?.organizationId;
+  const userId = (req as any).user?.sub;
+  const organizationId = (req as any).user?.org_id;
 
   if (!organizationId) {
     res.status(400).json({

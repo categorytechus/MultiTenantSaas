@@ -10,8 +10,8 @@ export const testAdminOnly = async (req: Request, res: Response): Promise<void> 
     success: true,
     message: 'You have admin access!',
     data: {
-      userId: user.userId,
-      organizationId: user.organizationId,
+      userId: user.sub,
+      organizationId: user.org_id,
       permissions: user.permissions,
     },
   });
@@ -27,8 +27,8 @@ export const testRunAgent = async (req: Request, res: Response): Promise<void> =
     success: true,
     message: 'You can run agents!',
     data: {
-      userId: user.userId,
-      organizationId: user.organizationId,
+      userId: user.sub,
+      organizationId: user.org_id,
       agentType: req.body.agentType || 'counselor',
     },
   });

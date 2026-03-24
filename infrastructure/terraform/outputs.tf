@@ -64,3 +64,13 @@ output "ecr_registry_url" {
   value       = split("/", aws_ecr_repository.auth_service.repository_url)[0]
   description = "ECR registry URL (account.dkr.ecr.region.amazonaws.com)"
 }
+
+output "chat_service_repository_url" {
+  value       = aws_ecr_repository.chat_service.repository_url
+  description = "ECR repository URL for chat-service"
+}
+
+output "rag_service_repository_url" {
+  value       = aws_ecr_repository.rag_service.repository_url
+  description = "ECR repository URL for rag-service"
+}

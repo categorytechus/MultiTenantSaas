@@ -19,6 +19,8 @@ FRONTEND_REPO := $(shell cd infrastructure/terraform && $(TERRAFORM_BIN) output 
 AGENT1_REPO := $(shell cd infrastructure/terraform && $(TERRAFORM_BIN) output -raw worker_agent1_repository_url)
 ORCHESTRATOR_REPO := $(shell cd infrastructure/terraform && $(TERRAFORM_BIN) output -raw orchestrator_repository_url)
 STATUS_REPO := $(shell cd infrastructure/terraform && $(TERRAFORM_BIN) output -raw task_status_service_repository_url)
+CHAT_REPO := $(shell cd infrastructure/terraform && $(TERRAFORM_BIN) output -raw chat_service_repository_url)
+RAG_REPO := $(shell cd infrastructure/terraform && $(TERRAFORM_BIN) output -raw rag_service_repository_url)
 KUBECONFIG_FILE := $(subst \,/,$(HOME))/.kube/config-multi-tenant-saas
 SSH_KEY := infrastructure/multi-tenant-saas-key.pem
 
@@ -56,9 +58,11 @@ terraform-apply:
 docker-build:
 	docker build -t auth-service:latest ./auth
 	docker build -t auth-gateway:latest ./auth-gateway
-	docker build -t worker-agent1:latest -f ./agents/worker_agent1/Dockerfile ./agents
+	docker build -t worker-agent1:latest -f ./agents/worker_agent1/Dockerfile .
 	docker build -t orchestrator:latest -f ./agents/orchestrator/Dockerfile .
 	docker build -t frontend:latest ./frontend
+	docker build -t chat-service:latest -f ./chat-service/Dockerfile .
+	docker build -t rag-service:latest -f ./rag/Dockerfile .
 
 ecr-login:
 	aws ecr get-login-password --region $(REGION) | docker login --username AWS --password-stdin $(REGISTRY)
@@ -68,15 +72,18 @@ ecr-push: ecr-login
 	docker build -t $(GATEWAY_REPO):latest ./auth-gateway
 	docker build -t $(FRONTEND_REPO):latest ./frontend
 	docker build -t $(STATUS_REPO):latest ./task-status
-	docker build -t $(AGENT1_REPO):latest -f ./agents/worker_agent1/Dockerfile ./agents
+	docker build -t $(AGENT1_REPO):latest -f ./agents/worker_agent1/Dockerfile .
 	docker build -t $(ORCHESTRATOR_REPO):latest -f ./agents/orchestrator/Dockerfile .
+	docker build -t $(CHAT_REPO):latest -f ./chat-service/Dockerfile .
+	docker build -t $(RAG_REPO):latest -f ./rag/Dockerfile .
 	docker push $(AUTH_REPO):latest
 	docker push $(GATEWAY_REPO):latest
 	docker push $(FRONTEND_REPO):latest
 	docker push $(STATUS_REPO):latest
 	docker push $(AGENT1_REPO):latest
 	docker push $(ORCHESTRATOR_REPO):latest
-
+	docker push $(CHAT_REPO):latest
+	docker push $(RAG_REPO):latest
 
 docker-load:
 	docker save auth-service:latest -o /tmp/auth-service.tar

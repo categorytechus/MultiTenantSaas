@@ -2,12 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import Layout from '../../components/Layout';
+import { apiFetch } from '../../src/lib/api';
 
 interface WebUrl {
   id: string;
   url: string;
   title: string;
-  tags: any;
+  tags: Record<string, string>;
   status: string;
   created_at: string;
   processing_speed?: string;
@@ -86,8 +87,6 @@ export default function WebUrlPage() {
     setUploading(true);
 
     try {
-      const token = localStorage.getItem('accessToken');
-
       // Prepare tags
       const tags = {
         'user-id': metadata.userId,
@@ -97,10 +96,9 @@ export default function WebUrlPage() {
         ...(metadata.specificUser && { 'specific-user': metadata.specificUser })
       };
 
-      // Save URL with metadata (implement backend endpoint)
-      const res = await fetch('http://localhost:4000/api/web-urls', {
+      // Save URL with metadata
+      const res = await apiFetch('/web-urls', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           url: inputUrl,
           tags,
@@ -108,7 +106,7 @@ export default function WebUrlPage() {
         }),
       });
 
-      if (!res.ok) throw new Error('Failed to save URL');
+      if (!res.success) throw new Error(res.error);
 
       setShowUploadModal(false);
       setInputUrl('');
@@ -121,8 +119,9 @@ export default function WebUrlPage() {
         description: ''
       });
       alert('URL saved successfully!');
-    } catch (error: any) {
-      alert('Upload failed: ' + error.message);
+    } catch (error: unknown) {
+      const e = error as Error;
+      alert('Upload failed: ' + e.message);
     } finally {
       setUploading(false);
     }
@@ -136,12 +135,10 @@ export default function WebUrlPage() {
     if (!confirm('Are you sure you want to delete this URL?')) return;
     
     try {
-      const token = localStorage.getItem('accessToken');
-      const res = await fetch(`http://localhost:4000/api/web-urls/${urlId}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` }
+      const res = await apiFetch(`/web-urls/${urlId}`, {
+        method: 'DELETE'
       });
-      if (res.ok) {
+      if (res.success) {
         setUrls(urls.filter(u => u.id !== urlId));
         alert('URL deleted successfully');
       }

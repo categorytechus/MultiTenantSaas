@@ -19,8 +19,8 @@ import { autoSyncAfterUpload } from './knowledgebase.controller';
 export async function generateUploadUrl(req: Request, res: Response) {
   try {
     const { filename, contentType, fileSize, tags } = req.body;
-    const userId = (req as any).user.userId;
-    const organizationId = (req as any).user.organizationId;
+    const userId = (req as any).user.sub;
+    const organizationId = (req as any).user.org_id;
 
     // Validation
     if (!filename || !contentType || !fileSize) {
@@ -89,8 +89,8 @@ export async function generateUploadUrl(req: Request, res: Response) {
 export async function createDocument(req: Request, res: Response) {
   try {
     const { filename, s3Key, fileSize, mimeType, tags, description } = req.body;
-    const userId = (req as any).user.userId;
-    const organizationId = (req as any).user.organizationId;
+    const userId = (req as any).user.sub;
+    const organizationId = (req as any).user.org_id;
 
     // Validation
     if (!filename || !s3Key || !fileSize || !mimeType) {
@@ -176,7 +176,7 @@ export async function createDocument(req: Request, res: Response) {
  */
 export async function listDocuments(req: Request, res: Response) {
   try {
-    const organizationId = (req as any).user.organizationId;
+    const organizationId = (req as any).user.org_id;
     const { tag, status, limit = 50, offset = 0 } = req.query;
 
     let query = `
@@ -249,7 +249,7 @@ export async function listDocuments(req: Request, res: Response) {
 export async function getDocument(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    const organizationId = (req as any).user.organizationId;
+    const organizationId = (req as any).user.org_id;
 
     const query = `
       SELECT * FROM documents
@@ -296,7 +296,7 @@ export async function updateDocument(req: Request, res: Response) {
   try {
     const { id } = req.params;
     const { tags, description, status } = req.body;
-    const organizationId = (req as any).user.organizationId;
+    const organizationId = (req as any).user.org_id;
 
     const updates: string[] = [];
     const values: any[] = [];
@@ -400,7 +400,7 @@ export async function updateDocument(req: Request, res: Response) {
 export async function deleteDocument(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    const organizationId = (req as any).user.organizationId;
+    const organizationId = (req as any).user.org_id;
 
     // Get document info
     const query = `

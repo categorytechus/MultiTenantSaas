@@ -19,6 +19,8 @@ STATUS_REPO=$(cd "$TF_DIR" && "$TF_BIN" output -raw task_status_service_reposito
 FRONTEND_REPO=$(cd "$TF_DIR" && "$TF_BIN" output -raw frontend_repository_url)
 AGENT1_REPO=$(cd "$TF_DIR" && "$TF_BIN" output -raw worker_agent1_repository_url)
 ORCH_REPO=$(cd "$TF_DIR" && "$TF_BIN" output -raw orchestrator_repository_url)
+CHAT_REPO=$(cd "$TF_DIR" && "$TF_BIN" output -raw chat_service_repository_url)
+RAG_REPO=$(cd "$TF_DIR" && "$TF_BIN" output -raw rag_service_repository_url)
 
 echo "    auth-service:         $AUTH_REPO:latest"
 echo "    auth-gateway:         $GATEWAY_REPO:latest"
@@ -26,6 +28,8 @@ echo "    task-status-service:  $STATUS_REPO:latest"
 echo "    frontend:             $FRONTEND_REPO:latest"
 echo "    worker-agent1:        $AGENT1_REPO:latest"
 echo "    orchestrator:         $ORCH_REPO:latest"
+echo "    chat-service:         $CHAT_REPO:latest"
+echo "    rag-service:          $RAG_REPO:latest"
 
 # Create temp directory for rendered manifests
 TMPDIR=$(mktemp -d)
@@ -35,7 +39,7 @@ echo ""
 echo "==> Rendering K8s manifests with ECR image URLs..."
 
 # Substitute placeholders and write to temp files
-for manifest in auth-service.yaml auth-gateway.yaml task-status-service.yaml frontend.yaml worker-agent1.yaml orchestrator.yaml; do
+for manifest in auth-service.yaml auth-gateway.yaml task-status-service.yaml frontend.yaml worker-agent1.yaml orchestrator.yaml chat-service.yaml rag-service.yaml; do
     if [ ! -f "$K8S_DIR/$manifest" ]; then
         echo "    Skipping missing manifest: $manifest"
         continue
@@ -47,6 +51,8 @@ for manifest in auth-service.yaml auth-gateway.yaml task-status-service.yaml fro
         -e "s|__ECR_FRONTEND_IMAGE__|${FRONTEND_REPO}:latest|g" \
         -e "s|__ECR_AGENT1_IMAGE__|${AGENT1_REPO}:latest|g" \
         -e "s|__ECR_ORCHESTRATOR_IMAGE__|${ORCH_REPO}:latest|g" \
+        -e "s|__ECR_CHAT_IMAGE__|${CHAT_REPO}:latest|g" \
+        -e "s|__ECR_RAG_IMAGE__|${RAG_REPO}:latest|g" \
         "$K8S_DIR/$manifest" > "$TMPDIR/$manifest"
     echo "    Rendered: $manifest"
 done

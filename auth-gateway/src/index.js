@@ -3,16 +3,23 @@ const { verifyToken, createEnrichedToken } = require('./auth_util');
 const { Pool } = require('pg');
 const amqp = require('amqplib');
 const http = require('http');
+const cors = require('cors');
 
 const app = express();
 app.use(express.json());
+app.use(cors());
 
 const PORT = process.env.PORT || 3001;
-const DB_URL = process.env.DATABASE_URL || 'postgresql://admin:admin@localhost:5432/multitenant_saas';
 const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://guest:guest@rabbitmq:5672';
 const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || 'http://auth-service:4000';
 
-const pool = new Pool({ connectionString: DB_URL });
+const pool = new Pool({
+    host: process.env.DB_HOST || 'postgres',
+    user: process.env.DB_USER || 'postgres',
+    password: process.env.DB_PASSWORD || 'postgres',
+    database: process.env.DB_NAME || 'multitenant_saas',
+    port: parseInt(process.env.DB_PORT || '5432')
+});
 
 let channel;
 async function initMQ() {
@@ -60,7 +67,13 @@ const forwardToAuthService = (req, res) => {
         proxyRes.pipe(res, { end: true });
     });
 
-    req.pipe(proxyReq, { end: true });
+    if (req.body && Object.keys(req.body).length > 0) {
+        const bodyStr = JSON.stringify(req.body);
+        options.headers['content-length'] = Buffer.byteLength(bodyStr);
+        options.headers['content-type'] = 'application/json';
+        proxyReq.write(bodyStr);
+    }
+    proxyReq.end();
     
     proxyReq.on('error', (err) => {
         console.error('Proxy error:', err);
@@ -77,6 +90,9 @@ app.use('/api/orgs', (req, res) => {
     forwardToAuthService(req, res);
 });
 app.use('/api/users', forwardToAuthService);
+app.use('/api/documents', forwardToAuthService);
+app.use('/api/web-urls', forwardToAuthService);
+app.use('/api/knowledge-base', forwardToAuthService);
 
 // --- Asynchronous Agentic Path (Task Submission) ---
 async function submitTask(req, res, actionType, requiredPermission) {
@@ -89,6 +105,7 @@ async function submitTask(req, res, actionType, requiredPermission) {
     }
 
     const { sub: userId, org_id: orgId } = decoded;
+    console.log(`Submitting task for user=${userId} org=${orgId}`);
     const { prompt, sessionId } = req.body;
     const taskId = require('crypto').randomUUID();
 

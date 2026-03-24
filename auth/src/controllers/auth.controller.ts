@@ -51,7 +51,7 @@ export const signup = async (req: Request, res: Response): Promise<void> => {
 
     // Generate tokens
     const tokens = generateTokenPair({
-      userId,
+      sub: userId,
       email: email.toLowerCase(),
     });
 
@@ -95,6 +95,7 @@ export const signin = async (req: Request, res: Response): Promise<void> => {
     );
 
     if (result.rows.length === 0) {
+      console.warn(`Sign-in failed: User not found for email ${email}`);
       res.status(401).json({
         success: false,
         message: 'Invalid email or password',
@@ -103,23 +104,25 @@ export const signin = async (req: Request, res: Response): Promise<void> => {
     }
 
     const user = result.rows[0];
+    console.log(`User found: ${user.email}, verifying password...`);
+
+    // Verify password
+    const isPasswordValid = await comparePassword(password, user.password_hash);
+
+    if (!isPasswordValid) {
+      console.warn(`Sign-in failed: Invalid password for user ${email}`);
+      res.status(401).json({
+        success: false,
+        message: 'Invalid email or password',
+      });
+      return;
+    }
 
     // Check if user is active
     if (user.status !== 'active') {
       res.status(403).json({
         success: false,
         message: 'Account is inactive',
-      });
-      return;
-    }
-
-    // Verify password
-    const isPasswordValid = await comparePassword(password, user.password_hash);
-
-    if (!isPasswordValid) {
-      res.status(401).json({
-        success: false,
-        message: 'Invalid email or password',
       });
       return;
     }
@@ -153,9 +156,9 @@ export const signin = async (req: Request, res: Response): Promise<void> => {
 
     // Generate tokens
     const tokens = generateTokenPair({
-      userId: user.id,
+      sub: user.id,
       email: user.email,
-      organizationId,
+      org_id: organizationId,
       permissions,
     });
 
@@ -189,7 +192,7 @@ export const signin = async (req: Request, res: Response): Promise<void> => {
  * Sign out (invalidate session)
  */
 export const signout = async (req: Request, res: Response): Promise<void> => {
-  const userId = (req as any).user?.userId;
+  const userId = (req as any).user?.sub;
 
   try {
     // Delete all sessions for this user
@@ -212,7 +215,7 @@ export const signout = async (req: Request, res: Response): Promise<void> => {
  * Get current user info
  */
 export const getCurrentUser = async (req: Request, res: Response): Promise<void> => {
-  const userId = (req as any).user?.userId;
+  const userId = (req as any).user?.sub;
 
   try {
     const result = await pool.query(
@@ -255,7 +258,7 @@ export const refreshToken = async (req: Request, res: Response): Promise<void> =
     // Check if session exists
     const sessionResult = await pool.query(
       'SELECT id FROM sessions WHERE user_id = $1 AND token_hash = $2 AND expires_at > NOW()',
-      [decoded.userId, refreshToken.substring(0, 50)]
+      [decoded.sub, refreshToken.substring(0, 50)]
     );
 
     if (sessionResult.rows.length === 0) {
@@ -268,9 +271,9 @@ export const refreshToken = async (req: Request, res: Response): Promise<void> =
 
     // Generate new tokens
     const tokens = generateTokenPair({
-      userId: decoded.userId,
+      sub: decoded.sub,
       email: decoded.email,
-      organizationId: decoded.organizationId,
+      org_id: decoded.org_id,
       permissions: decoded.permissions,
     });
 
@@ -409,7 +412,7 @@ export const confirmPasswordReset = async (req: Request, res: Response): Promise
  * Change password (for authenticated users)
  */
 export const changePassword = async (req: Request, res: Response): Promise<void> => {
-  const userId = (req as any).user?.userId;
+  const userId = (req as any).user?.sub;
   const { currentPassword, newPassword } = req.body;
 
   try {
@@ -484,7 +487,7 @@ export const changePassword = async (req: Request, res: Response): Promise<void>
  * Update user profile
  */
 export const updateProfile = async (req: Request, res: Response): Promise<void> => {
-  const userId = (req as any).user?.userId;
+  const userId = (req as any).user?.sub;
   const { name, avatar_url } = req.body;
 
   try {
@@ -556,7 +559,7 @@ export const googleCallback = async (req: Request, res: Response): Promise<void>
 
     // Generate tokens
     const tokens = generateTokenPair({
-      userId: user.id,
+      sub: user.id,
       email: user.email,
     });
 

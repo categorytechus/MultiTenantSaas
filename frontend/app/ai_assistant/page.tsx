@@ -2,11 +2,13 @@
 
 import { useState, useRef, useEffect } from 'react';
 import Layout from '../../components/Layout';
+import { apiFetch, getWebSocketUrl } from '../../src/lib/api';
 
 interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  status?: 'pending' | 'running' | 'completed' | 'failed';
   timestamp: Date;
 }
 
@@ -20,7 +22,9 @@ export default function AIAssistantPage() {
     }
   ]);
   const [input, setInput] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [wsConnected, setWsConnected] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -31,31 +35,112 @@ export default function AIAssistantPage() {
     scrollToBottom();
   }, [messages]);
 
-  const handleSend = async () => {
-    if (!input.trim()) return;
+  // WebSocket Connection
+  useEffect(() => {
+    const token = localStorage.getItem('accessToken');
+    if (!token) return;
+
+    try {
+        const ws = new WebSocket(getWebSocketUrl('/ws/task-status'));
+        wsRef.current = ws;
+
+        ws.onopen = () => {
+            console.log('AI Assistant WebSocket connected');
+            setWsConnected(true);
+        };
+
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            console.log('WS Message:', data);
+
+            if (data.type === 'task-status') {
+                const { task_id, status, data: payload, session_id } = data.data;
+                
+                // Update existing message or add new one
+                setMessages(prev => {
+                    const existing = prev.find(m => m.id === task_id);
+                    if (existing) {
+                        return prev.map(msg => {
+                            if (msg.id === task_id) {
+                                return {
+                                    ...msg,
+                                    status: status as any,
+                                    content: status === 'completed' ? (payload?.answer || payload?.message || msg.content) : msg.content
+                                };
+                            }
+                            return msg;
+                        });
+                    } else if (status === 'completed' || status === 'running') {
+                        // Check if we maybe need to add it (though usually we add placeholder on send)
+                        return prev; 
+                    }
+                    return prev;
+                });
+            }
+        };
+
+        ws.onclose = () => setWsConnected(false);
+
+        return () => {
+            ws.close();
+        };
+    } catch (err) {
+        console.error('WebSocket connection error:', err);
+    }
+  }, []);
+
+  const handleSend = async (overrideInput?: string) => {
+    const textToSend = overrideInput || input;
+    if (!textToSend.trim()) return;
 
     const userMessage: Message = {
-      id: Date.now().toString(),
+      id: Math.random().toString(36),
       role: 'user',
-      content: input,
+      content: textToSend,
       timestamp: new Date()
     };
 
     setMessages(prev => [...prev, userMessage]);
-    setInput('');
-    setIsTyping(true);
+    if (!overrideInput) setInput('');
 
-    // Simulate AI response (replace with actual API call)
-    setTimeout(() => {
-      const aiMessage: Message = {
-        id: (Date.now() + 1).toString(),
+    try {
+      const res = await apiFetch<any>('/chat', {
+        method: 'POST',
+        apiType: 'CHAT',
+        body: JSON.stringify({
+          prompt: textToSend,
+          sessionId: sessionId
+        })
+      });
+
+      if (!res.success) throw new Error(res.error);
+      
+      const { task_id, session_id } = res.data;
+      if (session_id && !sessionId) {
+        setSessionId(session_id);
+        // Suscribe to session if needed (backend usually handles auto-subscribe for connected user)
+      }
+
+      // Add thinking placeholder
+      const aiPlaceholder: Message = {
+        id: task_id,
         role: 'assistant',
-        content: 'I\'m currently in demo mode. To enable full AI capabilities, please integrate with your preferred LLM provider (OpenAI, Anthropic, etc.). I can help you with:\n\n• Document management and search\n• Workflow automation\n• Data analysis\n• General assistance',
+        content: 'thinking...',
+        status: 'pending',
         timestamp: new Date()
       };
-      setMessages(prev => [...prev, aiMessage]);
-      setIsTyping(false);
-    }, 1500);
+      setMessages(prev => [...prev, aiPlaceholder]);
+
+    } catch (err: any) {
+       console.error('Chat error:', err);
+       const errorMsg: Message = {
+         id: Date.now().toString(),
+         role: 'assistant',
+         content: `Sorry, I encountered an error: ${err.message}`,
+         timestamp: new Date()
+       };
+       setMessages(prev => [...prev, errorMsg]);
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -83,6 +168,9 @@ export default function AIAssistantPage() {
           padding: 20px 32px;
           background: white;
           border-bottom: 1px solid #ebebeb;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
         }
         .chat-title {
           font-size: 20px;
@@ -102,10 +190,17 @@ export default function AIAssistantPage() {
           justify-content: center;
           color: white;
         }
-        .chat-subtitle {
-          font-size: 13px;
+        .ws-status {
+          font-size: 11px;
+          display: flex;
+          align-items: center;
+          gap: 6px;
           color: #666;
-          margin-top: 4px;
+        }
+        .status-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
         }
 
         .messages-container {
@@ -120,7 +215,7 @@ export default function AIAssistantPage() {
         .message {
           display: flex;
           gap: 12px;
-          max-width: 70%;
+          max-width: 75%;
           animation: slideIn 0.3s ease;
         }
         @keyframes slideIn {
@@ -159,8 +254,8 @@ export default function AIAssistantPage() {
         }
         .message-bubble {
           padding: 12px 16px;
-          border-radius: 12px;
-          font-size: 14px;
+          border-radius: 14px;
+          font-size: 14.5px;
           line-height: 1.5;
           white-space: pre-wrap;
         }
@@ -169,6 +264,7 @@ export default function AIAssistantPage() {
           border: 1px solid #ebebeb;
           color: #1a1a1a;
           border-bottom-left-radius: 4px;
+          box-shadow: 0 1px 2px rgba(0,0,0,0.05);
         }
         .message.user .message-bubble {
           background: linear-gradient(135deg, #8b5cf6 0%, #3b82f6 100%);
@@ -177,7 +273,7 @@ export default function AIAssistantPage() {
         }
         .message-time {
           font-size: 11px;
-          color: #666;
+          color: #9a9a9a;
           margin-top: 4px;
           padding: 0 4px;
         }
@@ -190,31 +286,9 @@ export default function AIAssistantPage() {
           gap: 12px;
           max-width: 70%;
         }
-        .typing-dots {
-          background: white;
-          border: 1px solid #ebebeb;
-          padding: 12px 20px;
-          border-radius: 12px;
-          border-bottom-left-radius: 4px;
-          display: flex;
-          gap: 6px;
-        }
-        .typing-dot {
-          width: 8px;
-          height: 8px;
-          background: #666;
-          border-radius: 50%;
-          animation: typing 1.4s infinite;
-        }
-        .typing-dot:nth-child(2) { animation-delay: 0.2s; }
-        .typing-dot:nth-child(3) { animation-delay: 0.4s; }
-        @keyframes typing {
-          0%, 60%, 100% { transform: translateY(0); }
-          30% { transform: translateY(-10px); }
-        }
 
         .input-container {
-          padding: 20px 32px 24px;
+          padding: 20px 32px 28px;
           background: white;
           border-top: 1px solid #ebebeb;
         }
@@ -222,7 +296,7 @@ export default function AIAssistantPage() {
           display: flex;
           gap: 12px;
           align-items: flex-end;
-          max-width: 900px;
+          max-width: 1000px;
           margin: 0 auto;
         }
         .input-box {
@@ -231,32 +305,31 @@ export default function AIAssistantPage() {
         }
         .input-textarea {
           width: 100%;
-          padding: 14px 16px;
-          border: 1.5px solid #d1d5db;
-          border-radius: 12px;
-          font-family: 'DM Sans', sans-serif;
-          font-size: 14px;
+          padding: 14px 18px;
+          border: 1.5px solid #e5e7eb;
+          border-radius: 14px;
+          font-family: inherit;
+          font-size: 14.5px;
           color: #1a1a1a;
           resize: none;
           outline: none;
           transition: all 0.2s;
           line-height: 1.5;
-          max-height: 120px;
+          max-height: 150px;
+          background: #fcfcfb;
         }
         .input-textarea:focus {
           border-color: #8b5cf6;
-          box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
-        }
-        .input-textarea::placeholder {
-          color: #9a9a9a;
+          background: white;
+          box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.08);
         }
 
         .send-button {
-          width: 48px;
-          height: 48px;
+          width: 50px;
+          height: 50px;
           background: linear-gradient(135deg, #8b5cf6 0%, #3b82f6 100%);
           border: none;
-          border-radius: 12px;
+          border-radius: 14px;
           color: white;
           cursor: pointer;
           display: flex;
@@ -265,55 +338,44 @@ export default function AIAssistantPage() {
           transition: all 0.2s;
           flex-shrink: 0;
         }
-        .send-button:hover {
+        .send-button:hover:not(:disabled) {
           transform: translateY(-2px);
-          box-shadow: 0 8px 20px rgba(139, 92, 246, 0.3);
-        }
-        .send-button:active {
-          transform: translateY(0);
+          box-shadow: 0 8px 20px rgba(139, 92, 246, 0.35);
         }
         .send-button:disabled {
-          opacity: 0.5;
+          opacity: 0.4;
           cursor: not-allowed;
-          transform: none;
-        }
-        .send-button svg {
-          width: 20px;
-          height: 20px;
         }
 
         .quick-actions {
           display: flex;
-          gap: 8px;
-          margin-top: 12px;
+          gap: 10px;
+          margin-top: 14px;
           flex-wrap: wrap;
+          justify-content: center;
         }
         .quick-action {
-          padding: 6px 14px;
-          background: #f5f4f1;
-          border: 1px solid #d1d5db;
-          border-radius: 8px;
-          font-size: 12px;
-          color: #1a1a1a;
+          padding: 7px 16px;
+          background: white;
+          border: 1px solid #e5e7eb;
+          border-radius: 99px;
+          font-size: 12.5px;
+          color: #4b5563;
           cursor: pointer;
           transition: all 0.2s;
+          font-weight: 500;
         }
         .quick-action:hover {
-          background: white;
           border-color: #8b5cf6;
           color: #8b5cf6;
+          background: #f5f3ff;
         }
 
         @media (max-width: 768px) {
-          .message {
-            max-width: 85%;
-          }
-          .messages-container {
-            padding: 16px;
-          }
-          .input-container {
-            padding: 16px;
-          }
+          .chat-header { padding: 16px 20px; }
+          .message { max-width: 85%; }
+          .messages-container { padding: 20px; }
+          .input-container { padding: 16px; }
         }
       `}</style>
 
@@ -327,8 +389,9 @@ export default function AIAssistantPage() {
             </div>
             AI Assistant
           </div>
-          <div className="chat-subtitle">
-            Ask me anything about your documents, workflows, or the platform
+          <div className="ws-status">
+             <div className="status-dot" style={{ background: wsConnected ? '#10b981' : '#ef4444' }}></div>
+             {wsConnected ? 'System Online' : 'Connecting to AI...'}
           </div>
         </div>
 
@@ -339,25 +402,17 @@ export default function AIAssistantPage() {
                 {message.role === 'assistant' ? '✨' : 'U'}
               </div>
               <div className="message-content">
-                <div className="message-bubble">{message.content}</div>
-                <div className="message-time">{formatTime(message.timestamp)}</div>
+                <div className="message-bubble">
+                    {message.content}
+                    {message.status === 'pending' && <span className="loading-dots">...</span>}
+                </div>
+                <div className="message-time">
+                    {formatTime(message.timestamp)}
+                    {message.status && message.status !== 'completed' && ` • ${message.status}`}
+                </div>
               </div>
             </div>
           ))}
-
-          {isTyping && (
-            <div className="typing-indicator">
-              <div className="message-avatar" style={{ background: 'linear-gradient(135deg, #8b5cf6 0%, #3b82f6 100%)', color: 'white' }}>
-                ✨
-              </div>
-              <div className="typing-dots">
-                <div className="typing-dot"></div>
-                <div className="typing-dot"></div>
-                <div className="typing-dot"></div>
-              </div>
-            </div>
-          )}
-
           <div ref={messagesEndRef} />
         </div>
 
@@ -366,34 +421,32 @@ export default function AIAssistantPage() {
             <div className="input-box">
               <textarea
                 className="input-textarea"
-                placeholder="Type your message..."
+                placeholder="Ask me anything..."
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyPress={handleKeyPress}
                 rows={1}
-                disabled={isTyping}
               />
             </div>
             <button
               className="send-button"
-              onClick={handleSend}
-              disabled={!input.trim() || isTyping}
+              onClick={() => handleSend()}
+              disabled={!input.trim()}
             >
-              <svg fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
-                <line x1="22" y1="2" x2="11" y2="13"/>
-                <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+              <svg fill="currentColor" viewBox="0 0 24 24">
+                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
               </svg>
             </button>
           </div>
 
           <div className="quick-actions">
-            <button className="quick-action" onClick={() => setInput('Search for documents about...')}>
-              🔍 Search documents
+            <button className="quick-action" onClick={() => handleSend('What are my recent documents?')}>
+              📄 Recent documents
             </button>
-            <button className="quick-action" onClick={() => setInput('Summarize...')}>
-              📝 Summarize content
+            <button className="quick-action" onClick={() => handleSend('Summarize the platform features')}>
+              📝 Summarize features
             </button>
-            <button className="quick-action" onClick={() => setInput('Help me with...')}>
+            <button className="quick-action" onClick={() => handleSend('Help me find something')}>
               💡 Get help
             </button>
           </div>

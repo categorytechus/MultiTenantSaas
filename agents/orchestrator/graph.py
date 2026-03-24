@@ -26,7 +26,7 @@ class AgentState(TypedDict, total=False):
 from common.rabbitmq import RabbitMQClient
 mq_client = RabbitMQClient()
 
-llm = ChatOpenAI(model="gpt-4o", temperature=0)
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
 # Removed local get_allowed_asset_ids in favor of common.database.fetch_allowed_asset_ids
 

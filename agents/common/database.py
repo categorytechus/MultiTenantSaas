@@ -6,12 +6,17 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://postgres:postgres@postgres:5432/multitenant_saas')
-
 @contextmanager
 def get_db_connection():
     """Provides a transactional scope around a series of operations."""
-    conn = psycopg2.connect(DATABASE_URL)
+    # Use separate components to avoid URL parsing issues with special characters in passwords
+    conn = psycopg2.connect(
+        host=os.getenv('DB_HOST', 'postgres'),
+        database=os.getenv('DB_NAME', 'multitenant_saas'),
+        user=os.getenv('DB_USER', 'postgres'),
+        password=os.getenv('DB_PASSWORD', 'postgres'),
+        port=os.getenv('DB_PORT', '5432')
+    )
     try:
         yield conn
         conn.commit()

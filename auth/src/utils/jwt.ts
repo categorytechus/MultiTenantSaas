@@ -3,15 +3,15 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-change-this';
+const JWT_SECRET = process.env.JWT_KEY || 'dev-secret-key';
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'fallback-refresh-secret';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '1h';
 const JWT_REFRESH_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRES_IN || '7d';
 
 export interface JWTPayload {
-  userId: string;
+  sub: string;
   email: string;
-  organizationId?: string;
+  org_id?: string;
   permissions?: string[];
   type: 'access' | 'refresh';
 }

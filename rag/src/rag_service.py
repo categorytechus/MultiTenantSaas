@@ -8,8 +8,8 @@ from langchain_community.vectorstores import FAISS
 from langchain_openai import OpenAIEmbeddings
 from langchain_core.documents import Document
 from sentence_transformers import CrossEncoder
-from langchain_community.document_compressors import CrossEncoderReranker
-from langchain_classic.retrievers import ContextualCompressionRetriever
+# from langchain_community.document_compressors.cross_encoder import CrossEncoderReranker
+# from langchain.retrievers import ContextualCompressionRetriever
 
 from proto import rag_pb2, rag_pb2_grpc
 from utils.letta_client import LettaClient
@@ -25,7 +25,7 @@ class RagServiceServicer(rag_pb2_grpc.RagServiceServicer):
             "cross-encoder/ms-marco-MiniLM-L-6-v2",
             device="cpu"
         )
-        self.compressor = CrossEncoderReranker(model=self.cross_encoder, top_n=5)
+        # self.compressor = CrossEncoderReranker(model=self.cross_encoder, top_n=5)
         self.s3_client = boto3.client('s3')
         self.embeddings = OpenAIEmbeddings()
         self.letta = LettaClient()
@@ -56,11 +56,12 @@ class RagServiceServicer(rag_pb2_grpc.RagServiceServicer):
         vector_store = FAISS.from_documents(all_documents, self.embeddings)
         base_retriever = vector_store.as_retriever(search_kwargs={"k": 20})
 
-        # Wrap with ContextualCompressionRetriever for reranking
-        return ContextualCompressionRetriever(
-            base_compressor=self.compressor,
-            base_retriever=base_retriever
-        )
+        # Wrap with ContextualCompressionRetriever for reranking (Disabled for now)
+        # return ContextualCompressionRetriever(
+        #     base_compressor=self.compressor,
+        #     base_retriever=base_retriever
+        # )
+        return base_retriever
 
     async def RetrieveDocuments(self, request: rag_pb2.RetrievalRequest, context):
         logger.info(f"Retrieving documents for user {request.user_id} with query: {request.query}")

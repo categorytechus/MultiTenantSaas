@@ -71,8 +71,8 @@ export const syncKnowledgeBase = async (req: Request, res: Response) => {
         DATA_SOURCE_ID,
         response.ingestionJob?.ingestionJobId,
         response.ingestionJob?.status,
-        user.userId,
-        user.organizationId
+        user.sub,
+        user.org_id
       ]
     );
 
@@ -120,7 +120,7 @@ export const getSyncStatus = async (req: Request, res: Response) => {
     const command = new GetIngestionJobCommand({
       knowledgeBaseId: KNOWLEDGE_BASE_ID,
       dataSourceId: DATA_SOURCE_ID,
-      ingestionJobId: jobId
+      ingestionJobId: jobId as string
     });
 
     const response = await bedrockAgent.send(command);

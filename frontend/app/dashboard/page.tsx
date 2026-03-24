@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Layout from '../../components/Layout';
 import ChatInterface from '../../components/ChatInterface';
+import { apiFetch } from '../../src/lib/api';
 
 interface Org { id: string; name: string; slug: string; role: string; }
 interface User { id: string; email: string; full_name?: string; }
@@ -14,17 +15,16 @@ export default function DashboardPage() {
 
   useEffect(() => {
     (async () => {
-      const token = localStorage.getItem('accessToken');
-      if (!token) return;
       try {
         const [uRes, oRes] = await Promise.all([
-          fetch('http://localhost:4000/api/auth/me', { headers: { Authorization: `Bearer ${token}` } }),
-          fetch('http://localhost:4000/api/organizations', { headers: { Authorization: `Bearer ${token}` } }),
+          apiFetch<{ data: User }>('/auth/me'),
+          apiFetch<{ data: Org[] }>('/organizations'),
         ]);
-        const uData = await uRes.json();
-        const oData = await oRes.json();
-        if (uData.success) setUser(uData.data);
-        if (oData.success && oData.data.length > 0) { setOrgs(oData.data); setCur(oData.data[0]); }
+        if (uRes.success) setUser(uRes.data.data);
+        if (oRes.success && oRes.data.data.length > 0) { 
+          setOrgs(oRes.data.data); 
+          setCur(oRes.data.data[0]); 
+        }
       } catch (error) {
         console.error('Error fetching data:', error);
       }
