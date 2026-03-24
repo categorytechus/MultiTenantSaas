@@ -131,6 +131,7 @@ export default function WebUrlPage() {
     window.open(url, '_blank');
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleDelete = async (urlId: string) => {
     if (!confirm('Are you sure you want to delete this URL?')) return;
     
@@ -142,7 +143,7 @@ export default function WebUrlPage() {
         setUrls(urls.filter(u => u.id !== urlId));
         alert('URL deleted successfully');
       }
-    } catch (error) {
+    } catch {
       alert('Error deleting URL');
     }
   };

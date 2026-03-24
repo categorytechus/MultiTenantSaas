@@ -54,7 +54,7 @@ export default function AIAssistantPage() {
             console.log('WS Message:', data);
 
             if (data.type === 'task-status') {
-                const { task_id, status, data: payload, session_id } = data.data;
+                const { task_id, status, data: payload, session_id: _session_id } = data.data;
                 
                 // Update existing message or add new one
                 setMessages(prev => {
@@ -64,7 +64,7 @@ export default function AIAssistantPage() {
                             if (msg.id === task_id) {
                                 return {
                                     ...msg,
-                                    status: status as any,
+                                    status: status as 'pending' | 'running' | 'completed' | 'failed',
                                     content: status === 'completed' ? (payload?.answer || payload?.message || msg.content) : msg.content
                                 };
                             }
@@ -104,7 +104,7 @@ export default function AIAssistantPage() {
     if (!overrideInput) setInput('');
 
     try {
-      const res = await apiFetch<any>('/chat', {
+      const res = await apiFetch<{ task_id: string; session_id?: string }>('/chat', {
         method: 'POST',
         apiType: 'CHAT',
         body: JSON.stringify({
@@ -131,12 +131,12 @@ export default function AIAssistantPage() {
       };
       setMessages(prev => [...prev, aiPlaceholder]);
 
-    } catch (err: any) {
+    } catch (err: unknown) {
        console.error('Chat error:', err);
        const errorMsg: Message = {
          id: Date.now().toString(),
          role: 'assistant',
-         content: `Sorry, I encountered an error: ${err.message}`,
+         content: `Sorry, I encountered an error: ${(err as Error).message}`,
          timestamp: new Date()
        };
        setMessages(prev => [...prev, errorMsg]);

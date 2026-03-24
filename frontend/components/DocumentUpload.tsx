@@ -110,7 +110,7 @@ export default function DocumentUpload({ onUploadComplete }: UploadProps) {
       if (!presignedRes.success) {
         throw new Error(presignedRes.error);
       }
-      const presignedData = presignedRes.data as any;
+      const presignedData = presignedRes.data as { data: { uploadUrl: string, s3Key: string } };
 
       const { uploadUrl, s3Key } = presignedData.data;
 
@@ -146,7 +146,7 @@ export default function DocumentUpload({ onUploadComplete }: UploadProps) {
               setProgress(0);
               setDescription('');
               setUploading(false);
-              onUploadComplete?.((metadataRes.data as any).data);
+              onUploadComplete?.((metadataRes.data as { data: Record<string, unknown> }).data);
             }, 500);
           } else {
             throw new Error(metadataRes.error);

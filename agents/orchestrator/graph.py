@@ -3,7 +3,7 @@ import os
 import json
 import grpc
 from langgraph.graph import StateGraph, END
-from langchain_openai import ChatOpenAI
+from langchain_aws import ChatBedrock
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
@@ -26,7 +26,7 @@ class AgentState(TypedDict, total=False):
 from common.rabbitmq import RabbitMQClient
 mq_client = RabbitMQClient()
 
-llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+llm = ChatBedrock(model_id="openai.gpt-oss-120b-1:0", model_kwargs={"temperature": 0})
 
 # Removed local get_allowed_asset_ids in favor of common.database.fetch_allowed_asset_ids
 

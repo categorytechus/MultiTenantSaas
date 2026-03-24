@@ -11,7 +11,7 @@ from threading import Thread
 from proto import rag_pb2, rag_pb2_grpc
 
 # LangChain imports
-from langchain_openai import ChatOpenAI
+from langchain_aws import ChatBedrock
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 class ChatServiceServicer(rag_pb2_grpc.ChatServiceServicer):
     def __init__(self):
-        self.llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+        self.llm = ChatBedrock(model_id="openai.gpt-oss-120b-1:0", model_kwargs={"temperature": 0})
         self.rag_service_addr = os.getenv('RAG_SERVICE_ADDR', 'rag-service:50051')
 
     async def GenerateAnswer(self, request, context):
@@ -55,7 +55,7 @@ class ChatServiceServicer(rag_pb2_grpc.ChatServiceServicer):
             chain = qa_prompt | self.llm | StrOutputParser()
             
             # 3. Generate Answer
-            # Note: chain.invoke is usually synchronous, but ChatOpenAI uses a_invoke for async
+            # Note: chain.invoke is synchronous; we use ainvoke for async
             answer = await chain.ainvoke({"context": context_text, "input": request.query})
 
             # 4. Return result

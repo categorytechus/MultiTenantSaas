@@ -62,7 +62,6 @@ export default function Layout({ children }: LayoutProps) {
   const switchOrg = async (org: Org) => {
     if (org.id === cur?.id) { setOpen(false); return; }
     setSwitching(true);
-    const token = localStorage.getItem('accessToken');
     try {
       const res = await apiFetch<{ data: { accessToken: string, refreshToken: string, organization: { role: string } } }>('/organizations/switch', {
         method: 'POST',

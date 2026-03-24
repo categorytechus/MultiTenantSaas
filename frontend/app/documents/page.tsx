@@ -190,7 +190,7 @@ export default function DocumentsPage() {
       if (res.success && res.data.data.downloadUrl) {
         window.open(res.data.data.downloadUrl, '_blank');
       }
-    } catch (error) {
+    } catch {
       alert('Error viewing document');
     }
   };
@@ -206,7 +206,7 @@ export default function DocumentsPage() {
         setDocuments(documents.filter(doc => doc.id !== docId));
         alert('Document deleted successfully');
       }
-    } catch (error) {
+    } catch {
       alert('Error deleting document');
     }
   };

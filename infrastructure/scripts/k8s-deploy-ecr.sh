@@ -9,7 +9,11 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 TF_DIR="$PROJECT_ROOT/infrastructure/terraform"
 K8S_DIR="$PROJECT_ROOT/infrastructure/k8s"
-TF_BIN="$PROJECT_ROOT/bin/terraform"
+if [ -x "$PROJECT_ROOT/bin/terraform" ]; then
+    TF_BIN="$PROJECT_ROOT/bin/terraform"
+else
+    TF_BIN="terraform"
+fi
 
 echo "==> Reading ECR repository URLs from Terraform outputs..."
 
