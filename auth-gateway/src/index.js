@@ -131,7 +131,7 @@ async function submitTask(req, res, actionType, requiredPermission) {
     }
 }
 
-app.post('/api/chat', (req, res) => submitTask(req, res, 'agents:run', 'agents:run'));
+app.post('/api/chat', (req, res) => submitTask(req, res, '', 'agents:run'));
 app.post('/api/agents/start', (req, res) => submitTask(req, res, 'agents:create', 'agents:create'));
 app.post('/api/agents/:agentId/run', (req, res) => submitTask(req, res, `agents:${req.params.agentId}`, 'agents:run'));
 

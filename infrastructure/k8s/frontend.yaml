@@ -30,7 +30,7 @@ spec:
             - name: NEXT_PUBLIC_CHAT_API_URL
               value: "/api"
             - name: NEXT_PUBLIC_WS_URL
-              value: "ws://localhost/ws"
+              value: ""
 ---
 apiVersion: v1
 kind: Service
