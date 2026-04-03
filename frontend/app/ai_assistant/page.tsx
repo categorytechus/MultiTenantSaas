@@ -54,7 +54,7 @@ export default function AIAssistantPage() {
             console.log('WS Message:', data);
 
             if (data.type === 'task-status') {
-                const { task_id, status, data: payload, session_id: _session_id } = data.data;
+                const { task_id, status, data: payload, error, session_id: _session_id } = data.data;
                 
                 // Update existing message or add new one
                 setMessages(prev => {
@@ -62,15 +62,21 @@ export default function AIAssistantPage() {
                     if (existing) {
                         return prev.map(msg => {
                             if (msg.id === task_id) {
+                                const nextContent =
+                                    status === 'completed'
+                                        ? (payload?.answer || payload?.message || msg.content)
+                                        : status === 'failed'
+                                            ? `Sorry, I encountered an error: ${error || payload?.error || 'Task failed.'}`
+                                            : msg.content;
                                 return {
                                     ...msg,
                                     status: status as 'pending' | 'running' | 'completed' | 'failed',
-                                    content: status === 'completed' ? (payload?.answer || payload?.message || msg.content) : msg.content
+                                    content: nextContent
                                 };
                             }
                             return msg;
                         });
-                    } else if (status === 'completed' || status === 'running') {
+                    } else if (status === 'completed' || status === 'running' || status === 'failed') {
                         // Check if we maybe need to add it (though usually we add placeholder on send)
                         return prev; 
                     }

@@ -5,7 +5,7 @@ from concurrent import futures
 import asyncio
 from fastapi import FastAPI
 import uvicorn
-from threading import Thread
+from threading import Event, Thread
 
 # Import generated stubs
 from proto import rag_pb2, rag_pb2_grpc
@@ -20,7 +20,11 @@ logger = logging.getLogger(__name__)
 
 class ChatServiceServicer(rag_pb2_grpc.ChatServiceServicer):
     def __init__(self):
-        self.llm = ChatBedrock(model_id="openai.gpt-oss-120b-1:0", model_kwargs={"temperature": 0})
+        # self.llm = ChatBedrock(model_id="openai.gpt-oss-120b-1:0", model_kwargs={"temperature": 0})
+        self.llm = ChatBedrock(
+            model_id="anthropic.claude-3-sonnet-20240229-v1:0",
+            model_kwargs={"temperature": 0},
+        )
         self.rag_service_addr = os.getenv('RAG_SERVICE_ADDR', 'rag-service:50051')
 
     async def GenerateAnswer(self, request, context):
@@ -74,6 +78,7 @@ from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 
 # --- Global Health Servicer ---
 health_servicer = health.HealthServicer()
+grpc_ready = Event()
 
 # --- Dual Server Management (gRPC + FastAPI) ---
 
@@ -81,9 +86,8 @@ app = FastAPI()
 
 @app.get("/health")
 async def health_check():
-    # Check gRPC health status
-    status = health_servicer.get("ChatService")
-    if status == health_pb2.HealthCheckResponse.SERVING:
+    # Report healthy only after the internal gRPC server has started.
+    if grpc_ready.is_set():
         return {"status": "ok", "service": "chat-knowledge-python", "grpc": "serving"}
     else:
         from fastapi import HTTPException
@@ -100,8 +104,12 @@ async def serve_grpc():
     listen_addr = '[::]:50052'
     server.add_insecure_port(listen_addr)
     logger.info(f"Chat Service (gRPC) starting on {listen_addr}")
-    await server.start()
-    await server.wait_for_termination()
+    try:
+        await server.start()
+        grpc_ready.set()
+        await server.wait_for_termination()
+    finally:
+        grpc_ready.clear()
 
 
 def run_grpc_loop():

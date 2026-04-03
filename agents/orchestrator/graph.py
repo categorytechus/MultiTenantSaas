@@ -26,7 +26,11 @@ class AgentState(TypedDict, total=False):
 from common.rabbitmq import RabbitMQClient
 mq_client = RabbitMQClient()
 
-llm = ChatBedrock(model_id="openai.gpt-oss-120b-1:0", model_kwargs={"temperature": 0})
+# llm = ChatBedrock(model_id="openai.gpt-oss-120b-1:0", model_kwargs={"temperature": 0})
+llm = ChatBedrock(
+    model_id="anthropic.claude-3-sonnet-20240229-v1:0",
+    model_kwargs={"temperature": 0},
+)
 
 # Removed local get_allowed_asset_ids in favor of common.database.fetch_allowed_asset_ids
 

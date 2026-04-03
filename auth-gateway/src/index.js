@@ -22,12 +22,11 @@ const pool = new Pool({
 });
 
 let channel;
+
 async function initMQ() {
     try {
         const conn = await amqp.connect(RABBITMQ_URL);
-        conn.on('error', (err) => console.error('RabbitMQ connection error', err.message));
         channel = await conn.createChannel();
-        channel.on('error', (err) => console.error('RabbitMQ channel error', err.message));
         
         await channel.assertExchange('saas_exchange', 'topic', { durable: true });
         
@@ -40,6 +39,13 @@ async function initMQ() {
     }
 }
 initMQ();
+
+const getErrorMessage = (error) => {
+    if (!error) return 'Unknown error';
+    if (typeof error === 'string') return error;
+    if (error.message) return error.message;
+    return 'Unknown error';
+};
 
 const getContext = (req) => {
     const authHeader = req.headers.authorization;
@@ -123,6 +129,13 @@ async function submitTask(req, res, actionType, requiredPermission) {
             [taskId, orgId, userId, 'orchestrator', 'pending', JSON.stringify({ prompt }), sId]
         );
 
+        if (!channel) {
+            return res.status(503).json({
+                error: 'Service Unavailable',
+                message: 'Task queue is not ready yet. Please retry in a moment.'
+            });
+        }
+
         const msg = JSON.stringify({
             taskId, userId, orgId, prompt, action: actionType, sessionId: sId
         });
@@ -133,7 +146,10 @@ async function submitTask(req, res, actionType, requiredPermission) {
         return res.status(202).json({ task_id: taskId, session_id: sId, action: actionType, message: 'Task accepted' });
     } catch (e) {
         console.error('Submission failed', e);
-        return res.status(500).json({ error: 'Internal Server Error' });
+        return res.status(500).json({
+            error: 'Internal Server Error',
+            message: getErrorMessage(e)
+        });
     }
 }
 

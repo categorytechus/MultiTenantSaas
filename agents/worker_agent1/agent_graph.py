@@ -4,7 +4,11 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 from common.chat_client import ChatServiceClient
 
-llm = ChatBedrock(model_id="openai.gpt-oss-120b-1:0", model_kwargs={"temperature": 0})
+# llm = ChatBedrock(model_id="openai.gpt-oss-120b-1:0", model_kwargs={"temperature": 0})
+llm = ChatBedrock(
+    model_id="anthropic.claude-3-sonnet-20240229-v1:0",
+    model_kwargs={"temperature": 0},
+)
 chat_client = ChatServiceClient()
 
 def invoke_agent(action, payload):

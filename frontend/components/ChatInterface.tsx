@@ -43,14 +43,20 @@ export default function ChatInterface({ orgId: _orgId }: { orgId: string }) {
       console.log('WS Message:', data);
 
       if (data.type === 'task-status') {
-        const { task_id, status, data: payload } = data.data;
+        const { task_id, status, data: payload, error } = data.data;
         
         setMessages(prev => prev.map(msg => {
           if (msg.id === task_id) {
+            const nextContent =
+              status === 'completed'
+                ? (payload?.answer || payload?.message || msg.content)
+                : status === 'failed'
+                  ? `Sorry, I encountered an error: ${error || payload?.error || 'Task failed.'}`
+                  : msg.content;
             return {
               ...msg,
               status: status,
-              content: status === 'completed' ? (payload.data.answer || payload.data.message || msg.content) : msg.content
+              content: nextContent
             };
           }
           return msg;
@@ -68,7 +74,7 @@ export default function ChatInterface({ orgId: _orgId }: { orgId: string }) {
                     return [...prev, {
                         id: assistantMsgId,
                         role: 'assistant',
-                        content: payload.data.answer || payload.data.message || "I don't have an answer.",
+                        content: payload?.answer || payload?.message || "I don't have an answer.",
                         status: 'completed',
                         timestamp: new Date()
                     }];
@@ -90,10 +96,12 @@ export default function ChatInterface({ orgId: _orgId }: { orgId: string }) {
   const sendMessage = async () => {
     if (!input.trim()) return;
 
+    const prompt = input;
+
     const userMsg: Message = {
       id: Math.random().toString(36),
       role: 'user',
-      content: input,
+      content: prompt,
       timestamp: new Date()
     };
 
@@ -106,27 +114,30 @@ export default function ChatInterface({ orgId: _orgId }: { orgId: string }) {
         method: 'POST',
         apiType: 'CHAT',
         body: JSON.stringify({
-          prompt: input,
+          prompt,
           sessionId: sessionId
         })
       });
 
       if (!res.success) throw new Error(res.error);
       const data = res.data;
-      if (data.sessionId && !sessionId) {
-        setSessionId(data.sessionId);
+      const nextSessionId = data.sessionId || (data as { session_id?: string }).session_id;
+      const nextTaskId = data.taskId || (data as { task_id?: string }).task_id;
+
+      if (nextSessionId && !sessionId) {
+        setSessionId(nextSessionId);
         // Subscribe to this session on the WS
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
           wsRef.current.send(JSON.stringify({
             action: 'subscribe_session',
-            session_id: data.sessionId
+            session_id: nextSessionId
           }));
         }
       }
 
       // Add a placeholder for the assistant response tied to the taskId
       const placeholder: Message = {
-        id: data.taskId,
+        id: nextTaskId || `error-${Date.now()}`,
         role: 'assistant',
         content: 'thinking...',
         status: 'pending',
@@ -136,6 +147,14 @@ export default function ChatInterface({ orgId: _orgId }: { orgId: string }) {
 
     } catch (err) {
       console.error('Failed to send message:', err);
+      const message = err instanceof Error ? err.message : 'Request failed';
+      setMessages(prev => [...prev, {
+        id: `send-error-${Date.now()}`,
+        role: 'assistant',
+        content: `Sorry, I encountered an error: ${message}`,
+        status: 'failed',
+        timestamp: new Date()
+      }]);
     }
   };
 

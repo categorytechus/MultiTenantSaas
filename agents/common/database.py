@@ -54,12 +54,25 @@ def fetch_allowed_asset_ids(user_id: str):
 
 def update_task_status(task_id: str, status: str, result: dict = None):
     """
-    Unified method to update task status and result.
+    Unified method to update task status.
+
+    Result payloads belong in agent_results, not agent_tasks.
     """
-    import json
-    query = "UPDATE agent_tasks SET status = %s, result_data = %s, updated_at = NOW() WHERE id = %s"
+    if status == 'running':
+        query = "UPDATE agent_tasks SET status = %s, started_at = COALESCE(started_at, NOW()), updated_at = NOW() WHERE id = %s"
+        params = (status, task_id)
+    elif status == 'completed':
+        query = "UPDATE agent_tasks SET status = %s, completed_at = NOW(), updated_at = NOW() WHERE id = %s"
+        params = (status, task_id)
+    elif status == 'failed':
+        query = "UPDATE agent_tasks SET status = %s, failed_at = NOW(), updated_at = NOW() WHERE id = %s"
+        params = (status, task_id)
+    else:
+        query = "UPDATE agent_tasks SET status = %s, updated_at = NOW() WHERE id = %s"
+        params = (status, task_id)
+
     try:
         with get_db_cursor() as cur:
-            cur.execute(query, (status, json.dumps(result) if result else None, task_id))
+            cur.execute(query, params)
     except Exception as e:
         logger.error(f"Error updating task status: {e}")
