@@ -64,15 +64,15 @@ if [ -n "$DB_PASSWORD" ]; then
         echo "  Tried command: $PYTHON"
         exit 1
     fi
-    DATABASE_URL="postgresql://postgres:${DB_PASSWORD_ESCAPED}@postgres.data.svc.cluster.local:5432/multitenant_saas"
+    DATABASE_URL="postgresql://postgres:${DB_PASSWORD_ESCAPED}@pgbouncer.data.svc.cluster.local:6432/multitenant_saas"
     $KUBECTL create secret generic "database-url" \
         --namespace "$NAMESPACE" \
         --from-literal=url="$DATABASE_URL" \
         --dry-run=client -o yaml | $KUBECTL apply -f -
-    # Create pgbouncer userlist from same password (postgres user, md5 format)
-    echo "Syncing pgbouncer-userlist (from AWS db-password)..."
-    PGBOUNCER_MD5=$(printf '%s' "$DB_PASSWORD" | $PYTHON -c "import sys,hashlib; p=sys.stdin.read().rstrip(); print('md5'+hashlib.md5((p+'postgres').encode()).hexdigest())")
-    USERLIST_CONTENT="\"postgres\" \"$PGBOUNCER_MD5\""
+    # Create pgbouncer userlist with PLAINTEXT password
+    # (required for PgBouncer to complete SCRAM-SHA-256 auth with PostgreSQL 15+)
+    # MD5 hash only works for client verification, not for backend SCRAM handshake
+    USERLIST_CONTENT="\"postgres\" \"$DB_PASSWORD\""
     $KUBECTL create secret generic "pgbouncer-userlist" \
         --namespace "$NAMESPACE" \
         --from-literal=userlist.txt="$USERLIST_CONTENT" \

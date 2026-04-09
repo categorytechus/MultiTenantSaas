@@ -33,7 +33,7 @@ spec:
             - name: DB_HOST
               value: "pgbouncer.data.svc.cluster.local"
             - name: DB_PORT
-              value: "5432"
+              value: "6432"
             - name: DB_USER
               value: "postgres"
             - name: DB_PASSWORD

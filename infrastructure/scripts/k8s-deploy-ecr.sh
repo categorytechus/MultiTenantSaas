@@ -84,8 +84,35 @@ echo "==> Applying ingress..."
 kubectl --insecure-skip-tls-verify apply -f "$K8S_DIR/ingress.yaml"
 
 echo ""
+echo "==> Waiting for rollouts to complete..."
+DEPLOYMENTS=(
+    "auth-service"
+    "auth-gateway"
+    "task-status-service"
+    "frontend"
+    "worker-agent1"
+    "orchestrator"
+    "chat-service"
+    "rag-service"
+    "pgbouncer"
+)
+
+FAILED=0
+for dep in "${DEPLOYMENTS[@]}"; do
+    echo "  Checking rollout: $dep"
+    if kubectl --insecure-skip-tls-verify -n data rollout status deployment/"$dep" --timeout=120s 2>/dev/null; then
+        echo "    ✅ $dep is healthy"
+    else
+        echo "    ⚠️  $dep not found or still rolling (may not be deployed yet)"
+    fi
+done
+
+echo ""
 echo "==> ECR-based deployment complete!"
 echo ""
-echo "Verify with:"
+echo "==> Pod image digest summary:"
+kubectl --insecure-skip-tls-verify -n data get pods -o=custom-columns='NAME:.metadata.name,IMAGE:.spec.containers[0].image,STATUS:.status.phase' 2>/dev/null || true
+echo ""
+echo "Verify further with:"
 echo "  kubectl --insecure-skip-tls-verify -n data get pods"
 echo "  kubectl --insecure-skip-tls-verify -n data describe pod <pod-name>"

@@ -24,16 +24,10 @@ spec:
             - containerPort: 8000
             - containerPort: 50051
           env:
-            - name: DB_HOST
-              value: "postgresql"
-            - name: DB_USER
-              value: "postgres"
-            - name: DB_NAME
-              value: "multitenant_saas"
-            - name: DB_PORT
-              value: "5432"
-            - name: DB_PASSWORD
-              value: "postgres"
+            - name: AWS_DEFAULT_REGION
+              value: "us-east-1"
+            - name: AWS_REGION
+              value: "us-east-1"
             - name: OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:

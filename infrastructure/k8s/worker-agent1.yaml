@@ -22,6 +22,23 @@ spec:
           env:
             - name: RABBITMQ_URL
               value: "amqp://admin:admin@rabbitmq.data.svc.cluster.local:5672"
+            - name: DB_HOST
+              value: "pgbouncer.data.svc.cluster.local"
+            - name: DB_PORT
+              value: "6432"
+            - name: DB_USER
+              value: "postgres"
+            - name: DB_NAME
+              value: "multitenant_saas"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: password
+            - name: AWS_DEFAULT_REGION
+              value: "us-east-1"
+            - name: AWS_REGION
+              value: "us-east-1"
             - name: OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:
