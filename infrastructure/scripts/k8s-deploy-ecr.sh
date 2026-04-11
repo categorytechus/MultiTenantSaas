@@ -75,6 +75,12 @@ kubectl --insecure-skip-tls-verify apply -f "$K8S_DIR/cloudwatch-logging.yaml"
 
 echo ""
 echo "==> Applying service manifests (with ECR images)..."
+# Clean legacy literal env vars that conflict with secretKeyRef-based env in manifests.
+# This happens when older hotfixes used `kubectl set env ... DB_PASSWORD=...`.
+for dep in auth-gateway auth-service chat-service rag-service orchestrator worker-agent1; do
+    kubectl --insecure-skip-tls-verify -n data set env deployment/"$dep" DB_PASSWORD- DATABASE_URL- >/dev/null 2>&1 || true
+done
+
 for rendered in "$TMPDIR"/*.yaml; do
     kubectl --insecure-skip-tls-verify apply -f "$rendered"
 done

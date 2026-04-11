@@ -5,10 +5,10 @@
 
 export const CONFIG = {
   // Auth & Org API — routed through the Auth Gateway
-  AUTH_API_URL: process.env.NEXT_PUBLIC_AUTH_API_URL || 'http://localhost:3001/api',
+  AUTH_API_URL: process.env.NEXT_PUBLIC_AUTH_API_URL || '/api',
   
   // Chat API
-  CHAT_API_URL: process.env.NEXT_PUBLIC_CHAT_API_URL || 'http://localhost:3001/api',
+  CHAT_API_URL: process.env.NEXT_PUBLIC_CHAT_API_URL || '/api',
   
   // WebSocket for real-time task status (derived from current page URL if not set)
   WS_URL: process.env.NEXT_PUBLIC_WS_URL || (typeof window !== 'undefined' ? `ws://${window.location.host}` : 'ws://localhost:3002'),
