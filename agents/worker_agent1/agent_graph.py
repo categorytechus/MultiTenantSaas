@@ -6,7 +6,9 @@ from common.chat_client import ChatServiceClient
 
 # llm = ChatBedrock(model_id="openai.gpt-oss-120b-1:0", model_kwargs={"temperature": 0})
 llm = ChatBedrock(
-    model_id="openai.gpt-oss-120b-1:0",
+    model_id="arn:aws:bedrock:us-east-1:385143640249:inference-profile/global.anthropic.claude-opus-4-5-20251101-v1:0",
+    provider="anthropic",
+    region_name="us-east-1",
     model_kwargs={"temperature": 0},
 )
 chat_client = ChatServiceClient()
@@ -32,11 +34,11 @@ def invoke_agent(action, payload):
     tools = [query_knowledge_base]
     agent_executor = create_react_agent(llm, tools)
 
-    # Note: invoke_agent is called synchronously by the RabbitMQ consumer, 
+    # Note: invoke_agent is called synchronously by the RabbitMQ consumer,
     # but the tool and LLM calls are async. We use asyncio.run for simplicity here,
     # though in a production high-load scenario, the consumer should be async.
     import asyncio
-    
+
     async def run_agent():
         response = await agent_executor.ainvoke({
             "messages": [("user", prompt_text)]
@@ -44,7 +46,7 @@ def invoke_agent(action, payload):
         return response["messages"][-1].content
 
     answer = asyncio.run(run_agent())
-    
+
     return {
         "status": "success",
         "agent": "WorkerAgent1 (Agentic RAG)",

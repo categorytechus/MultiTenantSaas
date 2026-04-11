@@ -28,7 +28,9 @@ mq_client = RabbitMQClient()
 
 # llm = ChatBedrock(model_id="openai.gpt-oss-120b-1:0", model_kwargs={"temperature": 0})
 llm = ChatBedrock(
-    model_id="openai.gpt-oss-120b-1:0",
+    model_id="arn:aws:bedrock:us-east-1:385143640249:inference-profile/global.anthropic.claude-opus-4-5-20251101-v1:0",
+    provider="anthropic",
+    region_name="us-east-1",
     model_kwargs={"temperature": 0},
 )
 
@@ -52,18 +54,18 @@ def decide_agent_type(state: AgentState):
 
     Respond ONLY with the identifier (e.g., worker_agent1 or chat).
     """)
-    
+
     chain = prompt | llm | StrOutputParser()
     agent_type = chain.invoke({"input": state['prompt']}).strip()
-    
+
     if agent_type not in ["worker_agent1", "chat"]:
         agent_type = "chat"
 
     print(f" -> Orchestrator classified task as: {agent_type}")
-    
+
     # Enrich state with RBAC context early
     allowed_ids = fetch_allowed_asset_ids(state['user_id'])
-    
+
     return {"agent_type": agent_type, "allowed_asset_ids": allowed_ids}
 
 def generate_chat_response(state: AgentState):
@@ -71,25 +73,25 @@ def generate_chat_response(state: AgentState):
     Calls the gRPC Chat Knowledge Service to get a full generative answer.
     """
     print(f" -> Calling Chat Knowledge Service for query: {state['prompt']}")
-    
+
     # The Chat Service is our "Knowledge Expert" (Python)
     CHAT_SERVICE_ADDR = os.getenv('CHAT_SERVICE_ADDR', 'chat-service:50052')
-    
+
     # 1. Use Allowed Assets from state
     allowed_ids = state.get('allowed_asset_ids', [])
-    
+
     # 2. Call Chat Expert over gRPC
     try:
         channel = grpc.insecure_channel(CHAT_SERVICE_ADDR)
         stub = rag_pb2_grpc.ChatServiceStub(channel)
-        
+
         response = stub.GenerateAnswer(rag_pb2.ChatRequest(
             query=state['prompt'],
             user_id=state['user_id'],
             allowed_asset_ids=allowed_ids,
             context=[] # Could pass history here
         ))
-        
+
         return {"result": {"answer": response.answer, "sources": "knowledge_base"}}
     except Exception as e:
         print(f" [!] Chat Service gRPC call failed: {e}")
@@ -102,7 +104,7 @@ def route_to_worker(state: AgentState):
     agent_type = state['agent_type']
     routing_key = f"agents.{agent_type}"
     print(f" -> Delegating to {agent_type}")
-    
+
     try:
         mq_client.publish(routing_key, state)
         print(f" [x] Dispatched task {state['task_id']} to {routing_key}")
@@ -116,17 +118,17 @@ def finalize_task(state: AgentState):
     Updates the task status and results in Postgres.
     """
     print(f" [Finalizing Task] {state['task_id']} with result: {state.get('result')}")
-    
+
     # 1. Update Database using common utility
     update_task_status(state['task_id'], 'completed', state.get('result'))
-    
+
     # 2. Add to agent_results for history/analytics
     with get_db_cursor() as cur:
         cur.execute(
             "INSERT INTO agent_results (task_id, organization_id, result_data) VALUES (%s, %s, %s)",
             (state['task_id'], state['org_id'], json.dumps(state['result']))
         )
-    
+
     # 3. Emit event for WebSockets
     routing_key = f"events.{state['org_id']}"
     mq_client.publish(routing_key, {
@@ -147,7 +149,7 @@ def run_orchestrator_graph_with_state(initial_state: AgentState, config: dict = 
     workflow.add_node("finalize", finalize_task)
 
     workflow.set_entry_point("decide_route")
-    
+
     # Conditional Edges based on agent_type
     workflow.add_conditional_edges(
         "decide_route",
@@ -157,7 +159,7 @@ def run_orchestrator_graph_with_state(initial_state: AgentState, config: dict = 
             "worker": "route_worker"
         }
     )
-    
+
     workflow.add_edge("chat_response", "finalize")
     workflow.add_edge("route_worker", END)
     workflow.add_edge("finalize", END)

@@ -21,14 +21,16 @@ logger = logging.getLogger(__name__)
 class ChatServiceServicer(rag_pb2_grpc.ChatServiceServicer):
     def __init__(self):
         self.llm = ChatBedrock(
-            model_id="openai.gpt-oss-120b-1:0",
+            model_id="arn:aws:bedrock:us-east-1:385143640249:inference-profile/global.anthropic.claude-opus-4-5-20251101-v1:0",
+            provider="anthropic",
+            region_name="us-east-1",
             model_kwargs={"temperature": 0},
         )
         self.rag_service_addr = os.getenv('RAG_SERVICE_ADDR', 'rag-service:50051')
 
     async def GenerateAnswer(self, request, context):
         logger.info(f"[ChatService] Generating answer for user {request.user_id}: {request.query}")
-        
+
         try:
             # 1. Fetch relevant document chunks from RagService (gRPC)
             async with grpc.aio.insecure_channel(self.rag_service_addr) as channel:
@@ -39,7 +41,7 @@ class ChatServiceServicer(rag_pb2_grpc.ChatServiceServicer):
                     allowed_asset_ids=request.allowed_asset_ids,
                     context=request.context
                 ))
-            
+
             chunks = rag_response.chunks
             context_text = "\n\n".join([c.page_content for c in chunks])
             logger.info(f"[ChatService] Retrieved {len(chunks)} chunks from RAG service")
@@ -54,9 +56,9 @@ class ChatServiceServicer(rag_pb2_grpc.ChatServiceServicer):
 
             Question: {input}
             """)
-            
+
             chain = qa_prompt | self.llm | StrOutputParser()
-            
+
             # 3. Generate Answer
             # Note: chain.invoke is synchronous; we use ainvoke for async
             answer = await chain.ainvoke({"context": context_text, "input": request.query})
@@ -95,11 +97,11 @@ async def health_check():
 async def serve_grpc():
     server = grpc.aio.server()
     rag_pb2_grpc.add_ChatServiceServicer_to_server(ChatServiceServicer(), server)
-    
+
     # Register the health servicer
     health_pb2_grpc.add_HealthServicer_to_server(health_servicer, server)
     health_servicer.set("ChatService", health_pb2.HealthCheckResponse.SERVING)
-    
+
     listen_addr = '[::]:50052'
     server.add_insecure_port(listen_addr)
     logger.info(f"Chat Service (gRPC) starting on {listen_addr}")
@@ -119,7 +121,7 @@ def run_grpc_loop():
 if __name__ == "__main__":
     # Run FastAPI in a background thread or use uvicorn in a way that allows gRPC
     # Standard pattern: Run gRPC as the main event loop, and FastAPI via uvicorn in a thread (or vice versa)
-    
+
     # Start gRPC in a separate thread
     grpc_thread = Thread(target=run_grpc_loop, daemon=True)
     grpc_thread.start()
