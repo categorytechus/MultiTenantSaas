@@ -24,10 +24,16 @@ async def serve_grpc():
 
 # --- FastAPI Server Setup ---
 
+async def serve_grpc_safely():
+    try:
+        await serve_grpc()
+    except Exception as e:
+        logger.error(f"FATAL: gRPC Server crashed! {str(e)}", exc_info=True)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Start the gRPC server as a background asyncio task when FastAPI starts
-    grpc_task = asyncio.create_task(serve_grpc())
+    grpc_task = asyncio.create_task(serve_grpc_safely())
     yield
     # Cleanup on shutdown
     grpc_task.cancel()
