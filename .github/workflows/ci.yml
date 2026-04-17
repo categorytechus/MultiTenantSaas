@@ -101,7 +101,7 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::385143640249:oidc-provider/github-cts
+          role-to-assume: arn:aws:iam::385143640249:role/github-cts
           aws-region: us-east-1
 
       - name: Test identity
