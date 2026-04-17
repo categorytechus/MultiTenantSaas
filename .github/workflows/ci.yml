@@ -97,10 +97,11 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          role-to-assume: arn:aws:iam::385143640249:oidc-provider/token.actions.githubusercontent.com
           aws-region: us-east-1
+
+      - name: Test identity
+        run: aws sts get-caller-identity
 
       - name: Set up SSH Key for EC2 Deployment
         run: |
