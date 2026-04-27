@@ -96,73 +96,117 @@ export default function DocumentUpload({ onUploadComplete }: UploadProps) {
     setError('');
 
     try {
+      // ---------------------------------------------------------------------
+      // TEMPORARY LOCAL BYPASS (S3 disabled in dev)
+      // ---------------------------------------------------------------------
       // Step 1: Get presigned URL
-      const presignedRes = await apiFetch('/documents/presigned-url', {
+      // const presignedRes = await apiFetch('/documents/presigned-url', {
+      //   method: 'POST',
+      //   body: JSON.stringify({
+      //     filename: file.name,
+      //     contentType: file.type,
+      //     fileSize: file.size,
+      //     tags,
+      //   }),
+      // });
+      //
+      // if (!presignedRes.success) {
+      //   throw new Error(presignedRes.error);
+      // }
+      // const presignedData = presignedRes.data as { data: { uploadUrl: string, s3Key: string } };
+      // const { uploadUrl, s3Key } = presignedData.data;
+      //
+      // Step 2: Upload to S3 using presigned URL
+      // const xhr = new XMLHttpRequest();
+      // xhr.upload.addEventListener('progress', (e) => {
+      //   if (e.lengthComputable) {
+      //     const percentComplete = Math.round((e.loaded / e.total) * 100);
+      //     setProgress(percentComplete);
+      //   }
+      // });
+      //
+      // xhr.addEventListener('load', async () => {
+      //   if (xhr.status === 200) {
+      //     // Step 3: Save metadata to database
+      //     const metadataRes = await apiFetch('/documents', {
+      //       method: 'POST',
+      //       body: JSON.stringify({
+      //         filename: file.name,
+      //         s3Key,
+      //         fileSize: file.size,
+      //         mimeType: file.type,
+      //         tags,
+      //         description,
+      //       }),
+      //     });
+      //
+      //     if (metadataRes.success) {
+      //       setProgress(100);
+      //       setTimeout(() => {
+      //         setFile(null);
+      //         setProgress(0);
+      //         setDescription('');
+      //         setUploading(false);
+      //         onUploadComplete?.((metadataRes.data as { data: Record<string, unknown> }).data);
+      //       }, 500);
+      //     } else {
+      //       throw new Error(metadataRes.error);
+      //     }
+      //   } else {
+      //     throw new Error('Upload failed');
+      //   }
+      // });
+      //
+      // xhr.addEventListener('error', () => {
+      //   throw new Error('Upload failed');
+      // });
+      //
+      // xhr.open('PUT', uploadUrl);
+      // xhr.setRequestHeader('Content-Type', file.type);
+      // xhr.send(file);
+
+      // Bypass S3 and save file bytes to local backend storage first.
+      const token = localStorage.getItem('accessToken');
+      const uploadRes = await fetch(
+        `/api/documents/local-upload?filename=${encodeURIComponent(file.name)}`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: token ? `Bearer ${token}` : '',
+            'Content-Type': file.type,
+          },
+          body: file,
+        },
+      );
+      const uploadData = await uploadRes.json();
+      if (!uploadRes.ok || !uploadData?.success || !uploadData?.data?.s3Key) {
+        throw new Error(uploadData?.message || 'Local upload failed');
+      }
+      const localBypassKey = uploadData.data.s3Key as string;
+      setProgress(100);
+      const metadataRes = await apiFetch('/documents', {
         method: 'POST',
         body: JSON.stringify({
           filename: file.name,
-          contentType: file.type,
+          s3Key: localBypassKey,
           fileSize: file.size,
+          mimeType: file.type,
           tags,
+          description,
         }),
       });
 
-      if (!presignedRes.success) {
-        throw new Error(presignedRes.error);
+      if (!metadataRes.success) {
+        throw new Error(metadataRes.error);
       }
-      const presignedData = presignedRes.data as { data: { uploadUrl: string, s3Key: string } };
 
-      const { uploadUrl, s3Key } = presignedData.data;
-
-      // Step 2: Upload to S3 using presigned URL
-      const xhr = new XMLHttpRequest();
-
-      xhr.upload.addEventListener('progress', (e) => {
-        if (e.lengthComputable) {
-          const percentComplete = Math.round((e.loaded / e.total) * 100);
-          setProgress(percentComplete);
-        }
-      });
-
-      xhr.addEventListener('load', async () => {
-        if (xhr.status === 200) {
-          // Step 3: Save metadata to database
-          const metadataRes = await apiFetch('/documents', {
-            method: 'POST',
-            body: JSON.stringify({
-              filename: file.name,
-              s3Key,
-              fileSize: file.size,
-              mimeType: file.type,
-              tags,
-              description,
-            }),
-          });
-
-          if (metadataRes.success) {
-            setProgress(100);
-            setTimeout(() => {
-              setFile(null);
-              setProgress(0);
-              setDescription('');
-              setUploading(false);
-              onUploadComplete?.((metadataRes.data as { data: Record<string, unknown> }).data);
-            }, 500);
-          } else {
-            throw new Error(metadataRes.error);
-          }
-        } else {
-          throw new Error('Upload failed');
-        }
-      });
-
-      xhr.addEventListener('error', () => {
-        throw new Error('Upload failed');
-      });
-
-      xhr.open('PUT', uploadUrl);
-      xhr.setRequestHeader('Content-Type', file.type);
-      xhr.send(file);
+      setTimeout(() => {
+        setFile(null);
+        setProgress(0);
+        setDescription('');
+        setUploading(false);
+        onUploadComplete?.((metadataRes.data as { data: Record<string, unknown> }).data);
+      }, 500);
 
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Upload failed');

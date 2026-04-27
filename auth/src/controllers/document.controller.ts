@@ -1,5 +1,7 @@
 // auth/src/controllers/document.controller.ts
 import { Request, Response } from 'express';
+import fs from 'fs/promises';
+import path from 'path';
 import pool  from '../config/database';
 import {
   generateS3Key,
@@ -11,6 +13,20 @@ import {
   S3_BUCKET,
 } from '../config/s3.config';
 import { autoSyncAfterUpload } from './knowledgebase.controller';
+
+const LOCAL_STORAGE_BASE_DIR = path.resolve(process.cwd(), 'local-storage', 'documents');
+
+const sanitizeFilename = (filename: string) =>
+  filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+
+function getAbsoluteLocalPathFromKey(localKey: string): string {
+  const relativePath = localKey.replace(/^local-bypass\//, '');
+  const absolutePath = path.resolve(LOCAL_STORAGE_BASE_DIR, relativePath);
+  if (!absolutePath.startsWith(LOCAL_STORAGE_BASE_DIR)) {
+    throw new Error('Invalid local file path');
+  }
+  return absolutePath;
+}
 
 /**
  * Generate presigned URL for file upload
@@ -77,6 +93,71 @@ export async function generateUploadUrl(req: Request, res: Response) {
     return res.status(500).json({
       success: false,
       message: 'Failed to generate upload URL',
+      error: error.message,
+    });
+  }
+}
+
+/**
+ * Save raw file bytes to local disk for dev bypass flow
+ * POST /api/documents/local-upload?filename=...
+ */
+export async function localUploadDocument(req: Request, res: Response) {
+  try {
+    const filename = String(req.query.filename || '');
+    const contentType = String(req.headers['content-type'] || '');
+    const userId = (req as any).user.sub;
+    const organizationId = (req as any).user.org_id;
+    const fileBuffer = req.body as Buffer;
+
+    if (!filename) {
+      return res.status(400).json({
+        success: false,
+        message: 'filename query parameter is required',
+      });
+    }
+
+    if (!fileBuffer || !Buffer.isBuffer(fileBuffer) || fileBuffer.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No file content received',
+      });
+    }
+
+    if (!isValidFileType(contentType)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid file type',
+      });
+    }
+
+    if (!isValidFileSize(fileBuffer.length)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid file size. Maximum 50MB allowed',
+      });
+    }
+
+    const safeName = sanitizeFilename(filename);
+    const relativeKey = `${organizationId}/${userId}/${Date.now()}-${safeName}`;
+    const localKey = `local-bypass/${relativeKey}`;
+    const absolutePath = getAbsoluteLocalPathFromKey(localKey);
+
+    await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+    await fs.writeFile(absolutePath, fileBuffer);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        s3Key: localKey,
+        fileSize: fileBuffer.length,
+      },
+    });
+  } catch (error: any) {
+    console.error('Error saving local upload:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to save local upload',
       error: error.message,
     });
   }
@@ -267,8 +348,12 @@ export async function getDocument(req: Request, res: Response) {
 
     const document = result.rows[0];
 
-    // Generate download URL
-    const downloadUrl = await generatePresignedDownloadUrl(document.s3_key);
+    // Temporary bypass: skip S3 presigned URL generation for local-bypass keys.
+    // const downloadUrl = await generatePresignedDownloadUrl(document.s3_key);
+    const isLocalBypassKey = String(document.s3_key || '').startsWith('local-bypass/');
+    const downloadUrl = isLocalBypassKey
+      ? null
+      : await generatePresignedDownloadUrl(document.s3_key);
 
     return res.status(200).json({
       success: true,
@@ -283,6 +368,56 @@ export async function getDocument(req: Request, res: Response) {
     return res.status(500).json({
       success: false,
       message: 'Failed to get document',
+      error: error.message,
+    });
+  }
+}
+
+/**
+ * Download locally bypassed file bytes
+ * GET /api/documents/:id/local-file
+ */
+export async function getLocalDocumentFile(req: Request, res: Response) {
+  try {
+    const { id } = req.params;
+    const organizationId = (req as any).user.org_id;
+
+    const result = await pool.query(
+      `SELECT id, filename, mime_type, s3_key
+       FROM documents
+       WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
+      [id, organizationId],
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Document not found',
+      });
+    }
+
+    const document = result.rows[0];
+    if (!String(document.s3_key || '').startsWith('local-bypass/')) {
+      return res.status(400).json({
+        success: false,
+        message: 'Document is not stored in local bypass storage',
+      });
+    }
+
+    const absolutePath = getAbsoluteLocalPathFromKey(document.s3_key);
+    const fileBuffer = await fs.readFile(absolutePath);
+
+    res.setHeader('Content-Type', document.mime_type || 'application/octet-stream');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${sanitizeFilename(document.filename || 'document')}"`,
+    );
+    return res.status(200).send(fileBuffer);
+  } catch (error: any) {
+    console.error('Error reading local document file:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to read local document file',
       error: error.message,
     });
   }
@@ -419,8 +554,18 @@ export async function deleteDocument(req: Request, res: Response) {
 
     const document = result.rows[0];
 
-    // Delete from S3
-    await deleteS3Object(document.s3_key);
+    // Temporary bypass: skip S3 delete for local/dev workflows.
+    // await deleteS3Object(document.s3_key);
+    if (String(document.s3_key || '').startsWith('local-bypass/')) {
+      try {
+        const absolutePath = getAbsoluteLocalPathFromKey(document.s3_key);
+        await fs.unlink(absolutePath);
+      } catch (unlinkError: any) {
+        if (unlinkError?.code !== 'ENOENT') {
+          console.warn('Failed to delete local bypass file:', unlinkError.message);
+        }
+      }
+    }
 
     // Soft delete in database
     const deleteQuery = `

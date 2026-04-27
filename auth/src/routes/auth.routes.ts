@@ -28,6 +28,7 @@ router.post(
     body('email').isEmail().normalizeEmail(),
     body('password').isLength({ min: 8 }),
     body('name').trim().notEmpty(),
+    body('organizationName').trim().notEmpty().withMessage('Organization name is required'),
   ],
   validateRequest,
   signup

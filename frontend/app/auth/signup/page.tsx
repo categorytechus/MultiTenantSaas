@@ -10,6 +10,7 @@ export default function SignUpPage() {
   const router = useRouter();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [organizationName, setOrganizationName] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPwd, setShowPwd] = useState(false);
@@ -30,7 +31,7 @@ export default function SignUpPage() {
     try {
       const res = await apiFetch<{ data: { accessToken: string, refreshToken: string } }>('/auth/signup', {
         method: 'POST',
-        body: JSON.stringify({ email, password, name }),
+        body: JSON.stringify({ email, password, name, organizationName }),
       });
       if (!res.success) throw new Error(res.error);
       localStorage.setItem('accessToken', res.data.data.accessToken);
@@ -157,6 +158,11 @@ export default function SignUpPage() {
             <div className="field">
               <label className="field-lbl">Email</label>
               <input className="fi" type="email" placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" />
+            </div>
+
+            <div className="field">
+              <label className="field-lbl">Organization name</label>
+              <input className="fi" type="text" placeholder="Acme Corp" value={organizationName} onChange={e => setOrganizationName(e.target.value)} required autoComplete="organization" />
             </div>
 
             <div className="field">

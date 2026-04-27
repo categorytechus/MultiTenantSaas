@@ -10,6 +10,11 @@ dist
 bin/terraform
 .terraform.lock.hcl
 
+#all localhost dev files
+*.dev
+README-DEV.md
+**/package-lock.json
+
 # Security (Sensitive)
 # Using a wildcard to match the project name key pattern we established
 multi-tenant-saas-key.pem
@@ -98,3 +103,9 @@ secrets/
 # OS
 Thumbs.db
 EOF
+
+# Environment files (all directories)
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.sample
