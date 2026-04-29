@@ -1,0 +1,54 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chat-service
+  namespace: data
+  labels:
+    app: chat-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chat-service
+  template:
+    metadata:
+      labels:
+        app: chat-service
+    spec:
+      containers:
+        - name: chat-service
+          image: __ECR_CHAT_IMAGE__
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3002
+            - containerPort: 50052
+          env:
+            - name: RAG_SERVICE_ADDR
+              value: "rag-service:50051"
+            - name: AWS_DEFAULT_REGION
+              value: "us-east-1"
+            - name: AWS_REGION
+              value: "us-east-1"
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ai-secrets
+                  key: OPENAI_API_KEY
+                  optional: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chat-service
+  namespace: data
+spec:
+  selector:
+    app: chat-service
+  ports:
+    - name: http
+      port: 3002
+      targetPort: 3002
+    - name: grpc
+      port: 50052
+      targetPort: 50052

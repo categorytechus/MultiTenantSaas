@@ -1,0 +1,35 @@
+========================================
+  Agent API & Worker Agent Test Suite
+========================================
+Gateway: http://75.101.229.143
+WebSocket: ws://75.101.229.143/ws/task-status
+
+[PASS] Unauthorized Access (no token)
+[PASS] Invalid Token
+[FAIL] POST /api/chat - General Chat: Chat endpoint status: expected "202", got "403"
+[FAIL] POST /api/agents/start - Create Task: Agent start status: expected "202", got "403"
+[FAIL] Session ID Persistence: Session ID should be preserved: expected "test-session-1773257848", got "None"
+[FAIL] GET /api/agents/:taskId - Status Polling: Task ID should exist
+[FAIL] Task Not Found (404): Task not found status: expected "404", got "500"
+[PASS] Forbidden Access (no permissions)
+[FAIL] HR/Enrollment Query Routing: HR query accepted: expected "202", got "403"
+[FAIL] IT Support Query Routing: IT query accepted: expected "202", got "403"
+[PASS] WebSocket Connection
+[FAIL] End-to-End Flow with Polling: Task creation accepted: expected "202", got "403"
+
+  Test Results
+  Test Results
+========================================
+Passed: 4
+Failed: 8
+
+Failed Tests:
+  - POST /api/chat - General Chat: Chat endpoint status: expected "202", got "403"       
+  - POST /api/agents/start - Create Task: Agent start status: expected "202", got "403"  
+  - Session ID Persistence: Session ID should be preserved: expected "test-session-1773257848", got "None"
+  - GET /api/agents/:taskId - Status Polling: Task ID should exist
+  - Task Not Found (404): Task not found status: expected "404", got "500"
+  - HR/Enrollment Query Routing: HR query accepted: expected "202", got "403"
+  - IT Support Query Routing: IT query accepted: expected "202", got "403"
+  - End-to-End Flow with Polling: Task creation accepted: expected "202", got "403"      
+make: *** [Makefile:171: test-py-remote] Error 1

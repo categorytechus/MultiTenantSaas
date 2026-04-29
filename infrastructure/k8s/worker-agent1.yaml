@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-agent1
+  namespace: data
+  labels:
+    app: worker-agent1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker-agent1
+  template:
+    metadata:
+      labels:
+        app: worker-agent1
+    spec:
+      containers:
+        - name: worker-agent1
+          image: __ECR_AGENT1_IMAGE__
+          imagePullPolicy: Always
+          env:
+            - name: RABBITMQ_URL
+              value: "amqp://admin:admin@rabbitmq.data.svc.cluster.local:5672"
+            - name: DB_HOST
+              value: "pgbouncer.data.svc.cluster.local"
+            - name: DB_PORT
+              value: "6432"
+            - name: DB_USER
+              value: "postgres"
+            - name: DB_NAME
+              value: "multitenant_saas"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: password
+            - name: AWS_DEFAULT_REGION
+              value: "us-east-1"
+            - name: AWS_REGION
+              value: "us-east-1"
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: llm-keys
+                  key: value
+          resources:
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
