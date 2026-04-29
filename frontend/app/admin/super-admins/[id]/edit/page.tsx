@@ -6,6 +6,13 @@ import Layout from '../../../../../components/Layout';
 import { apiFetch } from '../../../../../src/lib/api';
 import './admin-super-admins-id-edit.css';
 
+interface SuperAdmin {
+  id: string;
+  full_name: string;
+  email: string;
+  status: string;
+}
+
 export default function EditSuperAdminPage() {
   const router = useRouter();
   const params = useParams();
@@ -30,9 +37,9 @@ export default function EditSuperAdminPage() {
           router.push('/dashboard');
           return;
         }
-        const res = await apiFetch<{ data: any[] }>('/admin/super-admins');
+        const res = await apiFetch<{ data: SuperAdmin[] }>('/admin/super-admins');
         if (res.success) {
-          const admin = res.data.data.find((a: any) => a.id === id);
+          const admin = res.data.data.find((a) => a.id === id);
           if (admin) {
             setName(admin.full_name || '');
             setEmail(admin.email);

@@ -58,7 +58,10 @@ export default function RolesPage() {
   }, [router]);
 
   useEffect(() => {
-    guardAndFetch();
+    const t = window.setTimeout(() => {
+      void guardAndFetch();
+    }, 0);
+    return () => window.clearTimeout(t);
   }, [guardAndFetch]);
 
   const handleDelete = async () => {

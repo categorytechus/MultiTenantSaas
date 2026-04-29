@@ -27,24 +27,25 @@ export default function OrganizationsPage() {
     const token = localStorage.getItem('accessToken');
     if (!token) { router.push('/auth/signin'); return; }
     (async () => {
-      const me = await apiFetch<{ data: { user_type: string } }>('/auth/me');
-      if (!me.success || me.data.data.user_type !== 'super_admin') {
-        router.push('/dashboard');
-        return;
+      try {
+        const me = await apiFetch<{ data: { user_type: string } }>('/auth/me');
+        if (!me.success || me.data.data.user_type !== 'super_admin') {
+          router.push('/dashboard');
+          return;
+        }
+
+        setLoading(true);
+        try {
+          const res = await apiFetch<{ data: Org[] }>('/admin/organizations');
+          if (res.success) setOrgs(res.data.data);
+        } finally {
+          setLoading(false);
+        }
+      } catch {
+        setLoading(false);
       }
-      await load();
     })();
   }, [router]);
-
-  const load = async () => {
-    setLoading(true);
-    try {
-      const res = await apiFetch<{ data: Org[] }>('/admin/organizations');
-      if (res.success) setOrgs(res.data.data);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleDelete = async (id: string, name: string) => {
     if (!confirm(`Delete organization "${name}"? This action cannot be undone.`)) return;

@@ -8,6 +8,13 @@ import './roles-id-edit.css';
 
 // Edit: name + description only (see create page)
 
+interface Role {
+  id: string;
+  name: string;
+  description?: string | null;
+  is_system: boolean;
+}
+
 export default function EditRolePage() {
   const router = useRouter();
   const params = useParams();
@@ -45,12 +52,12 @@ export default function EditRolePage() {
         }
         setOrgId(oid);
 
-        const rolesRes = await apiFetch<{ data: any[] }>(
+        const rolesRes = await apiFetch<{ data: Role[] }>(
           `/organizations/${oid}/roles`,
         );
 
         if (rolesRes.success) {
-          const role = rolesRes.data.data.find((r: any) => r.id === id);
+          const role = rolesRes.data.data.find((r) => r.id === id);
           if (role) {
             setName(role.name);
             setDescription(role.description || "");

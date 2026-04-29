@@ -89,11 +89,7 @@ export default function DocumentsPage() {
     fetchOrgRoles();
   }, []);
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm, startDate, endDate]);
-
-  const fetchCurrentUser = async () => {
+  async function fetchCurrentUser() {
     try {
       const meRes = await apiFetch<{ data: CurrentUser }>("/auth/me");
       if (meRes.success) {
@@ -102,9 +98,9 @@ export default function DocumentsPage() {
     } catch {
       // No-op: upload validation will handle missing user context
     }
-  };
+  }
 
-  const fetchOrgRoles = async () => {
+  async function fetchOrgRoles() {
     try {
       const token = localStorage.getItem("accessToken");
       if (!token) return;
@@ -122,9 +118,9 @@ export default function DocumentsPage() {
     } catch {
       // No-op: role dropdown will stay empty.
     }
-  };
+  }
 
-  const fetchDocuments = async () => {
+  async function fetchDocuments() {
     try {
       const res = await apiFetch<{ data: Document[] }>("/documents");
       if (res.success) {
@@ -135,7 +131,7 @@ export default function DocumentsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   const handleFileSelect = (
     eOrFile: React.ChangeEvent<HTMLInputElement> | File,
@@ -412,20 +408,29 @@ export default function DocumentsPage() {
             className="search-input"
             placeholder="Search by file name..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1);
+              }}
           />
           <input
             type="date"
             className="date-input"
             value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
+              onChange={(e) => {
+                setStartDate(e.target.value);
+                setCurrentPage(1);
+              }}
           />
           <span className="date-sep">to</span>
           <input
             type="date"
             className="date-input"
             value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
+              onChange={(e) => {
+                setEndDate(e.target.value);
+                setCurrentPage(1);
+              }}
           />
           <button className="btn-upload" onClick={() => setShowUploadModal(true)}>
             <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">

@@ -49,7 +49,12 @@ export default function SuperAdminsPage() {
     }
   }, [router]);
 
-  useEffect(() => { guardAndFetch(); }, [guardAndFetch]);
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      void guardAndFetch();
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, [guardAndFetch]);
 
   const handleDelete = async () => {
     if (!deleteTarget) return;

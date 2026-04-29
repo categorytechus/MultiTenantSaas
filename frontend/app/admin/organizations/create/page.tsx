@@ -37,7 +37,7 @@ export default function CreateOrganizationPage() {
       if (res.success) {
         router.push('/admin/organizations');
       } else {
-        setError((res as any).error || 'Failed to create organization');
+        setError(res.error || 'Failed to create organization');
       }
     } catch {
       setError('Failed to create organization');

@@ -12,6 +12,14 @@ interface Role {
   is_system: boolean;
 }
 
+interface UserWithRoles {
+  id: string;
+  email: string;
+  full_name?: string;
+  status: string;
+  roles: Role[];
+}
+
 export default function EditUserPage() {
   const router = useRouter();
   const params = useParams();
@@ -54,12 +62,12 @@ export default function EditUserPage() {
         setOrgId(oid);
 
         const [usersRes, rolesRes] = await Promise.all([
-          apiFetch<{ data: any[] }>(`/organizations/${oid}/users`),
+          apiFetch<{ data: UserWithRoles[] }>(`/organizations/${oid}/users`),
           apiFetch<{ data: Role[] }>(`/organizations/${oid}/roles`),
         ]);
 
         if (usersRes.success) {
-          const u = usersRes.data.data.find((x: any) => x.id === id);
+          const u = usersRes.data.data.find((x) => x.id === id);
           if (u) {
             setName(u.full_name || "");
             setEmail(u.email);
