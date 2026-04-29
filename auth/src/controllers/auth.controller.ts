@@ -8,11 +8,15 @@ import {
 import { generateTokenPair } from "../utils/jwt";
 import { v4 as uuidv4 } from "uuid";
 
+const normalizeEmail = (email?: string): string =>
+  (email || "").trim().toLowerCase();
+
 /**
  * Sign up a new user as org_admin — auto-creates their organization
  */
 export const signup = async (req: Request, res: Response): Promise<void> => {
   const { email, password, name, organizationName } = req.body;
+  const normalizedEmail = normalizeEmail(email);
 
   if (!organizationName || !organizationName.trim()) {
     res.status(400).json({
@@ -37,8 +41,8 @@ export const signup = async (req: Request, res: Response): Promise<void> => {
 
     // Check if user already exists
     const userExists = await client.query(
-      "SELECT id FROM users WHERE email = $1",
-      [email.toLowerCase()],
+      "SELECT id FROM users WHERE lower(trim(email)) = $1",
+      [normalizedEmail],
     );
 
     if (userExists.rows.length > 0) {
@@ -63,7 +67,7 @@ export const signup = async (req: Request, res: Response): Promise<void> => {
       [
         userId,
         cognitoSub,
-        email.toLowerCase(),
+        normalizedEmail,
         false,
         name,
         "active",
@@ -125,7 +129,7 @@ export const signup = async (req: Request, res: Response): Promise<void> => {
     // Generate tokens with org context
     const tokens = generateTokenPair({
       sub: userId,
-      email: email.toLowerCase(),
+      email: normalizedEmail,
       user_type: "org_admin",
       org_id: orgId,
       permissions,
@@ -143,7 +147,7 @@ export const signup = async (req: Request, res: Response): Promise<void> => {
       message: "Account and organization created successfully",
       data: {
         userId,
-        email: email.toLowerCase(),
+        email: normalizedEmail,
         name,
         user_type: "org_admin",
         organization: { id: orgId, name: organizationName.trim(), slug },
@@ -167,12 +171,13 @@ export const signup = async (req: Request, res: Response): Promise<void> => {
  */
 export const signin = async (req: Request, res: Response): Promise<void> => {
   const { email, password } = req.body;
+  const normalizedEmail = normalizeEmail(email);
 
   try {
     // Find user
     const result = await pool.query(
-      "SELECT id, email, full_name, password_hash, status, user_type FROM users WHERE email = $1",
-      [email.toLowerCase()],
+      "SELECT id, email, full_name, password_hash, status, user_type FROM users WHERE lower(trim(email)) = $1",
+      [normalizedEmail],
     );
 
     if (result.rows.length === 0) {
@@ -393,12 +398,13 @@ export const forgotPassword = async (
   res: Response,
 ): Promise<void> => {
   const { email } = req.body;
+  const normalizedEmail = normalizeEmail(email);
 
   try {
     // Find user
     const result = await pool.query(
-      "SELECT id, email, full_name FROM users WHERE email = $1",
-      [email.toLowerCase()],
+      "SELECT id, email, full_name FROM users WHERE lower(trim(email)) = $1",
+      [normalizedEmail],
     );
 
     // Always return success even if user not found (security: don't reveal if email exists)
@@ -451,6 +457,7 @@ export const confirmPasswordReset = async (
   res: Response,
 ): Promise<void> => {
   const { email, code, newPassword } = req.body;
+  const normalizedEmail = normalizeEmail(email);
 
   try {
     // Validate new password strength
@@ -468,8 +475,8 @@ export const confirmPasswordReset = async (
     const result = await pool.query(
       `SELECT id, reset_code, reset_code_expiry 
        FROM users 
-       WHERE email = $1 AND reset_code = $2 AND reset_code_expiry > NOW()`,
-      [email.toLowerCase(), code],
+       WHERE lower(trim(email)) = $1 AND reset_code = $2 AND reset_code_expiry > NOW()`,
+      [normalizedEmail, code],
     );
 
     if (result.rows.length === 0) {

@@ -27,6 +27,7 @@ export default function Layout({ children }: LayoutProps) {
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [switching, setSwitching] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const dropRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -102,6 +103,20 @@ export default function Layout({ children }: LayoutProps) {
     })();
   }, [router]);
 
+  useEffect(() => {
+    setMobileSidebarOpen(false);
+    setOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!mobileSidebarOpen) return;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [mobileSidebarOpen]);
+
   const switchOrg = async (org: Org) => {
     if (org.id === cur?.id) { setOpen(false); return; }
     setSwitching(true);
@@ -168,19 +183,44 @@ export default function Layout({ children }: LayoutProps) {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap');
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'DM Sans', sans-serif; background: #faf9f7; }
+        body { font-family: 'DM Sans', sans-serif; background: #ffffff; }
 
         .layout { display: flex; height: 100vh; overflow: hidden; }
 
         /* Sidebar */
         .sidebar {
           width: 240px;
-          background: white;
+          background: #fafafa;
           display: flex;
           flex-direction: column;
+          border-right: 1px solid #e5e5e5;
         }
         .sidebar-top {
           padding: 20px;
+        }
+        .sidebar-top-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+        }
+        .sidebar-close-btn {
+          display: none;
+          background: transparent;
+          border: none;
+          color: #6b7280;
+          width: 28px;
+          height: 28px;
+          border-radius: 6px;
+          cursor: pointer;
+          align-items: center;
+          justify-content: center;
+          font-size: 20px;
+          line-height: 1;
+        }
+        .sidebar-close-btn:hover {
+          background: #f1f5f9;
+          color: #111827;
         }
         .brand {
           font-size: 16px;
@@ -218,11 +258,11 @@ export default function Layout({ children }: LayoutProps) {
           border-left: 3px solid transparent;
         }
         .nav-item:hover {
-          background: #f5f4f1;
+          background: #f5f5f5;
           color: #1a1a1a;
         }
         .nav-item.active {
-          background: #F5F2F1;
+          background: #f5f5f5;
           color: #1a1a1a;
           font-weight: 600;
           border-left-color: #1a1a1a;
@@ -318,17 +358,34 @@ export default function Layout({ children }: LayoutProps) {
           display: flex;
           flex-direction: column;
           overflow: hidden;
+          background: #ffffff;
         }
 
         /* Topbar */
         .topbar {
           height: 60px;
-          background: white;
+          background: #ffffff;
           display: flex;
           align-items: center;
           justify-content: space-between;
           padding: 0 32px;
           border-radius: 0 0 20px 0px;
+          border-bottom: 1px solid #f3f4f6;
+        }
+        .mobile-menu-btn {
+          display: none;
+          align-items: center;
+          justify-content: center;
+          width: 34px;
+          height: 34px;
+          border-radius: 8px;
+          border: 1px solid #e5e7eb;
+          background: #ffffff;
+          color: #111827;
+          cursor: pointer;
+        }
+        .mobile-menu-btn:hover {
+          background: #f9fafb;
         }
         .breadcrumb {
           display: flex;
@@ -430,6 +487,58 @@ export default function Layout({ children }: LayoutProps) {
         .content-wrapper {
           flex: 1;
           overflow-y: auto;
+          background: #ffffff;
+        }
+        .mobile-sidebar-backdrop {
+          display: none;
+        }
+        @media (max-width: 1024px) {
+          .mobile-menu-btn {
+            display: inline-flex;
+          }
+          .topbar {
+            padding: 0 16px;
+          }
+          .breadcrumb {
+            gap: 6px;
+            font-size: 13px;
+            min-width: 0;
+          }
+          .breadcrumb span {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+          .sidebar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            z-index: 1100;
+            width: min(280px, 85vw);
+            transform: translateX(-100%);
+            transition: transform 0.2s ease;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+          }
+          .sidebar.open {
+            transform: translateX(0);
+          }
+          .sidebar-close-btn {
+            display: inline-flex;
+          }
+          .mobile-sidebar-backdrop {
+            display: block;
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.28);
+            z-index: 1090;
+          }
+          .ts-btn span {
+            max-width: 96px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
         }
       `}</style>
 
@@ -442,11 +551,27 @@ export default function Layout({ children }: LayoutProps) {
         </div>
       )}
 
+      {mobileSidebarOpen && (
+        <div
+          className="mobile-sidebar-backdrop"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      )}
+
       <div className="layout">
         {/* Sidebar */}
-        <aside className="sidebar">
+        <aside className={`sidebar${mobileSidebarOpen ? ' open' : ''}`}>
           <div className="sidebar-top">
-            <div className="brand">Platform</div>
+            <div className="sidebar-top-row">
+              <div className="brand">Platform</div>
+              <button
+                className="sidebar-close-btn"
+                onClick={() => setMobileSidebarOpen(false)}
+                aria-label="Close sidebar"
+              >
+                ×
+              </button>
+            </div>
             <div className="brand-sub">Multi-tenant SaaS</div>
           </div>
 
@@ -554,6 +679,17 @@ export default function Layout({ children }: LayoutProps) {
           {/* Topbar */}
           <div className="topbar">
             <div className="breadcrumb">
+              <button
+                className="mobile-menu-btn"
+                onClick={() => setMobileSidebarOpen(true)}
+                aria-label="Open sidebar"
+              >
+                <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <line x1="3" y1="6" x2="21" y2="6" />
+                  <line x1="3" y1="12" x2="21" y2="12" />
+                  <line x1="3" y1="18" x2="21" y2="18" />
+                </svg>
+              </button>
               <span>{breadcrumb.section}</span>
               <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <polyline points="9 18 15 12 9 6"/>

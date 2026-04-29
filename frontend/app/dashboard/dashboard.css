@@ -1,0 +1,226 @@
+.content {
+    padding: 32px;
+    background: #ffffff;
+    min-height: 100%;
+  }
+  
+  .filters-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  
+  .filter-input-wrap {
+    display: flex;
+    align-items: center;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 0 12px;
+    height: 36px;
+    font-size: 13px;
+    color: #111827;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    min-width: 148px;
+  }
+  
+  .filter-input-wrap input {
+    border: none;
+    outline: none;
+    background: transparent;
+    color: inherit;
+    font-family: inherit;
+    width: 100%;
+    appearance: none;
+    -webkit-appearance: none;
+    font-size: 13px;
+    color-scheme: light;
+  }
+  
+  .filter-input-wrap input[type="date"]::-webkit-calendar-picker-indicator {
+    opacity: 1;
+    cursor: pointer;
+    filter: brightness(0) saturate(100%);
+  }
+  
+  .filter-input-wrap input[type="date"]::-webkit-datetime-edit {
+    color: #111827;
+  }
+  
+  .filter-input-wrap input[type="date"]:invalid::-webkit-datetime-edit {
+    color: #9ca3af;
+  }
+  
+  .filter-text {
+    font-size: 13px;
+    color: #6b7280;
+  }
+  
+  .filter-dropdown {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 0 12px;
+    height: 36px;
+    font-size: 13px;
+    color: #111827;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    cursor: pointer;
+    min-width: 140px;
+  }
+  
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  
+  .stat-card {
+    /* Match doctel-style subtle card tint/gradient */
+    background: linear-gradient(180deg, #f6f7f8 0%, #ffffff 68%);
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  }
+  
+  .stat-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+  }
+  
+  .stat-lbl {
+    font-size: 13px;
+    font-weight: 500;
+    color: #6b7280;
+  }
+  
+  .stat-badge {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #111827;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 2px 8px;
+  }
+  
+  .stat-badge svg {
+    width: 14px;
+    height: 14px;
+    color: #6b7280;
+  }
+  
+  .stat-val {
+    font-size: 36px;
+    font-weight: 600;
+    color: #111827;
+    line-height: 1.1;
+    margin-bottom: 24px;
+    letter-spacing: -0.5px;
+  }
+  
+  .stat-footer {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: #111827;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  
+  .stat-footer svg {
+    width: 14px;
+    height: 14px;
+    color: #111827;
+  }
+  
+  .stat-footer-sub {
+    color: #6b7280;
+    font-size: 13px;
+    font-weight: 400;
+  }
+  
+  .chart-controls {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  
+  .chart-toggle-btn {
+    padding: 6px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-family: inherit;
+  }
+  
+  .chart-toggle-btn.active {
+    background: #111827;
+    color: white;
+    border: 1px solid #111827;
+  }
+  
+  .chart-toggle-btn:not(.active) {
+    background: white;
+    color: #111827;
+    border: 1px solid #e5e7eb;
+  }
+  
+  .chart-toggle-btn:not(.active):hover {
+    background: #f9fafb;
+  }
+  
+  .chart-section {
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  }
+  
+  .chart-header {
+    margin-bottom: 32px;
+  }
+  
+  .chart-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #111827;
+    margin-bottom: 4px;
+  }
+  
+  .chart-subtitle {
+    font-size: 13px;
+    color: #6b7280;
+  }
+  
+  /* Legend dots colors */
+  .recharts-legend-item-text {
+    color: #6b7280 !important;
+  }
+  
+  @media (max-width: 1024px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+  }
+  
+  @media (max-width: 768px) {
+    .stats { grid-template-columns: 1fr; }
+    .filters-row { flex-wrap: wrap; }
+  }

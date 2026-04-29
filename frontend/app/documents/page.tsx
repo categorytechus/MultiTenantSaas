@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Layout from "../../components/Layout";
 import KnowledgeBaseSync from "../../components/KnowledgeBaseSync";
 import { apiFetch } from "../../src/lib/api";
+import './documents.css';
 
 interface Document {
   id: string;
@@ -56,6 +57,7 @@ export default function DocumentsPage() {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const [editingDoc, setEditingDoc] = useState<Document | null>(null);
   const [uploading, setUploading] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
@@ -73,6 +75,7 @@ export default function DocumentsPage() {
     role: "",
     description: "",
   });
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [editMetadata, setEditMetadata] = useState<UploadMetadata>({
     docType: "",
     isConfidential: false,
@@ -134,8 +137,10 @@ export default function DocumentsPage() {
     }
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleFileSelect = (
+    eOrFile: React.ChangeEvent<HTMLInputElement> | File,
+  ) => {
+    const file = eOrFile instanceof File ? eOrFile : eOrFile.target.files?.[0];
     if (!file) return;
 
     // Validate file type
@@ -159,7 +164,33 @@ export default function DocumentsPage() {
     }
 
     setSelectedFile(file);
-    setShowUploadModal(true);
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      handleFileSelect(file);
+    }
+  };
+
+  const handleRemoveSelectedFile = () => {
+    if (uploading) return;
+    setSelectedFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
   };
 
   const handleUpload = async () => {
@@ -170,12 +201,16 @@ export default function DocumentsPage() {
       return;
     }
 
-    if (!metadata.docType) {
+    const docType = metadata.docType.trim();
+    const role = (metadata.role || "").trim();
+    const description = metadata.description.trim();
+
+    if (!docType) {
       alert("Document Type is required");
       return;
     }
 
-    if (!metadata.role) {
+    if (!role) {
       alert("Please select a Role");
       return;
     }
@@ -185,9 +220,9 @@ export default function DocumentsPage() {
     try {
       const s3Tags = {
         "user-id": currentUserId,
-        "doc-type": metadata.docType,
+        "doc-type": docType,
         confidential: metadata.isConfidential ? "true" : "false",
-        ...(metadata.role && { role: metadata.role }),
+        ...(role && { role }),
       };
 
       // Temporary bypass: skip presigned URL + S3 upload, store file in local backend.
@@ -220,7 +255,7 @@ export default function DocumentsPage() {
           fileSize: selectedFile.size,
           mimeType: selectedFile.type,
           tags: s3Tags,
-          description: metadata.description,
+          description,
         }),
       });
 
@@ -228,6 +263,7 @@ export default function DocumentsPage() {
 
       setShowUploadModal(false);
       setSelectedFile(null);
+      setIsDragging(false);
       setMetadata({
         docType: "",
         isConfidential: false,
@@ -363,300 +399,7 @@ export default function DocumentsPage() {
 
   return (
     <Layout>
-      <style>{`
-        .content {
-          padding: 32px;
-        }
-        .page-header {
-          font-size: 18px;
-          font-weight: 600;
-          color: #1a1a1a;
-          margin-bottom: 24px;
-        }
-        
-        .toolbar {
-          display: flex;
-          gap: 12px;
-          align-items: center;
-          margin-bottom: 20px;
-          flex-wrap: wrap;
-        }
-        .search-input {
-          flex: 1;
-          min-width: 250px;
-          padding: 9px 14px;
-          border: 1px solid #ebebeb;
-          border-radius: 6px;
-          font-size: 13px;
-          outline: none;
-          color: #1a1a1a;
-        }
-        .date-input {
-          padding: 9px 14px;
-          border: 1px solid #ebebeb;
-          border-radius: 6px;
-          font-size: 13px;
-          outline: none;
-          width: 160px;
-          color: #1a1a1a;
-        }
-        .date-sep {
-          font-size: 13px;
-          color: #1a1a1a;
-        }
-        .btn-upload {
-          padding: 9px 18px;
-          background: #2f3640;
-          color: white;
-          border: none;
-          border-radius: 6px;
-          font-size: 13px;
-          font-weight: 500;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          transition: all 0.2s;
-        }
-        .btn-upload:hover {
-          background: #1a1f28;
-        }
-        .btn-download {
-          padding: 9px 14px;
-          background: white;
-          color: #2f3640;
-          border: 1px solid #ebebeb;
-          border-radius: 6px;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-
-        .table-container {
-          background: white;
-          border: 1px solid #ebebeb;
-          border-radius: 8px;
-          overflow: hidden;
-        }
-        .table {
-          width: 100%;
-          border-collapse: collapse;
-        }
-        .table thead {
-          background: #fafafa;
-        }
-        .table th {
-          padding: 12px 16px;
-          text-align: left;
-          font-size: 12px;
-          font-weight: 600;
-          color: #666;
-        }
-        .table td {
-          padding: 14px 16px;
-          font-size: 13px;
-          color: #1a1a1a;
-          border-top: 1px solid #f5f5f5;
-        }
-        .table tbody tr:hover {
-          background: #fafafa;
-        }
-
-        .filename {
-          font-weight: 500;
-          color: #1a1a1a;
-        }
-        .badge {
-          display: inline-block;
-          padding: 3px 10px;
-          border-radius: 4px;
-          font-size: 11px;
-          font-weight: 600;
-        }
-        .badge-success {
-          background: #e8f5e9;
-          color: #2e7d32;
-        }
-        .badge-image {
-          background: #e3f2fd;
-          color: #1976d2;
-        }
-        .badge-document {
-          background: #fce4ec;
-          color: #c2185b;
-        }
-
-        .action-btns {
-          display: flex;
-          gap: 8px;
-        }
-        .btn-icon {
-          background: transparent;
-          border: none;
-          padding: 6px;
-          cursor: pointer;
-          color: #9a9a9a;
-          transition: color 0.2s;
-        }
-        .btn-icon:hover {
-          color: #1a1a1a;
-        }
-
-        .pagination {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          padding: 16px;
-          border-top: 1px solid #f5f5f5;
-        }
-        .page-info {
-          font-size: 13px;
-          color: #666;
-        }
-        .page-btns {
-          display: flex;
-          gap: 8px;
-        }
-        .page-btn {
-          padding: 8px 16px;
-          background: #f5f5f5;
-          border: none;
-          border-radius: 6px;
-          font-size: 13px;
-          cursor: pointer;
-          transition: all 0.2s;
-          color: #1a1a1a;
-        }
-        .page-btn:hover:not(:disabled) {
-          background: #e0e0e0;
-        }
-        .page-btn:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-
-        /* Modal */
-        .modal-overlay {
-          position: fixed;
-          inset: 0;
-          background: rgba(0, 0, 0, 0.5);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 2000;
-        }
-        .modal {
-          background: white;
-          border-radius: 12px;
-          padding: 28px;
-          width: 90%;
-          max-width: 550px;
-          max-height: 90vh;
-          overflow-y: auto;
-        }
-        .modal-title {
-          font-size: 18px;
-          font-weight: 600;
-          margin-bottom: 20px;
-          color: #1a1a1a;
-        }
-        .form-group {
-          margin-bottom: 18px;
-        }
-        .form-label {
-          display: block;
-          font-size: 13px;
-          font-weight: 500;
-          color: #1a1a1a;
-          margin-bottom: 6px;
-        }
-        .form-label .required {
-          color: #ef4444;
-          margin-left: 2px;
-        }
-        .form-input, .form-select, .form-textarea {
-          width: 100%;
-          padding: 10px 12px;
-          border: 1px solid #d1d5db;
-          border-radius: 6px;
-          font-size: 13px;
-          color: #1a1a1a;
-          outline: none;
-          transition: border 0.2s;
-        }
-        .form-input:focus, .form-select:focus, .form-textarea:focus {
-          border-color: #8b5cf6;
-        }
-        .form-textarea {
-          resize: vertical;
-          min-height: 80px;
-        }
-        .form-checkbox {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-        .form-checkbox input {
-          width: 18px;
-          height: 18px;
-        }
-        .form-checkbox label {
-          color: #1a1a1a;
-        }
-        .form-hint {
-          font-size: 12px;
-          color: #666;
-          margin-top: 4px;
-        }
-        .file-preview {
-          background: #f9f9f9;
-          border: 1px solid #e5e5e5;
-          padding: 16px;
-          border-radius: 8px;
-          margin-bottom: 20px;
-        }
-        .file-preview-name {
-          font-size: 14px;
-          font-weight: 500;
-          color: #1a1a1a;
-          margin-bottom: 4px;
-        }
-        .file-preview-size {
-          font-size: 12px;
-          color: #666;
-        }
-        .modal-btns {
-          display: flex;
-          gap: 12px;
-          justify-content: flex-end;
-          margin-top: 24px;
-        }
-        .btn-secondary {
-          padding: 10px 20px;
-          background: #f5f5f5;
-          border: none;
-          border-radius: 6px;
-          font-size: 14px;
-          font-weight: 500;
-          cursor: pointer;
-          color: #1a1a1a;
-        }
-        .btn-primary {
-          padding: 10px 20px;
-          background: #8b5cf6;
-          color: white;
-          border: none;
-          border-radius: 6px;
-          font-size: 14px;
-          font-weight: 500;
-          cursor: pointer;
-        }
-        .btn-primary:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-      `}</style>
+      
 
       <div className="content">
         <div className="page-header">Data Extracted Files</div>
@@ -684,18 +427,12 @@ export default function DocumentsPage() {
             value={endDate}
             onChange={(e) => setEndDate(e.target.value)}
           />
-          <label className="btn-upload">
+          <button className="btn-upload" onClick={() => setShowUploadModal(true)}>
             <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
               <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
             </svg>
             Choose file
-            <input
-              type="file"
-              style={{ display: "none" }}
-              onChange={handleFileSelect}
-              accept=".pdf,.doc,.docx,.ppt,.pptx"
-            />
-          </label>
+          </button>
           <button className="btn-download">
             <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24">
               <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" />
@@ -841,20 +578,103 @@ export default function DocumentsPage() {
       </div>
 
       {/* Upload Modal */}
-      {showUploadModal && selectedFile && (
+      {showUploadModal && (
         <div
           className="modal-overlay"
-          onClick={() => !uploading && setShowUploadModal(false)}
+          onClick={() => {
+            if (!uploading) {
+              setShowUploadModal(false);
+              setIsDragging(false);
+            }
+          }}
         >
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h2 className="modal-title">Upload Document - Metadata</h2>
 
-            <div className="file-preview">
-              <div className="file-preview-name">{selectedFile.name}</div>
-              <div className="file-preview-size">
-                {formatFileSize(selectedFile.size)}
-              </div>
+            <div
+              className="file-preview"
+              style={{
+                border: isDragging ? "2px dashed #8b5cf6" : "1px solid #e5e5e5",
+                background: isDragging ? "#f5f3ff" : "#f9f9f9",
+                transition: "all 0.2s",
+                cursor: "pointer",
+                textAlign: "center",
+              }}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {selectedFile ? (
+                <div className="selected-file-card">
+                  <div className="selected-file-main">
+                    <div className="selected-file-icon" aria-hidden="true">
+                      {selectedFile.type === "application/pdf" ? "PDF" : "DOC"}
+                    </div>
+                    <div className="selected-file-meta">
+                      <div className="file-preview-name">{selectedFile.name}</div>
+                      <div className="file-preview-size">
+                        {formatFileSize(selectedFile.size)}
+                      </div>
+                      <div className="form-hint">
+                        Click to choose a different file or drag and drop another
+                        file.
+                      </div>
+                    </div>
+                  </div>
+                  {!uploading && (
+                    <button
+                      type="button"
+                      className="remove-file-btn"
+                      title="Remove selected file"
+                      aria-label="Remove selected file"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRemoveSelectedFile();
+                      }}
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="empty-upload-state">
+                  <div className="empty-upload-icon-wrap" aria-hidden="true">
+                    <svg width="22" height="22" fill="none" viewBox="0 0 24 24">
+                      <path
+                        d="M12 16V8M12 8L8.5 11.5M12 8L15.5 11.5M4 15.5V17a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1.5"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </div>
+                  <div className="file-preview-name">Click to upload or drag and drop</div>
+                  <div className="file-preview-size">
+                    PDF, DOC, DOCX, PPT, PPTX (max. 15MB)
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    style={{ marginTop: 14 }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      fileInputRef.current?.click();
+                    }}
+                  >
+                    Browse files
+                  </button>
+                </div>
+              )}
             </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              style={{ display: "none" }}
+              onChange={handleFileSelect}
+              accept=".pdf,.doc,.docx,.ppt,.pptx"
+            />
 
             <div className="form-group">
               <label className="form-label">
@@ -868,6 +688,7 @@ export default function DocumentsPage() {
                   setMetadata({ ...metadata, docType: e.target.value })
                 }
                 placeholder="e.g., student_guide, invoice, report"
+                disabled={uploading}
               />
               <div className="form-hint">S3 Tag: doc-type</div>
             </div>
@@ -883,6 +704,7 @@ export default function DocumentsPage() {
                       isConfidential: e.target.checked,
                     })
                   }
+                  disabled={uploading}
                 />
                 <label className="form-label" style={{ marginBottom: 0 }}>
                   Mark as Confidential
@@ -900,6 +722,7 @@ export default function DocumentsPage() {
                 onChange={(e) =>
                   setMetadata({ ...metadata, role: e.target.value })
                 }
+                disabled={uploading}
               >
                 <option value="">Select a role</option>
                 {orgRoles.map((role) => (
@@ -924,13 +747,17 @@ export default function DocumentsPage() {
                   setMetadata({ ...metadata, description: e.target.value })
                 }
                 placeholder="Add a description for this document..."
+                disabled={uploading}
               />
             </div>
 
             <div className="modal-btns">
               <button
                 className="btn-secondary"
-                onClick={() => setShowUploadModal(false)}
+                onClick={() => {
+                  setShowUploadModal(false);
+                  setIsDragging(false);
+                }}
                 disabled={uploading}
               >
                 Cancel
@@ -938,7 +765,7 @@ export default function DocumentsPage() {
               <button
                 className="btn-primary"
                 onClick={handleUpload}
-                disabled={uploading}
+                disabled={uploading || !selectedFile}
               >
                 {uploading ? "Uploading..." : "Upload Document"}
               </button>
