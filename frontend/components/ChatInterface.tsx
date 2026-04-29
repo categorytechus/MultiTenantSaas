@@ -11,7 +11,9 @@ interface Message {
   timestamp: Date;
 }
 
-export default function ChatInterface({ orgId: _orgId }: { orgId: string }) {
+export default function ChatInterface({ orgId }: { orgId: string }) {
+  // This prop is currently unused, but kept to preserve the component API.
+  void orgId;
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [sessionId, setSessionId] = useState<string | null>(null);

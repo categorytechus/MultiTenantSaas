@@ -6,6 +6,15 @@ import Layout from '../../../../../components/Layout';
 import { apiFetch } from '../../../../../src/lib/api';
 import './admin-organizations-id-edit.css';
 
+interface Organization {
+  id: string;
+  name: string;
+  domain: string | null;
+  status: string;
+  subscription_tier: string;
+  slug: string;
+}
+
 export default function EditOrganizationPage() {
   const router = useRouter();
   const params = useParams();
@@ -29,9 +38,9 @@ export default function EditOrganizationPage() {
         router.push('/dashboard');
         return;
       }
-      const res = await apiFetch<{ data: any[] }>('/admin/organizations');
+      const res = await apiFetch<{ data: Organization[] }>('/admin/organizations');
       if (res.success) {
-        const org = res.data.data.find((o: any) => o.id === orgId);
+        const org = res.data.data.find((o) => o.id === orgId);
         if (org) {
           setName(org.name);
           setDomain(org.domain || '');
@@ -56,7 +65,7 @@ export default function EditOrganizationPage() {
       if (res.success) {
         router.push('/admin/organizations');
       } else {
-        setError((res as any).error || 'Failed to update organization');
+        setError(res.error || 'Failed to update organization');
       }
     } catch {
       setError('Failed to update organization');

@@ -6,6 +6,14 @@ import Layout from '../../../../../components/Layout';
 import { apiFetch } from '../../../../../src/lib/api';
 import './admin-org-admins-id-edit.css';
 
+interface OrgAdmin {
+  id: string;
+  full_name: string;
+  email: string;
+  status: string;
+  org_name?: string | null;
+}
+
 export default function EditOrgAdminPage() {
   const router = useRouter();
   const params = useParams();
@@ -30,9 +38,9 @@ export default function EditOrgAdminPage() {
           router.push('/dashboard');
           return;
         }
-        const res = await apiFetch<{ data: any[] }>('/admin/org-admins');
+        const res = await apiFetch<{ data: OrgAdmin[] }>('/admin/org-admins');
         if (res.success) {
-          const admin = res.data.data.find((a: any) => a.id === id);
+          const admin = res.data.data.find((a) => a.id === id);
           if (admin) {
             setName(admin.full_name || '');
             setEmail(admin.email);

@@ -55,7 +55,7 @@ export default function AIAssistantPage() {
             console.log('WS Message:', data);
 
             if (data.type === 'task-status') {
-                const { task_id, status, data: payload, error, session_id: _session_id } = data.data;
+                const { task_id, status, data: payload, error } = data.data;
                 
                 // Update existing message or add new one
                 setMessages(prev => {

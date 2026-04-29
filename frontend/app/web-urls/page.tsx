@@ -109,11 +109,7 @@ export default function WebUrlPage() {
     initializePage();
   }, []);
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm, startDate, endDate]);
-
-  const fetchUrls = async () => {
+  async function fetchUrls() {
     try {
       const res = await apiFetch<{ data: WebUrl[] }>("/web-urls");
       if (res.success) {
@@ -126,7 +122,7 @@ export default function WebUrlPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   const handleUrlSubmit = () => {
     setShowUploadModal(true);
@@ -321,20 +317,29 @@ export default function WebUrlPage() {
             className="search-input"
             placeholder="Search by URL or title..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1);
+              }}
           />
           <input
             type="date"
             className="date-input"
             value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
+              onChange={(e) => {
+                setStartDate(e.target.value);
+                setCurrentPage(1);
+              }}
           />
           <span className="date-sep">to</span>
           <input
             type="date"
             className="date-input"
             value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
+              onChange={(e) => {
+                setEndDate(e.target.value);
+                setCurrentPage(1);
+              }}
           />
           <button className="btn-upload" onClick={handleUrlSubmit}>
             <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
