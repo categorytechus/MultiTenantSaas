@@ -1,5 +1,8 @@
 FROM node:20-alpine AS builder
 
+# bcrypt (native module) needs a compiler toolchain on Alpine.
+RUN apk add --no-cache python3 make g++
+
 WORKDIR /app
 
 COPY package*.json ./
@@ -8,13 +11,15 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
+# Remove devDependencies before copying to the runtime image.
+RUN npm prune --omit=dev
+
 FROM node:20-alpine
 
 WORKDIR /app
 
-COPY --from=builder /app/package*.json ./
-RUN npm ci --omit=dev
-
+# Copy production dependencies + compiled output.
+COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 
 EXPOSE 4000
