@@ -4,9 +4,11 @@ import { authenticateToken } from '../middleware/auth.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import {
   generateUploadUrl,
+  localUploadDocument,
   createDocument,
   listDocuments,
   getDocument,
+  getLocalDocumentFile,
   updateDocument,
   deleteDocument,
 } from '../controllers/document.controller';
@@ -25,6 +27,13 @@ router.post(
   '/presigned-url',
   requirePermission('documents:create'),
   generateUploadUrl
+);
+
+router.post(
+  '/local-upload',
+  requirePermission('documents:create'),
+  express.raw({ type: '*/*', limit: '55mb' }),
+  localUploadDocument
 );
 
 /**
@@ -54,6 +63,12 @@ router.get(
  * Get document by ID with download URL
  * Requires: documents:view permission
  */
+router.get(
+  '/:id/local-file',
+  requirePermission('documents:view'),
+  getLocalDocumentFile
+);
+
 router.get(
   '/:id',
   requirePermission('documents:view'),

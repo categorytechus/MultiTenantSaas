@@ -1,188 +1,232 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import Layout from '../../components/Layout';
-import ChatInterface from '../../components/ChatInterface';
-import { apiFetch } from '../../src/lib/api';
+import { useState } from "react";
+import Layout from "../../components/Layout";
+import "./dashboard.css";
+import { ChevronDown, TrendingUp } from "lucide-react";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+} from "recharts";
 
-interface Org { id: string; name: string; slug: string; role: string; }
-interface User { id: string; email: string; full_name?: string; }
+const chartData = [
+  { name: "Mar 4", total_documents: 2, success_count: 2, error_count: 0 },
+  { name: "Jul 17", total_documents: 22, success_count: 12, error_count: 0 },
+  { name: "Jul 20", total_documents: 18, success_count: 10, error_count: 0 },
+  { name: "Jul 24", total_documents: 50, success_count: 25, error_count: 0 },
+  { name: "Jul 29", total_documents: 62, success_count: 31, error_count: 0 },
+  { name: "Jul 31", total_documents: 10, success_count: 5, error_count: 0 },
+  { name: "Aug 2", total_documents: 50, success_count: 25, error_count: 0 },
+  { name: "Aug 4", total_documents: 16, success_count: 8, error_count: 0 },
+  { name: "Aug 6", total_documents: 18, success_count: 9, error_count: 0 },
+  { name: "Aug 8", total_documents: 28, success_count: 14, error_count: 0 },
+  { name: "Aug 10", total_documents: 14, success_count: 7, error_count: 0 },
+  { name: "Aug 12", total_documents: 48, success_count: 24, error_count: 0 },
+  { name: "Aug 14", total_documents: 4, success_count: 2, error_count: 0 },
+  { name: "Aug 16", total_documents: 68, success_count: 34, error_count: 0 },
+  { name: "Aug 18", total_documents: 8, success_count: 4, error_count: 0 },
+  { name: "Aug 20", total_documents: 24, success_count: 12, error_count: 0 },
+  { name: "Aug 22", total_documents: 62, success_count: 31, error_count: 0 },
+];
 
 export default function DashboardPage() {
-  const [user, setUser] = useState<User | null>(null);
-  const [orgs, setOrgs] = useState<Org[]>([]);
-  const [cur, setCur] = useState<Org | null>(null);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const [uRes, oRes] = await Promise.all([
-          apiFetch<{ data: User }>('/auth/me'),
-          apiFetch<{ data: Org[] }>('/organizations'),
-        ]);
-        if (uRes.success) setUser(uRes.data.data);
-        if (oRes.success && oRes.data.data.length > 0) { 
-          setOrgs(oRes.data.data); 
-          setCur(oRes.data.data[0]); 
-        }
-      } catch (error) {
-        console.error('Error fetching data:', error);
-      }
-    })();
-  }, []);
+  const [timeframe, setTimeframe] = useState<"Daily" | "Weekly" | "Monthly">(
+    "Daily"
+  );
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
 
   return (
     <Layout>
-      <style>{`
-        .content {
-          padding: 32px;
-        }
-        .pg-title {
-          font-size: 24px;
-          font-weight: 700;
-          color: #1a1a1a;
-          letter-spacing: -0.5px;
-          margin-bottom: 4px;
-        }
-        .pg-sub {
-          font-size: 14px;
-          color: #666;
-          margin-bottom: 32px;
-        }
-        .chip {
-          display: inline-flex;
-          padding: 3px 8px;
-          border-radius: 6px;
-          font-size: 11px;
-          font-weight: 600;
-          margin-left: 4px;
-        }
-        .chip-green {
-          background: #f0fdf4;
-          color: #16a34a;
-        }
-
-        .stats {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 16px;
-          margin-bottom: 24px;
-        }
-        .stat-card {
-          background: white;
-          border: 1px solid #ebebeb;
-          border-radius: 12px;
-          padding: 20px;
-        }
-        .stat-lbl {
-          font-size: 11px;
-          font-weight: 600;
-          color: #bbb;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-          margin-bottom: 8px;
-        }
-        .stat-val {
-          font-size: 32px;
-          font-weight: 700;
-          color: #1a1a1a;
-          letter-spacing: -1px;
-          line-height: 1;
-        }
-        .stat-note {
-          font-size: 12px;
-          color: #16a34a;
-          margin-top: 6px;
-        }
-
-        .cards {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 16px;
-        }
-        .card {
-          background: white;
-          border: 1px solid #ebebeb;
-          border-radius: 12px;
-          padding: 24px;
-          transition: all 0.2s;
-          cursor: pointer;
-        }
-        .card:hover {
-          border-color: #d8d8d8;
-          box-shadow: 0 4px 16px rgba(0,0,0,0.05);
-          transform: translateY(-2px);
-        }
-        .card-em {
-          font-size: 24px;
-          margin-bottom: 12px;
-        }
-        .card-title {
-          font-size: 16px;
-          font-weight: 600;
-          color: #1a1a1a;
-          margin-bottom: 6px;
-        }
-        .card-desc {
-          font-size: 13px;
-          color: #9a9a9a;
-          line-height: 1.5;
-        }
-
-        @media (max-width: 768px) {
-          .stats { grid-template-columns: 1fr 1fr; }
-          .cards { grid-template-columns: 1fr; }
-        }
-      `}</style>
-
       <div className="content">
-        <div>
-          <h1 className="pg-title">Good morning, {user?.full_name?.split(' ')[0] || 'there'} 👋</h1>
-          <p className="pg-sub">
-            Viewing <strong>{cur?.name}</strong> as
-            <span className="chip chip-green">{cur?.role || 'member'}</span>
-          </p>
+        <div className="filters-row">
+          <div className="filter-input-wrap">
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              aria-label="Start date"
+            />
+          </div>
+          <span className="filter-text">to</span>
+          <div className="filter-input-wrap">
+            <input
+              type="date"
+              value={endDate}
+              min={startDate || undefined}
+              onChange={(e) => setEndDate(e.target.value)}
+              aria-label="End date"
+            />
+          </div>
+
+          <div className="filter-dropdown">
+            <span>All</span>
+            <ChevronDown size={14} className="text-gray-400" />
+          </div>
         </div>
 
         <div className="stats">
           <div className="stat-card">
-            <div className="stat-lbl">Active Agents</div>
-            <div className="stat-val">3</div>
-            <div className="stat-note">All operational</div>
+            <div className="stat-header">
+              <span className="stat-lbl">Total Documents Processed</span>
+              <div className="stat-badge">
+                <TrendingUp />
+                257
+              </div>
+            </div>
+            <div className="stat-val">257</div>
+            <div className="stat-footer">
+              Total files processed <TrendingUp />
+            </div>
+            <div className="stat-footer-sub">Total Documents Processed</div>
           </div>
+
           <div className="stat-card">
-            <div className="stat-lbl">Tasks Today</div>
-            <div className="stat-val">24</div>
-            <div className="stat-note">↑ 12% from yesterday</div>
+            <div className="stat-header">
+              <span className="stat-lbl">Success Count</span>
+              <div className="stat-badge">
+                <TrendingUp />
+                257
+              </div>
+            </div>
+            <div className="stat-val">257</div>
+            <div className="stat-footer">
+              High success rate <TrendingUp />
+            </div>
+            <div className="stat-footer-sub">Success Count</div>
           </div>
+
           <div className="stat-card">
-            <div className="stat-lbl">Organizations</div>
-            <div className="stat-val">{orgs.length}</div>
-            <div className="stat-note">Active memberships</div>
+            <div className="stat-header">
+              <span className="stat-lbl">Error Count</span>
+              <div className="stat-badge">
+                <TrendingUp />
+                0
+              </div>
+            </div>
+            <div className="stat-val">0</div>
+            <div className="stat-footer">
+              Low error rate <TrendingUp />
+            </div>
+            <div className="stat-footer-sub">Error Count</div>
+          </div>
+
+          <div className="stat-card">
+            <div className="stat-header">
+              <span className="stat-lbl">Success Rate</span>
+              <div className="stat-badge">
+                <TrendingUp />
+                100.0%
+              </div>
+            </div>
+            <div className="stat-val">100.0%</div>
+            <div className="stat-footer">
+              Strong performance <TrendingUp />
+            </div>
+            <div className="stat-footer-sub">Success Rate</div>
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '24px', marginTop: '24px' }}>
-          <div className="cards" style={{ gridTemplateColumns: '1fr 1fr' }}>
-            <div className="card">
-              <div className="card-em">🤖</div>
-              <div className="card-title">Counselor Agent</div>
-              <div className="card-desc">AI-powered counseling with LangGraph orchestration</div>
-            </div>
-            <div className="card">
-              <div className="card-em">📋</div>
-              <div className="card-title">Enrollment Agent</div>
-              <div className="card-desc">Automate enrollment via CrewAI multi-agent system</div>
-            </div>
-            <div className="card" style={{ gridColumn: 'span 2' }}>
-              <div className="card-em">💬</div>
-              <div className="card-title">Support Agent</div>
-              <div className="card-desc">24/7 intelligent support via Amazon Strands</div>
+        <div className="chart-controls">
+          <button
+            className={`chart-toggle-btn ${
+              timeframe === "Daily" ? "active" : ""
+            }`}
+            onClick={() => setTimeframe("Daily")}
+          >
+            Daily
+          </button>
+          <button
+            className={`chart-toggle-btn ${
+              timeframe === "Weekly" ? "active" : ""
+            }`}
+            onClick={() => setTimeframe("Weekly")}
+          >
+            Weekly
+          </button>
+          <button
+            className={`chart-toggle-btn ${
+              timeframe === "Monthly" ? "active" : ""
+            }`}
+            onClick={() => setTimeframe("Monthly")}
+          >
+            Monthly
+          </button>
+        </div>
+
+        <div className="chart-section">
+          <div className="chart-header">
+            <div className="chart-title">Documents Processed by Day</div>
+            <div className="chart-subtitle">
+              Documents processed per day over the selected date range
             </div>
           </div>
-          
-          <div>
-            <ChatInterface orgId={cur?.id || ''} />
+
+          <div style={{ height: 320, width: "100%" }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={chartData}
+                margin={{ top: 20, right: 30, left: 0, bottom: 5 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis
+                  dataKey="name"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fontSize: 12, fill: "#9ca3af" }}
+                  dy={10}
+                />
+                <YAxis
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fontSize: 12, fill: "#9ca3af" }}
+                  label={{
+                    value: "Number of Occurrences",
+                    angle: -90,
+                    position: "insideLeft",
+                    style: { textAnchor: "middle", fill: "#9ca3af", fontSize: 12 },
+                  }}
+                />
+                <Tooltip
+                  cursor={{ fill: "#f3f4f6" }}
+                  contentStyle={{ borderRadius: "8px", border: "1px solid #e5e7eb" }}
+                />
+                <Legend
+                  iconType="square"
+                  wrapperStyle={{ fontSize: 12, marginTop: 10 }}
+                />
+                <Bar
+                  dataKey="total_documents"
+                  name="total_documents"
+                  stackId="a"
+                  fill="#4f46e5"
+                  radius={[0, 0, 4, 4]}
+                  barSize={32}
+                />
+                <Bar
+                  dataKey="success_count"
+                  name="success_count"
+                  stackId="a"
+                  fill="#2dd4bf"
+                  radius={[0, 0, 0, 0]}
+                  barSize={32}
+                />
+                <Bar
+                  dataKey="error_count"
+                  name="error_count"
+                  stackId="a"
+                  fill="#f87171"
+                  radius={[4, 4, 0, 0]}
+                  barSize={32}
+                />
+              </BarChart>
+            </ResponsiveContainer>
           </div>
         </div>
       </div>

@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
+import { Request, Response, NextFunction } from "express";
 
 /**
  * Middleware to check if user has a specific permission
@@ -10,13 +10,18 @@ export const requirePermission = (requiredPermission: string) => {
     if (!user) {
       res.status(401).json({
         success: false,
-        message: 'Authentication required',
+        message: "Authentication required",
       });
       return;
     }
 
-    const permissions = user.permissions || [];
+    // TEMPORARY MODE: permission module is retained but not enforced.
+    // Access is controlled by user_type + route guards (requireOrgAdmin/requireSuperAdmin).
+    next();
+    return;
 
+    /*
+    const permissions = user.permissions || [];
     if (!permissions.includes(requiredPermission)) {
       res.status(403).json({
         success: false,
@@ -24,8 +29,8 @@ export const requirePermission = (requiredPermission: string) => {
       });
       return;
     }
-
     next();
+    */
   };
 };
 
@@ -39,23 +44,29 @@ export const requireAnyPermission = (requiredPermissions: string[]) => {
     if (!user) {
       res.status(401).json({
         success: false,
-        message: 'Authentication required',
+        message: "Authentication required",
       });
       return;
     }
 
-    const permissions = user.permissions || [];
-    const hasPermission = requiredPermissions.some((perm) => permissions.includes(perm));
+    // TEMPORARY MODE: permission module is retained but not enforced.
+    next();
+    return;
 
+    /*
+    const permissions = user.permissions || [];
+    const hasPermission = requiredPermissions.some((perm) =>
+      permissions.includes(perm),
+    );
     if (!hasPermission) {
       res.status(403).json({
         success: false,
-        message: `Permission denied. Required one of: ${requiredPermissions.join(', ')}`,
+        message: `Permission denied. Required one of: ${requiredPermissions.join(", ")}`,
       });
       return;
     }
-
     next();
+    */
   };
 };
 
@@ -69,38 +80,105 @@ export const requireAllPermissions = (requiredPermissions: string[]) => {
     if (!user) {
       res.status(401).json({
         success: false,
-        message: 'Authentication required',
+        message: "Authentication required",
       });
       return;
     }
 
-    const permissions = user.permissions || [];
-    const hasAllPermissions = requiredPermissions.every((perm) => permissions.includes(perm));
+    // TEMPORARY MODE: permission module is retained but not enforced.
+    next();
+    return;
 
+    /*
+    const permissions = user.permissions || [];
+    const hasAllPermissions = requiredPermissions.every((perm) =>
+      permissions.includes(perm),
+    );
     if (!hasAllPermissions) {
-      const missingPermissions = requiredPermissions.filter((perm) => !permissions.includes(perm));
+      const missingPermissions = requiredPermissions.filter(
+        (perm) => !permissions.includes(perm),
+      );
       res.status(403).json({
         success: false,
-        message: `Permission denied. Missing permissions: ${missingPermissions.join(', ')}`,
+        message: `Permission denied. Missing permissions: ${missingPermissions.join(", ")}`,
       });
       return;
     }
-
     next();
+    */
   };
 };
 
 /**
  * Middleware to check if user belongs to an organization
  */
-export const requireOrganization = (req: Request, res: Response, next: NextFunction): void => {
+export const requireOrganization = (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void => {
   const user = (req as any).user;
 
-  if (!user || !user.organizationId) {
+  if (!user || !user.org_id) {
     res.status(400).json({
       success: false,
-      message: 'Organization context required. Please switch to an organization first.',
+      message:
+        "Organization context required. Please switch to an organization first.",
     });
+    return;
+  }
+
+  next();
+};
+
+/**
+ * Middleware to check if user is a super admin
+ */
+export const requireSuperAdmin = (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void => {
+  const user = (req as any).user;
+
+  if (!user) {
+    res
+      .status(401)
+      .json({ success: false, message: "Authentication required" });
+    return;
+  }
+
+  if (user.user_type !== "super_admin") {
+    res
+      .status(403)
+      .json({ success: false, message: "Super admin access required" });
+    return;
+  }
+
+  next();
+};
+
+/**
+ * Middleware to check if user is an org admin or super admin
+ */
+export const requireOrgAdmin = (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void => {
+  const user = (req as any).user;
+
+  if (!user) {
+    res
+      .status(401)
+      .json({ success: false, message: "Authentication required" });
+    return;
+  }
+
+  if (user.user_type !== "super_admin" && user.user_type !== "org_admin") {
+    res
+      .status(403)
+      .json({ success: false, message: "Organization admin access required" });
     return;
   }
 

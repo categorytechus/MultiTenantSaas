@@ -9,6 +9,7 @@ import {
   forgotPassword,
   confirmPasswordReset,
   changePassword,
+  setPassword,
   updateProfile,
   googleCallback,
 } from '../controllers/auth.controller';
@@ -28,6 +29,7 @@ router.post(
     body('email').isEmail().normalizeEmail(),
     body('password').isLength({ min: 8 }),
     body('name').trim().notEmpty(),
+    body('organizationName').trim().notEmpty().withMessage('Organization name is required'),
   ],
   validateRequest,
   signup
@@ -90,7 +92,11 @@ router.post(
   [
     body('email').isEmail().normalizeEmail(),
     body('code').isLength({ min: 6, max: 6 }),
-    body('newPassword').isLength({ min: 8 }),
+    body('newPassword')
+      .isString()
+      .withMessage('newPassword is required')
+      .isLength({ min: 8 })
+      .withMessage('newPassword must be at least 8 characters long'),
   ],
   validateRequest,
   confirmPasswordReset
@@ -105,10 +111,33 @@ router.post(
   authenticateToken,
   [
     body('currentPassword').notEmpty(),
-    body('newPassword').isLength({ min: 8 }),
+    body('newPassword')
+      .isString()
+      .withMessage('newPassword is required')
+      .isLength({ min: 8 })
+      .withMessage('newPassword must be at least 8 characters long'),
   ],
   validateRequest,
   changePassword
+);
+
+/**
+ * POST /api/auth/set-password
+ * Set password on first login (must_change_password = true)
+ * Does not require current password — bumps token_version on success
+ */
+router.post(
+  '/set-password',
+  authenticateToken,
+  [
+    body('newPassword')
+      .isString()
+      .withMessage('newPassword is required')
+      .isLength({ min: 8 })
+      .withMessage('newPassword must be at least 8 characters long'),
+  ],
+  validateRequest,
+  setPassword
 );
 
 /**

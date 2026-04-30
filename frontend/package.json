@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
     "lint": "eslint app components src",
@@ -16,10 +16,12 @@
     "@types/jsonwebtoken": "^9.0.10",
     "aws-amplify": "^6.16.2",
     "jsonwebtoken": "^9.0.3",
+    "lucide-react": "^1.12.0",
     "next": "16.1.6",
     "prisma": "^6.19.2",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "recharts": "^3.8.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
