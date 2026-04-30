@@ -10,8 +10,8 @@ endif
 
 # Get ECR config from Terraform state, EC2 IP from AWS CLI (survives instance stop/start)
 TERRAFORM_BIN := $(shell [ -f bin/terraform ] && echo "$$(pwd)/bin/terraform" || echo "terraform")
-EC2_IP := $(shell aws ec2 describe-instances --filters "Name=tag:Name,Values=multi-tenant-saas-k3s-server" "Name=instance-state-name,Values=running" --query "Reservations[].Instances[].PublicIpAddress" --output text 2>/dev/null)
 REGION := $(shell cd infrastructure/terraform && $(TERRAFORM_BIN) output -raw aws_region 2>/dev/null || echo "us-east-1")
+EC2_IP := $(shell cd infrastructure/terraform && $(TERRAFORM_BIN) output -raw ec2_public_ip 2>/dev/null || aws ec2 describe-instances --region $(REGION) --filters "Name=tag:Name,Values=multi-tenant-saas-k3s-server" "Name=instance-state-name,Values=running" --query "Reservations[].Instances[].PublicIpAddress" --output text 2>/dev/null)
 REGISTRY := $(shell cd infrastructure/terraform && $(TERRAFORM_BIN) output -raw ecr_registry_url)
 AUTH_REPO := $(shell cd infrastructure/terraform && $(TERRAFORM_BIN) output -raw auth_service_repository_url)
 GATEWAY_REPO := $(shell cd infrastructure/terraform && $(TERRAFORM_BIN) output -raw auth_gateway_repository_url)
