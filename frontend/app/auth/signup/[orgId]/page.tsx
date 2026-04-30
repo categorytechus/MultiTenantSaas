@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import './org-signup.css';
 
@@ -13,11 +13,8 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 export default function OrgSignupPage() {
-  const params = useParams();
   const searchParams = useSearchParams();
   const router = useRouter();
-
-  const orgId = params.orgId as string;
   const role = searchParams.get('role') || 'user';
   const roleLabel = ROLE_LABELS[role] || 'Team Member';
 
