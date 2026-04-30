@@ -96,7 +96,11 @@ export default function UsersPage() {
   }, [router]);
 
   useEffect(() => {
-    guardAndFetch();
+    const run = () => {
+      void guardAndFetch();
+    };
+    const timer = window.setTimeout(run, 0);
+    return () => window.clearTimeout(timer);
   }, [guardAndFetch]);
 
   const handleDelete = async () => {
