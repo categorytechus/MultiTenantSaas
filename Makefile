@@ -101,9 +101,14 @@ update-kubeconfig:
 	@set -euo pipefail; \
 	ssh -i $(SSH_KEY) -o StrictHostKeyChecking=no ubuntu@$(EC2_IP) \
 		"if command -v k3s >/dev/null 2>&1; then sudo k3s kubectl config view --raw; \
-		elif [ -x /usr/local/bin/k3s ]; then sudo /usr/local/bin/k3s kubectl config view --raw; \
-		elif [ -f /etc/rancher/k3s/k3s.yaml ]; then sudo cat /etc/rancher/k3s/k3s.yaml; \
-		else echo 'ERROR: k3s binary and kubeconfig file not found on host' >&2; exit 1; fi" \
+		elif sudo test -x /usr/local/bin/k3s; then sudo /usr/local/bin/k3s kubectl config view --raw; \
+		elif sudo test -f /etc/rancher/k3s/k3s.yaml; then sudo cat /etc/rancher/k3s/k3s.yaml; \
+		elif sudo test -f /etc/kubernetes/admin.conf; then sudo cat /etc/kubernetes/admin.conf; \
+		elif command -v kubectl >/dev/null 2>&1; then kubectl config view --raw; \
+		elif sudo command -v kubectl >/dev/null 2>&1; then sudo kubectl config view --raw; \
+		elif test -f ~/.kube/config; then cat ~/.kube/config; \
+		else echo 'ERROR: no kubeconfig source found (checked k3s, /etc/rancher/k3s/k3s.yaml, /etc/kubernetes/admin.conf, kubectl, ~/.kube/config)' >&2; \
+		echo 'Hint: verify EC2_IP points to the cluster node and k3s install completed.' >&2; exit 1; fi" \
 		| sed 's/127.0.0.1/$(EC2_IP)/g' \
 		| sed 's/default/multi-tenant-saas/g' \
 		> $(KUBECONFIG_FILE)
