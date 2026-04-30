@@ -1,11 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import './set-password.css';
 
-export default function SetPasswordPage() {
+function SetPasswordContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get('token') || '';
@@ -185,5 +185,26 @@ export default function SetPasswordPage() {
 
       <p className="terms">By continuing you agree to our <a href="#">Terms</a> and <a href="#">Privacy Policy</a></p>
     </div>
+  );
+}
+
+function SetPasswordFallback() {
+  return (
+    <div className="page">
+      <div className="wrap">
+        <div className="heading">
+          <h1>Loading...</h1>
+          <p>Preparing password setup.</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function SetPasswordPage() {
+  return (
+    <Suspense fallback={<SetPasswordFallback />}>
+      <SetPasswordContent />
+    </Suspense>
   );
 }
