@@ -6,7 +6,7 @@ import Layout from '../../../../../components/Layout';
 import { apiFetch } from '../../../../../src/lib/api';
 import './admin-organizations-id-edit.css';
 
-interface Organization {
+interface OrganizationListItem {
   id: string;
   name: string;
   domain: string | null;
@@ -38,7 +38,7 @@ export default function EditOrganizationPage() {
         router.push('/dashboard');
         return;
       }
-      const res = await apiFetch<{ data: Organization[] }>('/admin/organizations');
+      const res = await apiFetch<{ data: OrganizationListItem[] }>('/admin/organizations');
       if (res.success) {
         const org = res.data.data.find((o) => o.id === orgId);
         if (org) {

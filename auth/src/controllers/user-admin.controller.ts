@@ -2,6 +2,11 @@ import { Request, Response } from "express";
 import pool from "../config/database";
 import { hashPassword, validatePasswordStrength } from "../utils/password";
 import { v4 as uuidv4 } from "uuid";
+import crypto from "crypto";
+
+// Generates a 14-char URL-safe temp password. Never stored plain-text.
+const generateTempPassword = (): string =>
+  crypto.randomBytes(10).toString("base64url");
 
 // ---------------------------------------------------------------------------
 // SUPER ADMIN MANAGEMENT (super_admin only)
@@ -366,22 +371,27 @@ export const listOrgAdmins = async (
     let i = 1;
 
     if (orgId) {
-      conditions.push(`om.organization_id = $${i++}`);
+      conditions.push(`EXISTS (
+        SELECT 1 FROM organization_members om2
+        WHERE om2.user_id = u.id AND om2.organization_id = $${i++}
+      )`);
       values.push(orgId);
     }
 
-    const joinClause = orgId
-      ? "JOIN organization_members om ON u.id = om.user_id"
-      : "LEFT JOIN organization_members om ON u.id = om.user_id";
-
     const result = await pool.query(
-      `SELECT DISTINCT
+      `SELECT
          u.id, u.email, u.full_name, u.avatar_url, u.status, u.user_type, u.created_at, u.last_login_at,
-         o.id as org_id, o.name as org_name, o.slug as org_slug
+         COALESCE(
+           json_agg(
+             DISTINCT jsonb_build_object('id', o.id, 'name', o.name, 'slug', o.slug)
+           ) FILTER (WHERE o.id IS NOT NULL),
+           '[]'
+         ) AS orgs
        FROM users u
-       ${joinClause}
-       LEFT JOIN organizations o ON om.organization_id = o.id
+       LEFT JOIN organization_members om ON u.id = om.user_id
+       LEFT JOIN organizations o ON om.organization_id = o.id AND o.status != 'deleted'
        WHERE ${conditions.join(" AND ")}
+       GROUP BY u.id, u.email, u.full_name, u.avatar_url, u.status, u.user_type, u.created_at, u.last_login_at
        ORDER BY u.created_at DESC`,
       values,
     );
@@ -396,22 +406,12 @@ export const createOrgAdmin = async (
   req: Request,
   res: Response,
 ): Promise<void> => {
-  const { email, password, name, organizationId } = req.body;
+  const { email, name, organizationId } = req.body;
 
-  if (!email || !password || !name || !organizationId) {
+  if (!email || !organizationId) {
     res.status(400).json({
       success: false,
-      message: "email, password, name, and organizationId are required",
-    });
-    return;
-  }
-
-  const passwordValidation = validatePasswordStrength(password);
-  if (!passwordValidation.valid) {
-    res.status(400).json({
-      success: false,
-      message: "Password does not meet requirements",
-      errors: passwordValidation.errors,
+      message: "email and organizationId are required",
     });
     return;
   }
@@ -419,8 +419,8 @@ export const createOrgAdmin = async (
   const client = await pool.connect();
   try {
     const orgCheck = await client.query(
-      "SELECT id FROM organizations WHERE id = $1 AND status != $2",
-      [organizationId, "deleted"],
+      "SELECT id FROM organizations WHERE id = $1 AND status != 'deleted'",
+      [organizationId],
     );
     if (orgCheck.rows.length === 0) {
       res
@@ -430,26 +430,77 @@ export const createOrgAdmin = async (
     }
 
     const existing = await client.query(
-      "SELECT id FROM users WHERE email = $1",
+      "SELECT id, user_type FROM users WHERE email = $1 AND deleted_at IS NULL",
       [email.toLowerCase()],
     );
+
+    // Existing user — add to org if they are already an org_admin
     if (existing.rows.length > 0) {
-      res.status(409).json({
-        success: false,
-        message: "User with this email already exists",
+      const existingUser = existing.rows[0];
+
+      if (existingUser.user_type !== "org_admin") {
+        res.status(409).json({
+          success: false,
+          message:
+            "A user with this email exists but is not an org admin. Cannot add.",
+        });
+        return;
+      }
+
+      await client.query("BEGIN");
+
+      await client.query(
+        `INSERT INTO organization_members (organization_id, user_id, role, status)
+         VALUES ($1, $2, 'org_admin', 'active')
+         ON CONFLICT (organization_id, user_id) DO UPDATE SET role = 'org_admin', status = 'active'`,
+        [organizationId, existingUser.id],
+      );
+
+      const roleResult = await client.query(
+        "SELECT id FROM roles WHERE name = 'org_admin' AND is_system = true LIMIT 1",
+      );
+      if (roleResult.rows.length > 0) {
+        await client.query(
+          `INSERT INTO user_roles (user_id, role_id, organization_id)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (user_id, role_id, organization_id) DO NOTHING`,
+          [existingUser.id, roleResult.rows[0].id, organizationId],
+        );
+      }
+
+      await client.query("COMMIT");
+
+      const user = await pool.query(
+        "SELECT id, email, full_name, status, user_type, created_at FROM users WHERE id = $1",
+        [existingUser.id],
+      );
+      res.status(200).json({
+        success: true,
+        message: "Org admin added to organization",
+        data: user.rows[0],
       });
       return;
     }
 
-    const hashedPassword = await hashPassword(password);
+    // New user — name is required
+    if (!name) {
+      res.status(400).json({
+        success: false,
+        message: "name is required when creating a new org admin",
+      });
+      return;
+    }
+
+    const tempPassword = generateTempPassword();
+    const hashedPassword = await hashPassword(tempPassword);
     const userId = uuidv4();
     const cognitoSub = `local_${userId}`;
 
     await client.query("BEGIN");
 
     await client.query(
-      `INSERT INTO users (id, cognito_sub, email, email_verified, full_name, status, password_hash, user_type)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      `INSERT INTO users (id, cognito_sub, email, email_verified, full_name, status, password_hash, user_type, must_change_password)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'org_admin', true)`,
       [
         userId,
         cognitoSub,
@@ -458,15 +509,14 @@ export const createOrgAdmin = async (
         name,
         "active",
         hashedPassword,
-        "org_admin",
       ],
     );
 
     await client.query(
       `INSERT INTO organization_members (organization_id, user_id, role, status)
-       VALUES ($1, $2, $3, $4)
+       VALUES ($1, $2, 'org_admin', 'active')
        ON CONFLICT (organization_id, user_id) DO UPDATE SET role = 'org_admin', status = 'active'`,
-      [organizationId, userId, "org_admin", "active"],
+      [organizationId, userId],
     );
 
     const roleResult = await client.query(
@@ -490,7 +540,7 @@ export const createOrgAdmin = async (
     res.status(201).json({
       success: true,
       message: "Org admin created",
-      data: user.rows[0],
+      data: { ...user.rows[0], temp_password: tempPassword },
     });
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
@@ -572,9 +622,59 @@ export const deleteOrgAdmin = async (
       res.status(404).json({ success: false, message: "Org admin not found" });
       return;
     }
+    // Clean up all memberships and roles
+    await pool.query("DELETE FROM organization_members WHERE user_id = $1", [id]);
+    await pool.query("DELETE FROM user_roles WHERE user_id = $1", [id]);
     res.json({ success: true, message: "Org admin deleted" });
   } catch (error) {
     console.error("deleteOrgAdmin error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+// Remove org admin from a specific org only; soft-delete if no orgs remain
+export const removeOrgAdminFromOrg = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  const { id, orgId } = req.params;
+
+  try {
+    const adminCheck = await pool.query(
+      "SELECT id FROM users WHERE id = $1 AND user_type = 'org_admin' AND deleted_at IS NULL",
+      [id],
+    );
+    if (adminCheck.rows.length === 0) {
+      res.status(404).json({ success: false, message: "Org admin not found" });
+      return;
+    }
+
+    // Remove from this org's membership and RBAC roles
+    await pool.query(
+      "DELETE FROM organization_members WHERE user_id = $1 AND organization_id = $2",
+      [id, orgId],
+    );
+    await pool.query(
+      "DELETE FROM user_roles WHERE user_id = $1 AND organization_id = $2",
+      [id, orgId],
+    );
+
+    // Soft-delete user if they have no remaining active org memberships
+    const remaining = await pool.query(
+      "SELECT id FROM organization_members WHERE user_id = $1",
+      [id],
+    );
+    if (remaining.rows.length === 0) {
+      await pool.query(
+        "UPDATE users SET deleted_at = NOW(), status = 'inactive' WHERE id = $1",
+        [id],
+      );
+      res.json({ success: true, message: "Org admin removed and account deleted" });
+    } else {
+      res.json({ success: true, message: "Org admin removed from organization" });
+    }
+  } catch (error) {
+    console.error("removeOrgAdminFromOrg error:", error);
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
@@ -638,7 +738,6 @@ export const listOrgUsers = async (
   const { orgId } = req.params;
   const requestingUser = (req as any).user;
 
-  // Org admins can only list their own org's users
   if (
     requestingUser.user_type === "org_admin" &&
     requestingUser.org_id !== orgId
@@ -679,7 +778,7 @@ export const createOrgUser = async (
   res: Response,
 ): Promise<void> => {
   const { orgId } = req.params;
-  const { email, password, name, roleId } = req.body;
+  const { email, name, roleId } = req.body;
   const requestingUser = (req as any).user;
 
   if (
@@ -692,20 +791,10 @@ export const createOrgUser = async (
     return;
   }
 
-  if (!email || !password || !name) {
+  if (!email) {
     res.status(400).json({
       success: false,
-      message: "email, password, and name are required",
-    });
-    return;
-  }
-
-  const passwordValidation = validatePasswordStrength(password);
-  if (!passwordValidation.valid) {
-    res.status(400).json({
-      success: false,
-      message: "Password does not meet requirements",
-      errors: passwordValidation.errors,
+      message: "email is required",
     });
     return;
   }
@@ -713,8 +802,8 @@ export const createOrgUser = async (
   const client = await pool.connect();
   try {
     const orgCheck = await client.query(
-      "SELECT id FROM organizations WHERE id = $1 AND status != $2",
-      [orgId, "deleted"],
+      "SELECT id FROM organizations WHERE id = $1 AND status != 'deleted'",
+      [orgId],
     );
     if (orgCheck.rows.length === 0) {
       res
@@ -724,26 +813,80 @@ export const createOrgUser = async (
     }
 
     const existing = await client.query(
-      "SELECT id FROM users WHERE email = $1",
+      "SELECT id, user_type FROM users WHERE email = $1 AND deleted_at IS NULL",
       [email.toLowerCase()],
     );
+
+    // Existing user — add to org if they are type 'user'
     if (existing.rows.length > 0) {
-      res.status(409).json({
-        success: false,
-        message: "User with this email already exists",
+      const existingUser = existing.rows[0];
+
+      if (existingUser.user_type !== "user") {
+        res.status(409).json({
+          success: false,
+          message:
+            "A user with this email exists but has a different role. Cannot add as org user.",
+        });
+        return;
+      }
+
+      await client.query("BEGIN");
+
+      await client.query(
+        `INSERT INTO organization_members (organization_id, user_id, role, status)
+         VALUES ($1, $2, 'user', 'active')
+         ON CONFLICT (organization_id, user_id) DO UPDATE SET role = 'user', status = 'active'`,
+        [orgId, existingUser.id],
+      );
+
+      if (roleId) {
+        const roleCheck = await client.query(
+          "SELECT id FROM roles WHERE id = $1 AND (organization_id = $2 OR organization_id IS NULL)",
+          [roleId, orgId],
+        );
+        if (roleCheck.rows.length > 0) {
+          await client.query(
+            `INSERT INTO user_roles (user_id, role_id, organization_id)
+             VALUES ($1, $2, $3)
+             ON CONFLICT DO NOTHING`,
+            [existingUser.id, roleId, orgId],
+          );
+        }
+      }
+
+      await client.query("COMMIT");
+
+      const user = await pool.query(
+        "SELECT id, email, full_name, status, user_type, created_at FROM users WHERE id = $1",
+        [existingUser.id],
+      );
+      res.status(200).json({
+        success: true,
+        message: "User added to organization",
+        data: user.rows[0],
       });
       return;
     }
 
-    const hashedPassword = await hashPassword(password);
+    // New user — name is required
+    if (!name) {
+      res.status(400).json({
+        success: false,
+        message: "name is required when creating a new user",
+      });
+      return;
+    }
+
+    const tempPassword = generateTempPassword();
+    const hashedPassword = await hashPassword(tempPassword);
     const userId = uuidv4();
     const cognitoSub = `local_${userId}`;
 
     await client.query("BEGIN");
 
     await client.query(
-      `INSERT INTO users (id, cognito_sub, email, email_verified, full_name, status, password_hash, user_type)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'user')`,
+      `INSERT INTO users (id, cognito_sub, email, email_verified, full_name, status, password_hash, user_type, must_change_password)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'user', true)`,
       [
         userId,
         cognitoSub,
@@ -782,9 +925,11 @@ export const createOrgUser = async (
       "SELECT id, email, full_name, status, user_type, created_at FROM users WHERE id = $1",
       [userId],
     );
-    res
-      .status(201)
-      .json({ success: true, message: "User created", data: user.rows[0] });
+    res.status(201).json({
+      success: true,
+      message: "User created",
+      data: { ...user.rows[0], temp_password: tempPassword },
+    });
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
     console.error("createOrgUser error:", error);
@@ -880,15 +1025,20 @@ export const deleteOrgUser = async (
   }
 
   try {
-    // Remove from org membership; soft-delete user if they have no other orgs
+    // Remove from org membership and RBAC roles for this org
     await pool.query(
-      "UPDATE organization_members SET status = $1 WHERE organization_id = $2 AND user_id = $3",
-      ["suspended", orgId, id],
+      "DELETE FROM organization_members WHERE organization_id = $1 AND user_id = $2",
+      [orgId, id],
+    );
+    await pool.query(
+      "DELETE FROM user_roles WHERE user_id = $1 AND organization_id = $2",
+      [id, orgId],
     );
 
+    // Soft-delete user if they have no remaining memberships
     const otherOrgs = await pool.query(
-      "SELECT id FROM organization_members WHERE user_id = $1 AND status = 'active' AND organization_id != $2",
-      [id, orgId],
+      "SELECT id FROM organization_members WHERE user_id = $1",
+      [id],
     );
 
     if (otherOrgs.rows.length === 0) {
@@ -962,6 +1112,74 @@ export const removeUserRole = async (
     res.json({ success: true, message: "Role removed" });
   } catch (error) {
     console.error("removeUserRole error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+// Only super_admin can reset a user's password
+export const resetOrgUserPassword = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  const { orgId, id } = req.params;
+  const requestingUser = (req as any).user;
+
+  // Only super_admin allowed
+  if (requestingUser.user_type !== "super_admin") {
+    res.status(403).json({
+      success: false,
+      message: "Only super admins can reset user passwords",
+    });
+    return;
+  }
+
+  try {
+    const targetUserResult = await pool.query(
+      `SELECT u.id, u.user_type
+       FROM users u
+       JOIN organization_members om ON u.id = om.user_id AND om.organization_id = $1
+       WHERE u.id = $2 AND u.deleted_at IS NULL AND om.status = 'active'
+       LIMIT 1`,
+      [orgId, id],
+    );
+
+    if (targetUserResult.rows.length === 0) {
+      res.status(404).json({
+        success: false,
+        message: "User not found in this organization",
+      });
+      return;
+    }
+
+    const targetUser = targetUserResult.rows[0];
+
+    if (!["org_admin", "user"].includes(targetUser.user_type)) {
+      res.status(403).json({
+        success: false,
+        message: "Can only reset org admin or user passwords",
+      });
+      return;
+    }
+
+    const tempPassword = generateTempPassword();
+    const hashedPassword = await hashPassword(tempPassword);
+
+    await pool.query(
+      `UPDATE users
+       SET password_hash = $1, must_change_password = true, token_version = token_version + 1, updated_at = NOW()
+       WHERE id = $2`,
+      [hashedPassword, id],
+    );
+
+    await pool.query("DELETE FROM sessions WHERE user_id = $1", [id]);
+
+    res.json({
+      success: true,
+      message: "User password has been reset successfully",
+      data: { temp_password: tempPassword },
+    });
+  } catch (error) {
+    console.error("resetOrgUserPassword error:", error);
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };

@@ -9,6 +9,7 @@ import {
   createOrgAdmin,
   updateOrgAdmin,
   deleteOrgAdmin,
+  removeOrgAdminFromOrg,
   listAllUsers,
   listAllOrganizations,
   createOrganization,
@@ -53,12 +54,12 @@ router.delete('/super-admins/:id', deleteSuperAdmin);
 // Org Admins
 router.get('/org-admins', listOrgAdmins);
 
+// Create new org admin or add existing org admin to an org (password no longer required)
 router.post(
   '/org-admins',
   [
     body('email').isEmail().normalizeEmail(),
-    body('password').isLength({ min: 8 }),
-    body('name').trim().notEmpty(),
+    body('name').optional().trim().notEmpty(),
     body('organizationId').notEmpty().isUUID(),
   ],
   validateRequest,
@@ -75,7 +76,11 @@ router.put(
   updateOrgAdmin
 );
 
+// Full delete — removes user from all orgs and soft-deletes account
 router.delete('/org-admins/:id', deleteOrgAdmin);
+
+// Remove org admin from a specific org only
+router.delete('/org-admins/:id/organizations/:orgId', removeOrgAdminFromOrg);
 
 // All Users (read-only global view)
 router.get('/users', listAllUsers);

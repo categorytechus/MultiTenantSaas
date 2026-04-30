@@ -16,12 +16,13 @@ export default function CreateUserPage() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [roleId, setRoleId] = useState("");
   const [roles, setRoles] = useState<Role[]>([]);
   const [orgId, setOrgId] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [tempPassword, setTempPassword] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("accessToken");
@@ -31,9 +32,7 @@ export default function CreateUserPage() {
     }
     (async () => {
       try {
-        const meRes = await apiFetch<{ data: { user_type: string } }>(
-          "/auth/me",
-        );
+        const meRes = await apiFetch<{ data: { user_type: string } }>("/auth/me");
         if (!meRes.success || meRes.data.data.user_type === "user") {
           router.push("/dashboard");
           return;
@@ -45,9 +44,7 @@ export default function CreateUserPage() {
           return;
         }
         setOrgId(oid);
-        const rolesRes = await apiFetch<{ data: Role[] }>(
-          `/organizations/${oid}/roles`,
-        );
+        const rolesRes = await apiFetch<{ data: Role[] }>(`/organizations/${oid}/roles`);
         if (rolesRes.success) {
           setRoles(rolesRes.data.data.filter((r: Role) => !r.is_system));
         }
@@ -66,17 +63,24 @@ export default function CreateUserPage() {
     setError("");
     setLoading(true);
     try {
-      const res = await apiFetch(`/organizations/${orgId}/users`, {
-        method: "POST",
-        body: JSON.stringify({
-          name,
-          email,
-          password,
-          roleId: roleId || undefined,
-        }),
-      });
+      const res = await apiFetch<{ data: { temp_password?: string } }>(
+        `/organizations/${orgId}/users`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            name,
+            email,
+            roleId: roleId || undefined,
+          }),
+        }
+      );
       if (res.success) {
-        router.push("/users");
+        if (res.data.data?.temp_password) {
+          setTempPassword(res.data.data.temp_password);
+        } else {
+          // Existing user added to org — no temp password
+          router.push("/users");
+        }
       } else {
         setError(res.error || "Failed to create user");
       }
@@ -87,25 +91,66 @@ export default function CreateUserPage() {
     }
   };
 
+  const handleCopy = () => {
+    if (tempPassword) {
+      navigator.clipboard.writeText(tempPassword);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  if (tempPassword) {
+    return (
+      <Layout>
+        <div className="page">
+          <div className="form-card" style={{ maxWidth: 480 }}>
+            <div className="page-title" style={{ marginBottom: 4 }}>User Created</div>
+            <div className="page-subtitle" style={{ marginBottom: 20 }}>
+              Share the temporary password below with the user securely. They will be prompted to set a new password on first login.
+            </div>
+            <div style={{
+              background: '#f5f4f1',
+              border: '1px solid #e5e5e5',
+              borderRadius: 8,
+              padding: '14px 16px',
+              color: '#1a1a1a',
+              fontFamily: 'monospace',
+              fontSize: 15,
+              letterSpacing: '0.05em',
+              marginBottom: 16,
+              wordBreak: 'break-all',
+            }}>
+              {tempPassword}
+            </div>
+            <p style={{ fontSize: 12, color: '#999', marginBottom: 20 }}>
+              This password will not be shown again.
+            </p>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button className="btn btn-primary" onClick={handleCopy} style={{ flex: 1 }}>
+                {copied ? 'Copied!' : 'Copy Password'}
+              </button>
+              <button className="btn btn-ghost" onClick={() => router.push('/users')} style={{ flex: 1 }}>
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
   return (
     <Layout>
-<div className="page">
+      <div className="page">
         <button className="back-link" onClick={() => router.push("/users")}>
-          <svg
-            width="14"
-            height="14"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            viewBox="0 0 24 24"
-          >
+          <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
             <polyline points="15 18 9 12 15 6" />
           </svg>
           Back to Users
         </button>
         <div className="page-title">Add User</div>
         <div className="page-subtitle">
-          Create a new user in your organization
+          Create a new user or add an existing user to your organization. A temporary password will be generated for new users — share it with them securely.
         </div>
 
         {error && <div className="err-bar">{error}</div>}
@@ -120,8 +165,8 @@ export default function CreateUserPage() {
                 placeholder="John Doe"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                required
               />
+              <p className="hint">Required for new users. Leave blank if adding an existing user by email.</p>
             </div>
             <div className="field">
               <label>Email address</label>
@@ -134,26 +179,11 @@ export default function CreateUserPage() {
                 required
               />
             </div>
-            <div className="field">
-              <label>Password</label>
-              <input
-                className="fi"
-                type="password"
-                placeholder="Min. 8 characters"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={8}
-              />
-              <p className="hint">The user can change this after signing in.</p>
-            </div>
             {roles.length > 0 && (
               <div className="field">
                 <label>
                   Role{" "}
-                  <span style={{ color: "#bbb", fontWeight: 400 }}>
-                    (optional)
-                  </span>
+                  <span style={{ color: "#bbb", fontWeight: 400 }}>(optional)</span>
                 </label>
                 <select
                   className="fi select"
@@ -162,31 +192,19 @@ export default function CreateUserPage() {
                 >
                   <option value="">No role assigned</option>
                   {roles.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name}
-                    </option>
+                    <option key={r.id} value={r.id}>{r.name}</option>
                   ))}
                 </select>
-                <p className="hint">
-                  Custom roles define what the user can do within your org.
-                </p>
+                <p className="hint">Custom roles define what the user can do within your org.</p>
               </div>
             )}
             <div className="form-actions">
-              <button
-                className="btn btn-ghost"
-                type="button"
-                onClick={() => router.push("/users")}
-              >
+              <button className="btn btn-ghost" type="button" onClick={() => router.push("/users")}>
                 Cancel
               </button>
-              <button
-                className="btn btn-primary"
-                type="submit"
-                disabled={loading}
-              >
+              <button className="btn btn-primary" type="submit" disabled={loading}>
                 {loading && <span className="spin" />}
-                {loading ? "Creating…" : "Add User"}
+                {loading ? "Adding…" : "Add User"}
               </button>
             </div>
           </form>

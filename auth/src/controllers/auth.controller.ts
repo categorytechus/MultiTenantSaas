@@ -176,7 +176,7 @@ export const signin = async (req: Request, res: Response): Promise<void> => {
   try {
     // Find user
     const result = await pool.query(
-      "SELECT id, email, full_name, password_hash, status, user_type FROM users WHERE lower(trim(email)) = $1",
+      "SELECT id, email, full_name, password_hash, status, user_type, must_change_password, token_version FROM users WHERE lower(trim(email)) = $1",
       [normalizedEmail],
     );
 
@@ -213,14 +213,13 @@ export const signin = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Get user's first organization
+    // Get user's first organization (deterministic order by join date)
     const orgResult = await pool.query(
-      `
-      SELECT organization_id 
-      FROM user_roles 
-      WHERE user_id = $1 
-      LIMIT 1
-    `,
+      `SELECT organization_id
+       FROM user_roles
+       WHERE user_id = $1
+       ORDER BY created_at ASC
+       LIMIT 1`,
       [user.id],
     );
 
@@ -245,13 +244,14 @@ export const signin = async (req: Request, res: Response): Promise<void> => {
       user.id,
     ]);
 
-    // Generate tokens
+    // Generate tokens (token_version included for session invalidation)
     const tokens = generateTokenPair({
       sub: user.id,
       email: user.email,
       user_type: user.user_type,
       org_id: organizationId,
       permissions,
+      token_version: user.token_version,
     });
 
     // Create session
@@ -269,6 +269,7 @@ export const signin = async (req: Request, res: Response): Promise<void> => {
         email: user.email,
         name: user.full_name,
         user_type: user.user_type,
+        must_change_password: user.must_change_password,
         ...tokens,
       },
     });
@@ -569,11 +570,11 @@ export const changePassword = async (
     // Hash new password
     const hashedPassword = await hashPassword(newPassword);
 
-    // Update password
-    await pool.query("UPDATE users SET password_hash = $1 WHERE id = $2", [
-      hashedPassword,
-      userId,
-    ]);
+    // Update password and bump token_version to invalidate existing sessions
+    await pool.query(
+      "UPDATE users SET password_hash = $1, token_version = token_version + 1 WHERE id = $2",
+      [hashedPassword, userId],
+    );
 
     // Invalidate all sessions except current one
     await pool.query("DELETE FROM sessions WHERE user_id = $1", [userId]);
@@ -653,6 +654,69 @@ export const updateProfile = async (
       success: false,
       message: "Internal server error",
     });
+  }
+};
+
+/**
+ * Set password on first login (when must_change_password = true)
+ * Does not require the current password — the temp password was never known to the user.
+ * Bumps token_version to invalidate the temp-password session.
+ */
+export const setPassword = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  const userId = (req as any).user?.sub;
+  const { newPassword } = req.body;
+
+  try {
+    const userResult = await pool.query(
+      "SELECT must_change_password FROM users WHERE id = $1 AND deleted_at IS NULL",
+      [userId],
+    );
+
+    if (userResult.rows.length === 0) {
+      res.status(404).json({ success: false, message: "User not found" });
+      return;
+    }
+
+    if (!userResult.rows[0].must_change_password) {
+      res.status(400).json({
+        success: false,
+        message: "Password change not required. Use change-password instead.",
+      });
+      return;
+    }
+
+    const passwordValidation = validatePasswordStrength(newPassword);
+    if (!passwordValidation.valid) {
+      res.status(400).json({
+        success: false,
+        message: "Password does not meet requirements",
+        errors: passwordValidation.errors,
+      });
+      return;
+    }
+
+    const hashedPassword = await hashPassword(newPassword);
+
+    await pool.query(
+      `UPDATE users
+       SET password_hash = $1, must_change_password = false, token_version = token_version + 1, updated_at = NOW()
+       WHERE id = $2`,
+      [hashedPassword, userId],
+    );
+
+    // Invalidate all existing sessions
+    await pool.query("DELETE FROM sessions WHERE user_id = $1", [userId]);
+
+    res.status(200).json({
+      success: true,
+      message: "Password set successfully. Please sign in with your new password.",
+    });
+  } catch (error) {
+    console.error("Set password error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
 

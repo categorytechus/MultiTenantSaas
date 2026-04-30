@@ -7,6 +7,7 @@ import {
   deleteOrgUser,
   assignUserRole,
   removeUserRole,
+  resetOrgUserPassword,
 } from '../controllers/user-admin.controller';
 import { authenticateToken } from '../middleware/auth.middleware';
 import { requireOrgAdmin } from '../middleware/permission.middleware';
@@ -18,12 +19,12 @@ router.use(authenticateToken, requireOrgAdmin);
 
 router.get('/', listOrgUsers);
 
+// Create new user or add existing user to org (password no longer required)
 router.post(
   '/',
   [
     body('email').isEmail().normalizeEmail(),
-    body('password').isLength({ min: 8 }),
-    body('name').trim().notEmpty(),
+    body('name').optional().trim().notEmpty(),
     body('roleId').optional().isUUID(),
   ],
   validateRequest,
@@ -51,5 +52,10 @@ router.post(
 );
 
 router.delete('/:id/roles/:roleId', removeUserRole);
+
+router.post(
+  '/:id/reset-password',
+  resetOrgUserPassword
+);
 
 export default router;

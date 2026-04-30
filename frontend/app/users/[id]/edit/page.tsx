@@ -12,12 +12,12 @@ interface Role {
   is_system: boolean;
 }
 
-interface UserWithRoles {
+interface OrgUserListItem {
   id: string;
   email: string;
-  full_name?: string;
+  full_name: string | null;
   status: string;
-  roles: Role[];
+  roles?: Role[];
 }
 
 export default function EditUserPage() {
@@ -62,7 +62,7 @@ export default function EditUserPage() {
         setOrgId(oid);
 
         const [usersRes, rolesRes] = await Promise.all([
-          apiFetch<{ data: UserWithRoles[] }>(`/organizations/${oid}/users`),
+          apiFetch<{ data: OrgUserListItem[] }>(`/organizations/${oid}/users`),
           apiFetch<{ data: Role[] }>(`/organizations/${oid}/roles`),
         ]);
 

@@ -6,10 +6,10 @@ import Layout from '../../../../../components/Layout';
 import { apiFetch } from '../../../../../src/lib/api';
 import './admin-super-admins-id-edit.css';
 
-interface SuperAdmin {
+interface SuperAdminListItem {
   id: string;
-  full_name: string;
   email: string;
+  full_name: string | null;
   status: string;
 }
 
@@ -37,7 +37,7 @@ export default function EditSuperAdminPage() {
           router.push('/dashboard');
           return;
         }
-        const res = await apiFetch<{ data: SuperAdmin[] }>('/admin/super-admins');
+        const res = await apiFetch<{ data: SuperAdminListItem[] }>('/admin/super-admins');
         if (res.success) {
           const admin = res.data.data.find((a) => a.id === id);
           if (admin) {

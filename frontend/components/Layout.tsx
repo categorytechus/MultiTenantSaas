@@ -104,11 +104,8 @@ export default function Layout({ children }: LayoutProps) {
   }, [router]);
 
   useEffect(() => {
-    const t = window.setTimeout(() => {
-      setMobileSidebarOpen(false);
-      setOpen(false);
-    }, 0);
-    return () => window.clearTimeout(t);
+    setMobileSidebarOpen(false);
+    setOpen(false);
   }, [pathname]);
 
   useEffect(() => {
@@ -157,6 +154,7 @@ export default function Layout({ children }: LayoutProps) {
     if (pathname === '/users') return { section: 'User Management', page: 'Users' };
     if (pathname === '/users/create') return { section: 'User Management', page: 'Create User' };
     if (pathname.startsWith('/users/')) return { section: 'User Management', page: 'Edit User' };
+    if (pathname === '/profile') return { section: 'Account', page: 'My Profile' };
     if (pathname === '/roles') return { section: 'User Management', page: 'Roles' };
     if (pathname === '/roles/create') return { section: 'User Management', page: 'Create Role' };
     if (pathname.startsWith('/roles/')) return { section: 'User Management', page: 'Edit Role' };
@@ -310,7 +308,9 @@ export default function Layout({ children }: LayoutProps) {
           display: flex;
           align-items: center;
           gap: 12px;
+          cursor: pointer;
         }
+        .user-profile:hover { background: transparent; }
         .avatar {
           width: 36px;
           height: 36px;
@@ -643,6 +643,13 @@ export default function Layout({ children }: LayoutProps) {
               </svg>
               <span className="nav-ai-text">AI Assistant</span>
             </a>
+            <a href="/profile" className={`nav-item${pathname === '/profile' ? ' active' : ''}`}>
+              <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
+              My Profile
+            </a>
           </div>
 
           <div className="nav-section">
@@ -662,13 +669,27 @@ export default function Layout({ children }: LayoutProps) {
           </div>
 
           <div className="sidebar-footer">
-            <div className="user-profile">
+            <div
+              className="user-profile"
+              onClick={() => router.push('/profile')}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') router.push('/profile');
+              }}
+            >
               <div className="avatar">{initials(user?.full_name, user?.email)}</div>
               <div className="user-info">
                 <div className="user-name">{user?.full_name || 'User'}</div>
                 <div className="user-email">{user?.email}</div>
               </div>
-              <button className="signout-btn" onClick={signOut}>
+              <button
+                className="signout-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  signOut();
+                }}
+              >
                 <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                   <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/>
                 </svg>

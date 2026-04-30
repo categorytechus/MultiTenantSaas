@@ -14,6 +14,7 @@ export interface JWTPayload {
   user_type?: 'super_admin' | 'org_admin' | 'user';
   org_id?: string;
   permissions?: string[];
+  token_version?: number;
   type: 'access' | 'refresh';
 }
 

@@ -20,14 +20,24 @@ export default function SignInPage() {
     setLoading(true);
     setError('');
     try {
-      const res = await apiFetch<{ data: { accessToken: string, refreshToken: string } }>('/auth/signin', {
+      const res = await apiFetch<{
+        data: {
+          accessToken: string;
+          refreshToken: string;
+          must_change_password?: boolean;
+        };
+      }>('/auth/signin', {
         method: 'POST',
         body: JSON.stringify({ email, password }),
       });
       if (!res.success) throw new Error(res.error);
       localStorage.setItem('accessToken', res.data.data.accessToken);
       localStorage.setItem('refreshToken', res.data.data.refreshToken);
-      router.push('/dashboard');
+      if (res.data.data.must_change_password) {
+        router.push('/auth/set-password');
+      } else {
+        router.push('/dashboard');
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Something went wrong');
     } finally {

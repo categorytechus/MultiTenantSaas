@@ -7,12 +7,10 @@ import { apiFetch } from "../../../../src/lib/api";
 import './roles-id-edit.css';
 
 // Edit: name + description only (see create page)
-
-interface Role {
+interface RoleListItem {
   id: string;
   name: string;
   description?: string | null;
-  is_system: boolean;
 }
 
 export default function EditRolePage() {
@@ -52,7 +50,7 @@ export default function EditRolePage() {
         }
         setOrgId(oid);
 
-        const rolesRes = await apiFetch<{ data: Role[] }>(
+        const rolesRes = await apiFetch<{ data: RoleListItem[] }>(
           `/organizations/${oid}/roles`,
         );
 
