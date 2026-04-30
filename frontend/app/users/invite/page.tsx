@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Layout from "../../../components/Layout";
 import { apiFetch } from "../../../src/lib/api";
-import './users-create.css';
+import '../create/users-create.css';
 
 interface Role {
   id: string;
@@ -12,29 +12,20 @@ interface Role {
   is_system: boolean;
 }
 
-function mockToken() {
-  return Array.from(crypto.getRandomValues(new Uint8Array(16)))
-    .map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-export default function CreateUserPage() {
+export default function InviteUserPage() {
   const router = useRouter();
-  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [roleId, setRoleId] = useState("");
   const [roles, setRoles] = useState<Role[]>([]);
   const [orgId, setOrgId] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [setPasswordLink, setSetPasswordLink] = useState<string | null>(null);
+  const [signupLink, setSignupLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("accessToken");
-    if (!token) {
-      router.push("/auth/signin");
-      return;
-    }
+    if (!token) { router.push("/auth/signin"); return; }
     (async () => {
       try {
         const meRes = await apiFetch<{ data: { user_type: string } }>("/auth/me");
@@ -44,10 +35,7 @@ export default function CreateUserPage() {
         }
         const payload = JSON.parse(atob(token.split(".")[1]));
         const oid = payload.org_id;
-        if (!oid) {
-          setError("No org context. Switch to an org first.");
-          return;
-        }
+        if (!oid) { setError("No org context. Switch to an org first."); return; }
         setOrgId(oid);
         const rolesRes = await apiFetch<{ data: Role[] }>(`/organizations/${oid}/roles`);
         if (rolesRes.success) {
@@ -65,29 +53,29 @@ export default function CreateUserPage() {
     setError("");
     setLoading(true);
     try {
-      // TODO (Phase 2): Replace mock with real API call to POST /organizations/${orgId}/users
-      // Request: { name, email, roleId }
-      // Expected response: { data: { set_password_link: string } }
+      // TODO (Phase 2): Replace mock with real API call to POST /organizations/${orgId}/invites
+      // Request: { email, roleId }
+      // Expected response: { data: { signup_link: string, role: string, organization_id: string } }
       await new Promise((resolve) => setTimeout(resolve, 800));
       const base = typeof window !== "undefined" ? window.location.origin : "";
-      const link = `${base}/auth/set-password?token=${mockToken()}&email=${encodeURIComponent(email)}`;
-      setSetPasswordLink(link);
+      const link = `${base}/auth/signup/${orgId}?role=user${roleId ? `&roleId=${roleId}` : ""}`;
+      setSignupLink(link);
     } catch {
-      setError("Failed to create user");
+      setError("Failed to generate invite link");
     } finally {
       setLoading(false);
     }
   };
 
   const handleCopy = () => {
-    if (setPasswordLink) {
-      navigator.clipboard.writeText(setPasswordLink);
+    if (signupLink) {
+      navigator.clipboard.writeText(signupLink);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
   };
 
-  if (setPasswordLink) {
+  if (signupLink) {
     return (
       <Layout>
         <div className="page">
@@ -101,14 +89,14 @@ export default function CreateUserPage() {
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
               </div>
-              <div className="page-title" style={{ margin: 0 }}>User Created</div>
+              <div className="page-title" style={{ margin: 0 }}>Invite Link Generated</div>
             </div>
             <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 20, lineHeight: 1.6 }}>
-              Account created for <strong>{email}</strong>. Share the link below so they can set their password and log in.
+              Share this link with <strong>{email}</strong>. They will use it to create their account — they set their own name and password.
             </p>
 
             <div style={{ marginBottom: 6 }}>
-              <div style={{ fontSize: 12, fontWeight: 500, color: '#555', marginBottom: 6 }}>Password setup link</div>
+              <div style={{ fontSize: 12, fontWeight: 500, color: '#555', marginBottom: 6 }}>Signup link</div>
               <div style={{
                 display: 'flex', alignItems: 'center',
                 border: '1px solid #e5e5e5', borderRadius: 8, overflow: 'hidden',
@@ -118,7 +106,7 @@ export default function CreateUserPage() {
                   fontFamily: 'monospace', fontSize: 12.5, color: '#374151',
                   background: '#f9f9f8', wordBreak: 'break-all', lineHeight: 1.5,
                 }}>
-                  {setPasswordLink}
+                  {signupLink}
                 </div>
                 <button
                   onClick={handleCopy}
@@ -143,13 +131,13 @@ export default function CreateUserPage() {
                 <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
               </svg>
               <p style={{ fontSize: 12, color: '#92400e', margin: 0, lineHeight: 1.5 }}>
-                This link is single-use and expires after first use. Share it securely with the user.
+                This link is single-use and expires once the user completes signup.
               </p>
             </div>
 
             <div style={{ display: 'flex', gap: 10 }}>
-              <button className="btn btn-ghost" onClick={() => { setSetPasswordLink(null); setName(""); setEmail(""); }} style={{ flex: 1 }}>
-                Add Another
+              <button className="btn btn-ghost" onClick={() => { setSignupLink(null); setEmail(""); }} style={{ flex: 1 }}>
+                Invite Another
               </button>
               <button className="btn btn-primary" onClick={() => router.push('/users')} style={{ flex: 1 }}>
                 Done
@@ -170,27 +158,15 @@ export default function CreateUserPage() {
           </svg>
           Back to Users
         </button>
-        <div className="page-title">Create User</div>
+        <div className="page-title">Invite User</div>
         <div className="page-subtitle">
-          Create a new user account. A password setup link will be generated — share it with them securely.
+          Enter the user&apos;s email. A unique signup link will be generated — they complete registration themselves by setting their name and password.
         </div>
 
         {error && <div className="err-bar">{error}</div>}
 
         <div className="form-card">
           <form onSubmit={handleSubmit}>
-            <div className="field">
-              <label>Full name <span style={{ color: '#e53e3e' }}>*</span></label>
-              <input
-                className="fi"
-                type="text"
-                placeholder="John Doe"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-                autoFocus
-              />
-            </div>
             <div className="field">
               <label>Email address <span style={{ color: '#e53e3e' }}>*</span></label>
               <input
@@ -200,7 +176,9 @@ export default function CreateUserPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                autoFocus
               />
+              <p className="hint">The user will follow the signup link to create their account.</p>
             </div>
             {roles.length > 0 && (
               <div className="field">
@@ -227,7 +205,7 @@ export default function CreateUserPage() {
               </button>
               <button className="btn btn-primary" type="submit" disabled={loading}>
                 {loading && <span className="spin" />}
-                {loading ? "Creating…" : "Create User"}
+                {loading ? "Generating link…" : "Generate Invite Link"}
               </button>
             </div>
           </form>

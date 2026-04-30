@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Layout from '../../../components/Layout';
 import { apiFetch } from '../../../src/lib/api';
@@ -22,30 +22,49 @@ export default function OrganizationsPage() {
   const [orgs, setOrgs] = useState<Org[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [openMenuFor, setOpenMenuFor] = useState<string | null>(null);
+  const openMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const onDocMouseDown = (e: MouseEvent) => {
+      if (!openMenuRef.current) return;
+      if (!openMenuRef.current.contains(e.target as Node)) setOpenMenuFor(null);
+    };
+    document.addEventListener('mousedown', onDocMouseDown);
+    return () => document.removeEventListener('mousedown', onDocMouseDown);
+  }, []);
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
     if (!token) { router.push('/auth/signin'); return; }
     (async () => {
-      try {
-        const me = await apiFetch<{ data: { user_type: string } }>('/auth/me');
-        if (!me.success || me.data.data.user_type !== 'super_admin') {
-          router.push('/dashboard');
-          return;
-        }
-
-        setLoading(true);
-        try {
-          const res = await apiFetch<{ data: Org[] }>('/admin/organizations');
-          if (res.success) setOrgs(res.data.data);
-        } finally {
-          setLoading(false);
-        }
-      } catch {
-        setLoading(false);
+      const me = await apiFetch<{ data: { user_type: string } }>('/auth/me');
+      if (!me.success || me.data.data.user_type !== 'super_admin') {
+        router.push('/dashboard');
+        return;
       }
+      await load();
     })();
   }, [router]);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      let selectedOrgId = '';
+      try {
+        const tokenData = localStorage.getItem('accessToken');
+        if (tokenData) {
+          const payload = JSON.parse(atob(tokenData.split('.')[1]));
+          selectedOrgId = payload.org_id || '';
+        }
+      } catch {}
+      const query = selectedOrgId ? `?orgId=${encodeURIComponent(selectedOrgId)}` : '';
+      const res = await apiFetch<{ data: Org[] }>(`/admin/organizations${query}`);
+      if (res.success) setOrgs(res.data.data);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleDelete = async (id: string, name: string) => {
     if (!confirm(`Delete organization "${name}"? This action cannot be undone.`)) return;
@@ -120,9 +139,40 @@ export default function OrganizationsPage() {
                       {new Date(org.created_at).toLocaleDateString()}
                     </td>
                     <td>
-                      <div style={{ display: 'flex', gap: 4 }}>
-                        <button className="action-btn" onClick={() => router.push(`/admin/organizations/${org.id}/edit`)}>Edit</button>
-                        <button className="action-btn danger" onClick={() => handleDelete(org.id, org.name)}>Delete</button>
+                      <div className="row-menu">
+                        <button
+                          className="kebab-btn"
+                          onClick={() => setOpenMenuFor(openMenuFor === org.id ? null : org.id)}
+                          aria-label="Actions"
+                        >
+                          <span className="kebab-ellipsis">&#8943;</span>
+                        </button>
+                        {openMenuFor === org.id && (
+                          <div
+                            className="kebab-dropdown"
+                            ref={openMenuRef}
+                            onClick={e => e.stopPropagation()}
+                          >
+                            <button
+                              className="kebab-item"
+                              onClick={() => { setOpenMenuFor(null); router.push(`/admin/organizations/${org.id}/edit`); }}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              className="kebab-item"
+                              onClick={() => { setOpenMenuFor(null); router.push(`/admin/org-permissions/${org.id}`); }}
+                            >
+                              Permissions
+                            </button>
+                            <button
+                              className="kebab-item kebab-danger"
+                              onClick={() => { setOpenMenuFor(null); handleDelete(org.id, org.name); }}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </td>
                   </tr>

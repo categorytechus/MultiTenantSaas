@@ -99,8 +99,8 @@ export default function SignInPage() {
               {loading ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
+          <p className="foot">Need access? Contact your organization administrator.</p>
 
-          <p className="foot">No account? <Link href="/auth/signup">Sign up</Link></p>
         </div>
 
         <p className="terms">By continuing you agree to our <a href="#">Terms</a> and <a href="#">Privacy Policy</a></p>

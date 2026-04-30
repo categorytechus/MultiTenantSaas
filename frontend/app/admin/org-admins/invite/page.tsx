@@ -4,24 +4,18 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Layout from '../../../../components/Layout';
 import { apiFetch } from '../../../../src/lib/api';
-import './admin-org-admins-create.css';
+import '../create/admin-org-admins-create.css';
 
 interface Org { id: string; name: string; slug: string; }
 
-function mockToken() {
-  return Array.from(crypto.getRandomValues(new Uint8Array(16)))
-    .map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-export default function CreateOrgAdminPage() {
+export default function InviteOrgAdminPage() {
   const router = useRouter();
-  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [organizationId, setOrganizationId] = useState('');
   const [orgs, setOrgs] = useState<Org[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [setPasswordLink, setSetPasswordLink] = useState<string | null>(null);
+  const [signupLink, setSignupLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -59,29 +53,31 @@ export default function CreateOrgAdminPage() {
     setError('');
     setLoading(true);
     try {
-      // TODO (Phase 2): Replace mock with real API call to POST /admin/org-admins
-      // Request: { name, email, organizationId }
-      // Expected response: { data: { set_password_link: string } }
+      // TODO (Phase 2): Replace mock with real API call to POST /admin/org-admins/invites
+      // Request: { email, organizationId }
+      // Expected response: { data: { signup_link: string, role: 'org_admin', organization_id: string } }
       await new Promise((resolve) => setTimeout(resolve, 800));
       const base = typeof window !== 'undefined' ? window.location.origin : '';
-      const link = `${base}/auth/set-password?token=${mockToken()}&email=${encodeURIComponent(email)}`;
-      setSetPasswordLink(link);
+      const link = `${base}/auth/signup/${organizationId}?role=org_admin`;
+      setSignupLink(link);
     } catch {
-      setError('Failed to create org admin');
+      setError('Failed to generate invite link');
     } finally {
       setLoading(false);
     }
   };
 
   const handleCopy = () => {
-    if (setPasswordLink) {
-      navigator.clipboard.writeText(setPasswordLink);
+    if (signupLink) {
+      navigator.clipboard.writeText(signupLink);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
   };
 
-  if (setPasswordLink) {
+  const selectedOrg = orgs.find(o => o.id === organizationId);
+
+  if (signupLink) {
     return (
       <Layout>
         <div className="page">
@@ -95,14 +91,29 @@ export default function CreateOrgAdminPage() {
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
               </div>
-              <div className="page-title" style={{ margin: 0 }}>Org Admin Created</div>
+              <div className="page-title" style={{ margin: 0 }}>Invite Link Generated</div>
             </div>
-            <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 20, lineHeight: 1.6 }}>
-              Account created for <strong>{email}</strong>. Share the link below so they can set their password and log in.
+            <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 16, lineHeight: 1.6 }}>
+              Share this link with <strong>{email}</strong>. They will use it to create their org admin account — they set their own name and password.
             </p>
 
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+              {selectedOrg && (
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5,
+                  background: '#f5f3ff', color: '#7c3aed', border: '1px solid #ddd6fe',
+                  borderRadius: 20, padding: '3px 10px', fontSize: 12, fontWeight: 500,
+                }}>
+                  <svg width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
+                  </svg>
+                  {selectedOrg.name}
+                </span>
+              )}
+            </div>
+
             <div style={{ marginBottom: 6 }}>
-              <div style={{ fontSize: 12, fontWeight: 500, color: '#555', marginBottom: 6 }}>Password setup link</div>
+              <div style={{ fontSize: 12, fontWeight: 500, color: '#555', marginBottom: 6 }}>Signup link</div>
               <div style={{
                 display: 'flex', alignItems: 'center',
                 border: '1px solid #e5e5e5', borderRadius: 8, overflow: 'hidden',
@@ -112,7 +123,7 @@ export default function CreateOrgAdminPage() {
                   fontFamily: 'monospace', fontSize: 12.5, color: '#374151',
                   background: '#f9f9f8', wordBreak: 'break-all', lineHeight: 1.5,
                 }}>
-                  {setPasswordLink}
+                  {signupLink}
                 </div>
                 <button
                   onClick={handleCopy}
@@ -137,13 +148,13 @@ export default function CreateOrgAdminPage() {
                 <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
               </svg>
               <p style={{ fontSize: 12, color: '#92400e', margin: 0, lineHeight: 1.5 }}>
-                This link is single-use and expires after first use. Share it securely with the admin.
+                This link is single-use and expires once the admin completes signup.
               </p>
             </div>
 
             <div style={{ display: 'flex', gap: 10 }}>
-              <button className="btn btn-ghost" onClick={() => { setSetPasswordLink(null); setName(''); setEmail(''); }} style={{ flex: 1 }}>
-                Add Another
+              <button className="btn btn-ghost" onClick={() => { setSignupLink(null); setEmail(''); }} style={{ flex: 1 }}>
+                Invite Another
               </button>
               <button className="btn btn-primary" onClick={() => router.push('/admin/org-admins')} style={{ flex: 1 }}>
                 Done
@@ -162,27 +173,15 @@ export default function CreateOrgAdminPage() {
           <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
           Back to Org Admins
         </button>
-        <div className="page-title">Create Org Admin</div>
+        <div className="page-title">Invite Org Admin</div>
         <div className="page-subtitle">
-          Create a new org admin account. A password setup link will be generated — share it with them securely.
+          Enter the email and select an organization. A unique signup link will be generated — they complete registration themselves by setting their name and password.
         </div>
 
         {error && <div className="err-bar">{error}</div>}
 
         <div className="form-card">
           <form onSubmit={handleSubmit}>
-            <div className="field">
-              <label>Full name <span style={{ color: '#e53e3e' }}>*</span></label>
-              <input
-                className="fi"
-                type="text"
-                placeholder="Jane Smith"
-                value={name}
-                onChange={e => { setName(e.target.value); setError(''); }}
-                required
-                autoFocus
-              />
-            </div>
             <div className="field">
               <label>Email address <span style={{ color: '#e53e3e' }}>*</span></label>
               <input
@@ -192,7 +191,9 @@ export default function CreateOrgAdminPage() {
                 value={email}
                 onChange={e => { setEmail(e.target.value); setError(''); }}
                 required
+                autoFocus
               />
+              <p className="hint">The admin will follow the signup link to create their account.</p>
             </div>
             <div className="field">
               <label>Organization <span style={{ color: '#e53e3e' }}>*</span></label>
@@ -211,7 +212,7 @@ export default function CreateOrgAdminPage() {
               <button className="btn btn-ghost" type="button" onClick={() => router.push('/admin/org-admins')}>Cancel</button>
               <button className="btn btn-primary" type="submit" disabled={loading}>
                 {loading && <span className="spin" />}
-                {loading ? 'Creating…' : 'Create Org Admin'}
+                {loading ? 'Generating link…' : 'Generate Invite Link'}
               </button>
             </div>
           </form>

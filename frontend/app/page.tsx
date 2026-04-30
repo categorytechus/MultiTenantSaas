@@ -28,11 +28,8 @@ export default function LandingPage() {
             <a href="#how-it-works" className="nav-link">How It Works</a>
           </div>
           <div className="nav-btns">
-            <button className="btn btn-secondary" onClick={() => router.push('/auth/signin')}>
+            <button className="btn btn-primary" onClick={() => router.push('/auth/signin')}>
               Sign In
-            </button>
-            <button className="btn btn-primary" onClick={() => router.push('/auth/signup')}>
-              Sign Up
             </button>
           </div>
         </div>
@@ -53,8 +50,8 @@ export default function LandingPage() {
             Build secure, auditable AI workflows for counseling, enrollment, and support with drag-and-drop simplicity, full governance, and flexible deployment.
           </p>
           <div className="hero-cta">
-            <button className="btn btn-primary" onClick={() => router.push('/auth/signup')}>
-              Get Started Free
+            <button className="btn btn-primary" onClick={() => router.push('/auth/signin')}>
+              Sign In
             </button>
             <button className="btn btn-secondary" onClick={() => router.push('/auth/signin')}>
               View Demo
@@ -199,10 +196,7 @@ export default function LandingPage() {
               Join enterprise teams achieving real outcomes with governed AI workflows.
             </p>
             <div style={{ display: 'flex', gap: '16px', justifyContent: 'center' }}>
-              <button className="btn btn-primary" onClick={() => router.push('/auth/signup')}>
-                Get Started Free
-              </button>
-              <button className="btn btn-secondary" onClick={() => router.push('/auth/signin')}>
+              <button className="btn btn-primary" onClick={() => router.push('/auth/signin')}>
                 Sign In
               </button>
             </div>

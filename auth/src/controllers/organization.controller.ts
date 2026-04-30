@@ -143,6 +143,52 @@ export const switchOrganization = async (
 };
 
 /**
+ * Reset organization context (super_admin only)
+ * Returns fresh tokens without org_id context.
+ */
+export const resetOrganizationContext = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  const userId = (req as any).user?.sub;
+  const email = (req as any).user?.email;
+  const userType = (req as any).user?.user_type;
+
+  if (userType !== "super_admin") {
+    res.status(403).json({
+      success: false,
+      message: "Only super admins can reset organization context",
+    });
+    return;
+  }
+
+  try {
+    const tokens = generateTokenPair({
+      sub: userId,
+      email,
+      user_type: userType,
+      permissions: [],
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Organization context reset successfully",
+      data: {
+        organization: null,
+        permissions: [],
+        ...tokens,
+      },
+    });
+  } catch (error) {
+    console.error("Reset organization context error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+/**
  * Get current organization details
  */
 export const getCurrentOrganization = async (

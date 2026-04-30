@@ -198,11 +198,16 @@ export const listAllOrganizations = async (
   req: Request,
   res: Response,
 ): Promise<void> => {
-  const { search } = req.query;
+  const { search, orgId } = req.query;
   try {
     const conditions = ["o.status != 'deleted'"];
     const values: any[] = [];
     let i = 1;
+    if (orgId) {
+      conditions.push(`o.id = $${i}`);
+      values.push(orgId);
+      i++;
+    }
     if (search) {
       conditions.push(`(o.name ILIKE $${i} OR o.slug ILIKE $${i})`);
       values.push(`%${search}%`);
