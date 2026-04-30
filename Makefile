@@ -98,6 +98,14 @@ update-kubeconfig:
 	@if [ -z "$(EC2_IP)" ]; then echo "ERROR: EC2_IP is empty. Is the instance running?"; exit 1; fi
 	@echo "Fetching kubeconfig from $(EC2_IP)..."
 	@mkdir -p $(dir $(KUBECONFIG_FILE))
+	@echo "Remote kube preflight on $(EC2_IP)..."
+	@ssh -i $(SSH_KEY) -o StrictHostKeyChecking=no ubuntu@$(EC2_IP) \
+		"set -eu; echo hostname: \$$(hostname); echo user: \$$(whoami); \
+		echo k3s_path: \$$(command -v k3s || echo '<none>'); \
+		echo kubectl_path: \$$(command -v kubectl || echo '<none>'); \
+		echo k3s_yaml: \$$(if sudo test -f /etc/rancher/k3s/k3s.yaml; then echo present; else echo missing; fi); \
+		echo admin_conf: \$$(if sudo test -f /etc/kubernetes/admin.conf; then echo present; else echo missing; fi); \
+		echo home_kubeconfig: \$$(if test -f ~/.kube/config; then echo present; else echo missing; fi)" || true
 	@set -euo pipefail; \
 	ssh -i $(SSH_KEY) -o StrictHostKeyChecking=no ubuntu@$(EC2_IP) \
 		"if command -v k3s >/dev/null 2>&1; then sudo k3s kubectl config view --raw; \
