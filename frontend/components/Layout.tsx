@@ -104,8 +104,11 @@ export default function Layout({ children }: LayoutProps) {
   }, [router]);
 
   useEffect(() => {
-    setMobileSidebarOpen(false);
-    setOpen(false);
+    const timer = window.setTimeout(() => {
+      setMobileSidebarOpen(false);
+      setOpen(false);
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [pathname]);
 
   useEffect(() => {
