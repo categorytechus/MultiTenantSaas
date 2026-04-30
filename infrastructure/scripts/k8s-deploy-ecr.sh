@@ -87,7 +87,23 @@ done
 
 echo ""
 echo "==> Applying ingress..."
-kubectl --insecure-skip-tls-verify apply -f "$K8S_DIR/ingress.yaml"
+TRAEFIK_IO_COUNT="$(kubectl --insecure-skip-tls-verify api-resources --api-group=traefik.io -o name 2>/dev/null | wc -l | tr -d ' ')"
+TRAEFIK_CONTAINO_COUNT="$(kubectl --insecure-skip-tls-verify api-resources --api-group=traefik.containo.us -o name 2>/dev/null | wc -l | tr -d ' ')"
+
+if [ "${TRAEFIK_IO_COUNT:-0}" -gt 0 ]; then
+    echo "    Traefik CRDs found for apiGroup traefik.io"
+    kubectl --insecure-skip-tls-verify apply -f "$K8S_DIR/ingress.yaml"
+elif [ "${TRAEFIK_CONTAINO_COUNT:-0}" -gt 0 ]; then
+    echo "    Traefik CRDs found for apiGroup traefik.containo.us (legacy). Rewriting ingress manifest apiVersion..."
+    INGRESS_TMP="$TMPDIR/ingress-legacy.yaml"
+    sed 's#apiVersion: traefik.io/v1alpha1#apiVersion: traefik.containo.us/v1alpha1#g' "$K8S_DIR/ingress.yaml" > "$INGRESS_TMP"
+    kubectl --insecure-skip-tls-verify apply -f "$INGRESS_TMP"
+else
+    echo "    Traefik CRDs not found. Installing CRDs for traefik.io..."
+    kubectl --insecure-skip-tls-verify apply -f "https://raw.githubusercontent.com/traefik/traefik/v3.1/docs/content/reference/dynamic-configuration/kubernetes-crd-definition-v1.yml"
+    kubectl --insecure-skip-tls-verify apply -f "https://raw.githubusercontent.com/traefik/traefik/v3.1/docs/content/reference/dynamic-configuration/kubernetes-crd-rbac.yml"
+    kubectl --insecure-skip-tls-verify apply -f "$K8S_DIR/ingress.yaml"
+fi
 
 echo ""
 echo "==> Waiting for rollouts to complete..."
