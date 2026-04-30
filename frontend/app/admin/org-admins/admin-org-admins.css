@@ -8,6 +8,8 @@ body { font-family: 'DM Sans', sans-serif; }
 .btn { display: inline-flex; align-items: center; gap: 7px; padding: 9px 16px; border-radius: 8px; font-family: 'DM Sans', sans-serif; font-size: 13.5px; font-weight: 500; cursor: pointer; border: none; transition: all .13s; }
 .btn-primary { background: #1a1a1a; color: white; }
 .btn-primary:hover { background: #333; box-shadow: 0 3px 10px rgba(0,0,0,.15); }
+.btn-ghost { background: #f5f4f1; color: #1a1a1a; border: 1px solid #ebebeb; }
+.btn-ghost:hover { background: #eeeceb; }
 .btn-danger { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
 .btn-danger:hover { background: #fee2e2; }
 .btn-sm { padding: 6px 12px; font-size: 12.5px; }

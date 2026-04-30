@@ -4,6 +4,7 @@ import {
   getUserOrganizations,
   switchOrganization,
   getCurrentOrganization,
+  resetOrganizationContext,
 } from '../controllers/organization.controller';
 import { authenticateToken } from '../middleware/auth.middleware';
 import { validateRequest } from '../middleware/validation.middleware';
@@ -27,6 +28,12 @@ router.post(
   validateRequest,
   switchOrganization
 );
+
+/**
+ * POST /api/organizations/reset
+ * Reset selected organization context (super_admin only)
+ */
+router.post('/reset', authenticateToken, resetOrganizationContext);
 
 /**
  * GET /api/organizations/current

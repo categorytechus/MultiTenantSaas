@@ -38,7 +38,16 @@ export default function EditOrgAdminPage() {
           router.push('/dashboard');
           return;
         }
-        const res = await apiFetch<{ data: OrgAdminListItem[] }>('/admin/org-admins');
+        let selectedOrgId = '';
+        try {
+          const tokenData = localStorage.getItem('accessToken');
+          if (tokenData) {
+            const payload = JSON.parse(atob(tokenData.split('.')[1]));
+            selectedOrgId = payload.org_id || '';
+          }
+        } catch {}
+        const query = selectedOrgId ? `?orgId=${encodeURIComponent(selectedOrgId)}` : '';
+        const res = await apiFetch<{ data: OrgAdminListItem[] }>(`/admin/org-admins${query}`);
         if (res.success) {
           const admin = res.data.data.find((a) => a.id === id);
           if (admin) {

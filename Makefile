@@ -106,6 +106,18 @@ update-kubeconfig:
 		echo k3s_yaml: \$$(if sudo test -f /etc/rancher/k3s/k3s.yaml; then echo present; else echo missing; fi); \
 		echo admin_conf: \$$(if sudo test -f /etc/kubernetes/admin.conf; then echo present; else echo missing; fi); \
 		echo home_kubeconfig: \$$(if test -f ~/.kube/config; then echo present; else echo missing; fi)" || true
+	@echo "Ensuring Kubernetes control-plane is installed on remote host..."
+	@ssh -i $(SSH_KEY) -o StrictHostKeyChecking=no ubuntu@$(EC2_IP) \
+		"set -euo pipefail; \
+		if command -v k3s >/dev/null 2>&1 || sudo test -f /etc/rancher/k3s/k3s.yaml; then \
+			echo 'k3s already present'; \
+		else \
+			echo 'k3s missing, installing...'; \
+			curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION='v1.34.4+k3s1' sh -; \
+			sudo chmod 644 /etc/rancher/k3s/k3s.yaml; \
+			sudo systemctl enable --now k3s; \
+		fi; \
+		sudo systemctl is-active k3s >/dev/null 2>&1 || (echo 'ERROR: k3s service is not active after install' >&2; sudo systemctl status k3s --no-pager || true; exit 1)"
 	@set -euo pipefail; \
 	ssh -i $(SSH_KEY) -o StrictHostKeyChecking=no ubuntu@$(EC2_IP) \
 		"if command -v k3s >/dev/null 2>&1; then sudo k3s kubectl config view --raw; \
