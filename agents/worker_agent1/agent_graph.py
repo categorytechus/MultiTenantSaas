@@ -1,16 +1,10 @@
 from datetime import datetime
-from langchain_aws import ChatBedrock
 from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 from common.chat_client import ChatServiceClient
+from models import load_llm
 
-# llm = ChatBedrock(model_id="openai.gpt-oss-120b-1:0", model_kwargs={"temperature": 0})
-llm = ChatBedrock(
-    model_id="arn:aws:bedrock:us-east-1:385143640249:inference-profile/global.anthropic.claude-opus-4-5-20251101-v1:0",
-    provider="anthropic",
-    region_name="us-east-1",
-    model_kwargs={"temperature": 0},
-)
+llm = load_llm(provider="bedrock")
 chat_client = ChatServiceClient()
 
 def invoke_agent(action, payload):
