@@ -1,11 +1,10 @@
 from typing import TypedDict, List
-import os
 import json
 import grpc
 from langgraph.graph import StateGraph, END
-from langchain_aws import ChatBedrock
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
+from models import load_llm
 
 # Import generated gRPC stubs
 from proto import rag_pb2, rag_pb2_grpc
@@ -26,13 +25,7 @@ class AgentState(TypedDict, total=False):
 from common.rabbitmq import RabbitMQClient
 mq_client = RabbitMQClient()
 
-# llm = ChatBedrock(model_id="openai.gpt-oss-120b-1:0", model_kwargs={"temperature": 0})
-llm = ChatBedrock(
-    model_id="arn:aws:bedrock:us-east-1:385143640249:inference-profile/global.anthropic.claude-opus-4-5-20251101-v1:0",
-    provider="anthropic",
-    region_name="us-east-1",
-    model_kwargs={"temperature": 0},
-)
+llm = load_llm(provider="bedrock")
 
 # Removed local get_allowed_asset_ids in favor of common.database.fetch_allowed_asset_ids
 
@@ -75,7 +68,7 @@ def generate_chat_response(state: AgentState):
     print(f" -> Calling Chat Knowledge Service for query: {state['prompt']}")
 
     # The Chat Service is our "Knowledge Expert" (Python)
-    CHAT_SERVICE_ADDR = os.getenv('CHAT_SERVICE_ADDR', 'chat-service:50052')
+    CHAT_SERVICE_ADDR = "chat-service:50052"
 
     # 1. Use Allowed Assets from state
     allowed_ids = state.get('allowed_asset_ids', [])
