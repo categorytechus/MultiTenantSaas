@@ -1,184 +1,128 @@
-# MultiTenant SaaS Platform
+# MultiTenant AI SaaS
 
-A comprehensive multi-tenant SaaS platform with AI-powered agents for counseling, enrollment, and support services.
+A multi-tenant SaaS platform with RAG chat and text-to-SQL AI agents. Each tenant gets full data isolation via Postgres Row-Level Security.
 
-## Architecture Overview
+## Stack
 
-This platform consists of:
-- **Frontend**: Next.js 16 with TypeScript, Tailwind CSS, and Shadcn UI
-- **Authentication**: AWS Cognito with federated identity (Google, username/password)
-- **API Gateway**: AWS API Gateway (REST + WebSocket)
-- **Auth Gateway**: Request validation, RBAC, and RabbitMQ-based task routing
-- **AI Agents**:
-  - Counselor (LangGraph)
-  - Enrollment (CrewAI)
-  - Support (Strands)
-- **Infrastructure**: AWS EKS, PostgreSQL, RabbitMQ, Supabase
-- **Observability**: Prometheus, Grafana, CloudWatch
+| Layer | Tech |
+|---|---|
+| Frontend | Vite + React 18 + TypeScript + Tailwind CSS |
+| Backend | FastAPI + SQLModel + Alembic (Python 3.12+) |
+| Worker | Arq (async job queue backed by Redis) |
+| Database | Postgres 16 + pgvector |
+| Cache / Queue | Redis 7 |
+| LLM | Anthropic Claude (`claude-3-5-sonnet-20241022`) |
+| Embeddings | OpenAI `text-embedding-3-small` (1536 dims) |
+| Storage | S3 (local filesystem fallback in dev) |
 
 ## Repository Structure
 
 ```
 MultiTenantSaas/
-├── .github/
-│   └── workflows/
-│       └── ci.yml              # CI/CD pipeline
-├── frontend/                   # Next.js application
-│   ├── src/
-│   ├── public/
-│   ├── package.json
-│   └── Dockerfile
-├── auth/                       # Auth service
-│   ├── src/
-│   ├── package.json
-│   └── Dockerfile
-├── agents/
-│   ├── counselor/             # LangGraph agent
-│   │   ├── main.py
-│   │   ├── requirements.txt
-│   │   └── Dockerfile
-│   ├── enrollment/            # CrewAI agent
-│   │   ├── main.py
-│   │   ├── requirements.txt
-│   │   └── Dockerfile
-│   └── support/               # Strands agent
-│       ├── main.py
-│       ├── requirements.txt
-│       └── Dockerfile
-├── auth-gateway/              # Auth Gateway proxy
-│   ├── src/                   # Node.js source files
-│   ├── package.json
-│   └── Dockerfile
-├── infrastructure/
-│   ├── terraform/             # IaaC configurations
-│   └── k8s/                   # Kubernetes manifests
-├── docs/                      # Documentation
-│   ├── architecture.md
-│   ├── api.md
-│   └── runbooks/
-├── CONTRIBUTING.md
-└── README.md
+├── apps/
+│   ├── backend/               # FastAPI app + Arq worker (one Python package)
+│   │   ├── app/
+│   │   │   ├── main.py        # FastAPI entrypoint
+│   │   │   ├── worker.py      # Arq WorkerSettings entrypoint
+│   │   │   ├── api/           # Route handlers
+│   │   │   ├── core/          # DB, auth, tenancy, RBAC
+│   │   │   ├── models/        # SQLModel table definitions
+│   │   │   ├── services/      # Business logic
+│   │   │   ├── jobs/          # Arq background jobs
+│   │   │   └── integrations/  # LLM, S3, embeddings clients
+│   │   ├── alembic/           # Database migrations
+│   │   └── pyproject.toml
+│   └── web/                   # Vite + React frontend
+│       └── src/
+│           ├── routes/        # React Router v6 pages
+│           ├── components/    # Shared UI components
+│           ├── hooks/         # TanStack Query data hooks
+│           └── lib/           # API client, SSE helpers
+├── infrastructure/            # Terraform + Kubernetes manifests
+├── docker-compose.yml
+├── Makefile
+└── .env.example
 ```
 
 ## Quick Start
 
 ### Prerequisites
-- Node.js 20+
-- Python 3.11+
+
 - Docker & Docker Compose
-- AWS CLI configured
-- Terraform 1.5+
+- Node.js 20+ (for local frontend dev)
+- Python 3.12+ and [uv](https://docs.astral.sh/uv/) (for local backend dev)
 
-### Local Development
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/categorytechus/MultiTenantSaas.git
-   cd MultiTenantSaas
-   ```
-
-2. **Start infrastructure services**
-   ```bash
-   docker-compose up -d postgres rabbitmq
-   ```
-
-3. **Run frontend**
-   ```bash
-   cd frontend
-   npm install
-   npm run dev
-   ```
-
-4. **Run agents** (in separate terminals)
-   ```bash
-   cd agents/counselor
-   python -m venv venv
-   source venv/bin/activate
-   pip install -r requirements.txt
-   uvicorn main:app --reload --port 8000
-   ```
-
-### Building Docker Images
+### Option A — Full stack with Docker (recommended)
 
 ```bash
-# Build all images
-docker-compose build
+# 1. Copy and fill in env vars (AI/S3 keys are optional — app runs with mocks)
+cp .env.example .env
 
-# Build specific service
-docker build -f frontend.Dockerfile -t multitenant-saas-frontend:latest ./frontend
+# 2. Start everything
+make dev
 ```
 
-## Development Timeline
+Services:
+- Frontend → http://localhost:3000
+- Backend API → http://localhost:8000
+- API docs → http://localhost:8000/docs
 
-- **Weeks 1-2**: Foundation & Infrastructure, Auth, Agents
-- **Weeks 3-4**: Frontend & Observability
-- **Weeks 5-6**: Security Hardening & Testing
-- **Weeks 7-8**: Optimization, Documentation & Buffer
+### Option B — Local dev (faster iteration)
 
-See detailed [Sprint Plan](./docs/sprint-plan.md) for daily tasks.
+```bash
+# Start only Postgres + Redis in Docker
+make db-up
 
-## Technology Stack
+# Install dependencies
+make install
 
-### Frontend
-- Next.js 16
-- TypeScript
-- Tailwind CSS
-- Shadcn UI
-- Prisma ORM
+# Run migrations
+make migrate
 
-### Backend
-- FastAPI (Python agents)
-- Express.js (Auth service)
-- PostgreSQL (with pgvector)
-- RabbitMQ
-- AWS Cognito
+# In separate terminals:
+make backend    # FastAPI on :8000
+make worker     # Arq job worker
+make web        # Vite on :3000
+```
 
-### AI/ML
-- LangGraph (Counselor agent)
-- CrewAI (Enrollment agent)
-- Strands (Support agent)
-- OpenAI/Anthropic APIs
+## Environment Variables
 
-### Infrastructure
-- AWS EKS
-- Terraform
-- Docker
-- Prometheus & Grafana
-- CloudWatch
+Copy `.env.example` → `.env`. AI and S3 keys are all optional — the app runs fully without them using mock responses and local file storage.
+
+| Variable | Required | Description |
+|---|---|---|
+| `DATABASE_URL` | Yes | Postgres connection string |
+| `REDIS_URL` | Yes | Redis connection string |
+| `SECRET_KEY` | Yes | JWT signing secret (`openssl rand -hex 32`) |
+| `ANTHROPIC_API_KEY` | No | Claude LLM (mock if empty) |
+| `OPENAI_API_KEY` | No | Embeddings (mock if empty) |
+| `S3_BUCKET` | No | File storage (local `/tmp/uploads` if empty) |
+
+## Key Concepts
+
+**Multi-tenancy**: Every tenant-scoped table has a Postgres RLS policy on `app.current_org_id`. The `get_db` dependency sets this from the JWT on every request — queries are automatically scoped to the caller's org.
+
+**Auth**: JWT access tokens (15 min) + opaque refresh tokens (30 days). The frontend auto-refreshes on 401.
+
+**RAG chat**: Runs in the FastAPI process. User message → embed → pgvector search → build prompt → stream Claude response via SSE.
+
+**Text-to-SQL agent**: Runs in the Arq worker as a LangGraph graph. Progress streams to the frontend via Redis Pub/Sub → SSE.
+
+**SSE auth**: `EventSource` doesn't support custom headers, so SSE endpoints accept the JWT via `?token=` query param.
+
+## Other Commands
+
+```bash
+make migrate-new msg='add column'   # Autogenerate Alembic migration
+make clean                          # Remove Docker containers + volumes
+make logs-backend                   # Tail backend logs
+make logs-worker                    # Tail Arq worker logs
+```
 
 ## Contributing
 
-Please read [CONTRIBUTING.md](./CONTRIBUTING.md) for details on our development process and how to submit pull requests.
-
-## Security
-
-- All secrets stored in AWS Secrets Manager
-- Row-Level Security (RLS) enabled on PostgreSQL
-- mTLS between services
-- Pod Security Policies enforced
-- Regular security audits
-
-## Documentation
-
-- [Architecture Documentation](./docs/architecture.md)
-- [API Documentation](./docs/api.md)
-- [Operations Runbook](./docs/runbooks/operations.md)
-- [Security Runbook](./docs/runbooks/security.md)
-
-## Team
-
-- **Developer A** (Texas, USA)
-- **Developer B** (India)
-- **Project Manager**: Gokhul (EST)
+See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## License
 
-Proprietary - All rights reserved
-
-## Support
-
-For questions or issues, contact the development team or create an issue in GitHub.
-
----
-
-Last updated: January 28, 2026
+Proprietary — All rights reserved.

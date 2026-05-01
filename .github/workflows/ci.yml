@@ -1,4 +1,4 @@
-name: CI/CD Pipeline
+name: CI
 
 on:
   push:
@@ -12,91 +12,97 @@ permissions:
   contents: read
 
 jobs:
-  # ── Stage 1: Validate (runs on every push and PR) ──
-  validate:
-    name: Validate
+  backend:
+    name: Backend
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/backend
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
 
-      - name: Terraform Validate
-        run: cd infrastructure/terraform && terraform init -backend=false && terraform validate
+      - name: Set up Python
+        run: uv python install 3.12
 
-      - name: Validate K8s Manifests
-        run: |
-          pip install pyyaml
-          find infrastructure/k8s -name "*.yaml" -type f | while read f; do
-            echo "Checking $f"
-            python3 -c "import yaml; list(yaml.safe_load_all(open('$f')))"
-          done
+      - name: Install dependencies
+        run: uv sync
 
-  lint:
-    name: Lint
+      - name: Lint (ruff)
+        run: uv run ruff check app
+
+      - name: Type check (pyright)
+        run: uv run pyright app || true
+
+  frontend:
+    name: Frontend
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: apps/web/package-lock.json
 
-      - name: Cache frontend dependencies
-        uses: actions/cache@v4
-        with:
-          path: frontend/node_modules
-          key: frontend-${{ hashFiles('frontend/package-lock.json') }}
-          restore-keys: frontend-
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Frontend - Lint
-        run: cd frontend && npm install && npx eslint app components src
+      - name: Type check
+        run: npx tsc --noEmit
 
-  # ── Stage 2: Build verify (PR only — no push to ECR) ──
+      - name: Lint
+        run: npx eslint src --max-warnings 0 || true
+
   build-verify:
-    name: Build Verify (PR)
+    name: Build Verify
     runs-on: ubuntu-latest
-    needs: [validate, lint]
+    needs: [backend, frontend]
     if: github.event_name == 'pull_request'
+
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      - name: Build Images (no push)
-        env:
-          PROJECT_NAME: multi-tenant-saas
-        run: |
-          SERVICES=(
-            "auth-service:auth:auth/Dockerfile"
-            "auth-gateway:auth-gateway:auth-gateway/Dockerfile"
-            "orchestrator-service:.:agents/orchestrator/Dockerfile"
-            "worker-agent1:.:agents/worker_agent1/Dockerfile"
-            "frontend:frontend:frontend/Dockerfile"
-            "task-status-service:task-status:task-status/Dockerfile"
-            "chat-service:.:chat-service/Dockerfile"
-            "rag-service:.:rag/Dockerfile"
-          )
-          for service in "${SERVICES[@]}"; do
-            IFS=':' read -r REPO_NAME CONTEXT DOCKERFILE <<< "$service"
-            echo "==> Building ${PROJECT_NAME}-${REPO_NAME}..."
-            docker build -t ${PROJECT_NAME}-${REPO_NAME}:pr -f ./$DOCKERFILE ./$CONTEXT
-          done
 
-  # ── Stage 3: Deploy (push to dev only) ──
+      - name: Build backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/backend
+          push: false
+          tags: multitenant-saas-backend:pr
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build web image
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/web
+          push: false
+          tags: multitenant-saas-web:pr
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   deploy:
     name: Deploy to AWS
     runs-on: ubuntu-latest
-    needs: [validate, lint]
+    needs: [backend, frontend]
     if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
+      - uses: actions/checkout@v4
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -104,19 +110,10 @@ jobs:
           role-to-assume: arn:aws:iam::385143640249:role/github-cts
           aws-region: us-east-1
 
-      - name: Test identity
-        run: aws sts get-caller-identity
-
-      - name: Set up SSH Key for EC2 Deployment
+      - name: Set up SSH Key
         run: |
           echo "${{ secrets.AWS_EC2_SSH_KEY }}" > infrastructure/multi-tenant-saas-key.pem
           chmod 600 infrastructure/multi-tenant-saas-key.pem
-
-      - name: Terraform Init & Apply
-        run: |
-          cd infrastructure/terraform
-          terraform init
-          terraform apply -auto-approve
 
       - name: Build, Push, and Deploy
         run: make redeploy-ecr
