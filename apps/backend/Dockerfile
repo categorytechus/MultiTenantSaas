@@ -24,7 +24,7 @@ RUN uv venv /opt/venv && \
         "pgvector>=0.3" \
         "pydantic-settings>=2.5" \
         "python-jose[cryptography]>=3.3" \
-        "passlib[bcrypt]>=1.7" \
+        "bcrypt>=4.0" \
         "httpx>=0.27" \
         "aiofiles>=24.1" \
         "arq>=0.26" \

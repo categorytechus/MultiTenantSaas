@@ -29,8 +29,7 @@ async def set_rls_context(session: AsyncSession, org_id: UUID | str | None) -> N
     """Set the RLS context for the current session."""
     if org_id is not None:
         await session.execute(
-            text("SET LOCAL app.current_org_id = :org_id"),
-            {"org_id": str(org_id)},
+            text(f"SET LOCAL app.current_org_id = '{org_id!s}'"),
         )
     else:
         # Set a nil UUID to prevent data leakage if org_id is accidentally unset

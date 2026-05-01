@@ -6,7 +6,7 @@ from pydantic import BaseModel, EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_db
-from app.core.security import decode_access_token, oauth2_scheme
+from app.core.security import decode_access_token, hash_password, oauth2_scheme, verify_password
 from app.core.tenancy import RequestContext, get_required_context
 from app.services.auth import (
     get_me,
@@ -124,3 +124,55 @@ async def me(
         "org_id": str(ctx.org_id) if ctx.org_id else None,
         "created_at": user.created_at.isoformat() if user.created_at else None,
     }
+
+
+class UpdateProfileRequest(BaseModel):
+    name: str
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.put("/me", response_model=UserResponse)
+async def update_profile(
+    body: UpdateProfileRequest,
+    ctx: RequestContext = Depends(get_required_context),
+    session: AsyncSession = Depends(get_db),
+) -> Any:
+    """Update the current user's display name."""
+    from app.models.user import User
+    user = await session.get(User, ctx.user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    user.name = body.name
+    session.add(user)
+    await session.flush()
+    return {
+        "id": str(user.id),
+        "email": user.email,
+        "name": user.name,
+        "role": ctx.role.value if ctx.role else None,
+        "org_id": str(ctx.org_id) if ctx.org_id else None,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+    }
+
+
+@router.post("/change-password", status_code=204)
+async def change_password(
+    body: ChangePasswordRequest,
+    ctx: RequestContext = Depends(get_required_context),
+    session: AsyncSession = Depends(get_db),
+) -> None:
+    """Change the current user's password."""
+    from app.models.user import User
+    user = await session.get(User, ctx.user_id)
+    if not user or not user.hashed_password:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot change password")
+    if not verify_password(body.current_password, user.hashed_password):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect")
+    if len(body.new_password) < 8:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="New password must be at least 8 characters")
+    user.hashed_password = hash_password(body.new_password)
+    session.add(user)

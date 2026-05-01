@@ -5,7 +5,6 @@ import type { User } from './types'
 import { ProtectedRoute, LoadingScreen } from './components/ProtectedRoute'
 import { Layout } from './components/Layout'
 
-// Pages
 import LoginPage from './routes/login'
 import SignupPage from './routes/signup'
 import DashboardPage from './routes/dashboard'
@@ -13,10 +12,12 @@ import DocumentsPage from './routes/documents'
 import ChatPage from './routes/chat'
 import AgentsPage from './routes/agents'
 import UsersPage from './routes/users'
-import AdminPage from './routes/admin'
+import CreateUserPage from './routes/users/create'
+import InviteUserPage from './routes/users/invite'
+import EditUserPage from './routes/users/edit'
+import AdminOrgsPage from './routes/admin/organizations'
 import ProfilePage from './routes/profile'
 
-// ── Auth context ──────────────────────────────────────────────────────────────
 interface AuthContextValue {
   user: User | null
   loading: boolean
@@ -37,12 +38,9 @@ export function useAuthContext() {
   return useContext(AuthContext)
 }
 
-// ── Protected page wrapper ────────────────────────────────────────────────────
 function ProtectedPage({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuthContext()
-
   if (loading) return <LoadingScreen />
-
   return (
     <ProtectedRoute>
       <Layout user={user}>{children}</Layout>
@@ -50,10 +48,8 @@ function ProtectedPage({ children }: { children: React.ReactNode }) {
   )
 }
 
-// ── App ───────────────────────────────────────────────────────────────────────
 export default function App() {
   const auth = useAuth()
-
   if (auth.loading) return <LoadingScreen />
 
   return (
@@ -68,69 +64,21 @@ export default function App() {
     >
       <BrowserRouter>
         <Routes>
-          {/* Public routes */}
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
 
-          {/* Protected routes */}
-          <Route
-            path="/dashboard"
-            element={
-              <ProtectedPage>
-                <DashboardPage />
-              </ProtectedPage>
-            }
-          />
-          <Route
-            path="/documents"
-            element={
-              <ProtectedPage>
-                <DocumentsPage />
-              </ProtectedPage>
-            }
-          />
-          <Route
-            path="/chat"
-            element={
-              <ProtectedPage>
-                <ChatPage />
-              </ProtectedPage>
-            }
-          />
-          <Route
-            path="/agents"
-            element={
-              <ProtectedPage>
-                <AgentsPage />
-              </ProtectedPage>
-            }
-          />
-          <Route
-            path="/users"
-            element={
-              <ProtectedPage>
-                <UsersPage />
-              </ProtectedPage>
-            }
-          />
-          <Route
-            path="/admin"
-            element={
-              <ProtectedPage>
-                <AdminPage />
-              </ProtectedPage>
-            }
-          />
-          <Route
-            path="/profile"
-            element={
-              <ProtectedPage>
-                <ProfilePage />
-              </ProtectedPage>
-            }
-          />
+          <Route path="/dashboard" element={<ProtectedPage><DashboardPage /></ProtectedPage>} />
+          <Route path="/documents" element={<ProtectedPage><DocumentsPage /></ProtectedPage>} />
+          <Route path="/ai_assistant" element={<ProtectedPage><ChatPage /></ProtectedPage>} />
+          <Route path="/chat" element={<Navigate to="/ai_assistant" replace />} />
+          <Route path="/agents" element={<ProtectedPage><AgentsPage /></ProtectedPage>} />
+          <Route path="/users" element={<ProtectedPage><UsersPage /></ProtectedPage>} />
+          <Route path="/users/create" element={<ProtectedPage><CreateUserPage /></ProtectedPage>} />
+          <Route path="/users/invite" element={<ProtectedPage><InviteUserPage /></ProtectedPage>} />
+          <Route path="/users/:id/edit" element={<ProtectedPage><EditUserPage /></ProtectedPage>} />
+          <Route path="/admin/organizations" element={<ProtectedPage><AdminOrgsPage /></ProtectedPage>} />
+          <Route path="/profile" element={<ProtectedPage><ProfilePage /></ProtectedPage>} />
 
-          {/* Default redirects */}
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>

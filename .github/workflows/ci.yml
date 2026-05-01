@@ -112,8 +112,9 @@ jobs:
 
       - name: Set up SSH Key
         run: |
-          echo "${{ secrets.AWS_EC2_SSH_KEY }}" > infrastructure/multi-tenant-saas-key.pem
-          chmod 600 infrastructure/multi-tenant-saas-key.pem
+          mkdir -p infra
+          echo "${{ secrets.AWS_EC2_SSH_KEY }}" > infra/multi-tenant-saas-key.pem
+          chmod 600 infra/multi-tenant-saas-key.pem
 
       - name: Build, Push, and Deploy
         run: make redeploy-ecr
