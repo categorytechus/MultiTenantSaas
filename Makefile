@@ -39,15 +39,15 @@ help:
 	@echo "  make update-kubeconfig - Fetch and update local kubeconfig with EC2 IP"
 	@echo "  make db-migrate        - Run database migrations"
 	@echo "  make db-seed           - Seed database with sample data"
-	@echo "  make deploy-ecr        - End-to-end: terraform + build + push + deploy + migrate"
-	@echo "  make redeploy-ecr      - Build + push + deploy + migrate (skip terraform)"
+	@echo "  make deploy-ecr        - End-to-end: terraform + build + push + deploy + migrate + seed"
+	@echo "  make redeploy-ecr      - Build + push + deploy + migrate + seed (skip terraform)"
 
 deploy-infra: terraform-apply docker-build docker-load k8s-deploy
 
-deploy-ecr: terraform-apply ecr-push k8s-deploy-ecr db-migrate
+deploy-ecr: terraform-apply ecr-push k8s-deploy-ecr db-migrate db-seed
 
 # Same as deploy-ecr but skips terraform (use when infra is already provisioned)
-redeploy-ecr: ecr-push k8s-deploy-ecr db-migrate
+redeploy-ecr: ecr-push k8s-deploy-ecr db-migrate db-seed
 
 terraform-init:
 	cd infrastructure/terraform && $(TERRAFORM_BIN) init
