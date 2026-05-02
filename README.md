@@ -1,127 +1,148 @@
 # MultiTenant AI SaaS
 
-A multi-tenant SaaS platform with RAG chat and text-to-SQL AI agents. Each tenant gets full data isolation via Postgres Row-Level Security.
+A multi-tenant SaaS platform with AI chat agents. Each tenant gets full data isolation via Postgres Row-Level Security.
 
 ## Stack
 
 | Layer | Tech |
 |---|---|
-| Frontend | Vite + React 18 + TypeScript + Tailwind CSS |
-| Backend | FastAPI + SQLModel + Alembic (Python 3.12+) |
-| Worker | Arq (async job queue backed by Redis) |
+| Frontend | Vite + React 18 + TypeScript |
+| Server | FastAPI + SQLModel + Alembic (Python 3.12+) |
+| Agents | Arq + LangChain + Anthropic Claude |
 | Database | Postgres 16 + pgvector |
 | Cache / Queue | Redis 7 |
-| LLM | Anthropic Claude (`claude-3-5-sonnet-20241022`) |
 | Embeddings | OpenAI `text-embedding-3-small` (1536 dims) |
 | Storage | S3 (local filesystem fallback in dev) |
+| Infra | Terraform → AWS (EC2, RDS, ElastiCache, S3, ECR) |
 
 ## Repository Structure
 
 ```
-MultiTenantSaas/
-├── apps/
-│   ├── backend/               # FastAPI app + Arq worker (one Python package)
-│   │   ├── app/
-│   │   │   ├── main.py        # FastAPI entrypoint
-│   │   │   ├── worker.py      # Arq WorkerSettings entrypoint
-│   │   │   ├── api/           # Route handlers
-│   │   │   ├── core/          # DB, auth, tenancy, RBAC
-│   │   │   ├── models/        # SQLModel table definitions
-│   │   │   ├── services/      # Business logic
-│   │   │   ├── jobs/          # Arq background jobs
-│   │   │   └── integrations/  # LLM, S3, embeddings clients
-│   │   ├── alembic/           # Database migrations
-│   │   └── pyproject.toml
-│   └── web/                   # Vite + React frontend
-│       └── src/
-│           ├── routes/        # React Router v6 pages
-│           ├── components/    # Shared UI components
-│           ├── hooks/         # TanStack Query data hooks
-│           └── lib/           # API client, SSE helpers
-├── infrastructure/            # Terraform + Kubernetes manifests
-├── docker-compose.yml
-├── Makefile
-└── .env.example
+src/
+├── server/        # FastAPI API server (pure HTTP, no background jobs)
+│   ├── app/
+│   │   ├── api/           # Route handlers (auth, chat, agents, docs, admin)
+│   │   ├── api/internal.py  # Internal endpoints called by agents service
+│   │   ├── core/          # DB, auth, tenancy, RBAC, Redis pub/sub
+│   │   ├── models/        # SQLModel table definitions
+│   │   ├── services/      # Business logic
+│   │   └── integrations/  # LLM, S3, embeddings clients
+│   └── alembic/           # Database migrations
+├── agents/        # Arq worker — ALL AI background work (no ORM, raw psycopg)
+│   └── app/
+│       ├── agents/        # LangChain agent definitions
+│       ├── jobs/          # WorkerSettings, run_chat, ingest_document
+│       ├── streaming.py   # RedisStreamer callback (tokens → pub/sub)
+│       ├── s3.py          # S3 download helper
+│       ├── embeddings.py  # OpenAI embed_batch
+│       └── http.py        # httpx calls to server internal API
+└── web/           # Vite + React 18 frontend
+    └── src/
+        ├── routes/        # React Router v6 pages
+        ├── components/    # Shared UI components
+        ├── hooks/         # TanStack Query data hooks
+        └── lib/           # API client, SSE helpers
+infra/             # Terraform (VPC, EC2, RDS, ElastiCache, S3, ECR)
+docker-compose.yml
+docker-compose.prod.yml
+Makefile
+.env.example
 ```
 
 ## Quick Start
 
-### Prerequisites
+**Prerequisites**: Docker & Docker Compose, Node.js 20+, Python 3.12+, [uv](https://docs.astral.sh/uv/)
 
-- Docker & Docker Compose
-- Node.js 20+ (for local frontend dev)
-- Python 3.12+ and [uv](https://docs.astral.sh/uv/) (for local backend dev)
-
-### Option A — Full stack with Docker (recommended)
+### Option A — Docker Compose (recommended)
 
 ```bash
-# 1. Copy and fill in env vars (AI/S3 keys are optional — app runs with mocks)
-cp .env.example .env
-
-# 2. Start everything
+cp .env.example .env       # AI/S3 keys are optional — app runs with mocks
 make dev
 ```
 
-Services:
-- Frontend → http://localhost:3000
-- Backend API → http://localhost:8000
-- API docs → http://localhost:8000/docs
+| Service | URL |
+|---|---|
+| Web | http://localhost:5173 |
+| API | http://localhost:8000 |
+| API docs | http://localhost:8000/docs |
 
 ### Option B — Local dev (faster iteration)
 
 ```bash
-# Start only Postgres + Redis in Docker
-make db-up
-
-# Install dependencies
-make install
-
-# Run migrations
-make migrate
+make db-up      # Postgres + Redis in Docker
+make install    # uv sync (server + agents) + npm install
+make migrate    # Alembic migrations
 
 # In separate terminals:
-make backend    # FastAPI on :8000
-make worker     # Arq job worker
+make server     # FastAPI on :8000
+make agents     # Arq worker — document ingest + AI chat agents
 make web        # Vite on :3000
 ```
 
 ## Environment Variables
 
-Copy `.env.example` → `.env`. AI and S3 keys are all optional — the app runs fully without them using mock responses and local file storage.
-
 | Variable | Required | Description |
 |---|---|---|
-| `DATABASE_URL` | Yes | Postgres connection string |
+| `DATABASE_URL` | Yes | Postgres async connection string |
 | `REDIS_URL` | Yes | Redis connection string |
-| `SECRET_KEY` | Yes | JWT signing secret (`openssl rand -hex 32`) |
-| `ANTHROPIC_API_KEY` | No | Claude LLM (mock if empty) |
+| `SECRET_KEY` | Yes | JWT signing secret — `openssl rand -hex 32` |
+| `SERVER_URL` | Agents only | URL agents use to call server internal API |
+| `ANTHROPIC_API_KEY` | No | Claude LLM (mock responses if empty) |
 | `OPENAI_API_KEY` | No | Embeddings (mock if empty) |
 | `S3_BUCKET` | No | File storage (local `/tmp/uploads` if empty) |
 
+## How Chat Streaming Works
+
+```
+Browser  →  GET /api/chat/sessions/{id}/stream?message=...&token=JWT
+                │
+            FastAPI (server)
+              saves user message + creates agent_task
+              enqueues run_chat job to Redis/Arq
+              subscribes to Redis pub/sub channel
+              streams SSE tokens to browser  ←──────────────────┐
+                │                                                │
+            Arq queue                                            │
+                │                                                │
+            LangChain agent (agents worker)                      │
+              ChatAnthropic streaming                            │
+              RedisStreamer.on_llm_new_token() → Redis pub/sub ──┘
+              saves assistant reply via POST /internal/chat/...
+```
+
+**SSE auth**: `EventSource` doesn't support custom headers — JWT is passed as `?token=` query param.
+
 ## Key Concepts
 
-**Multi-tenancy**: Every tenant-scoped table has a Postgres RLS policy on `app.current_org_id`. The `get_db` dependency sets this from the JWT on every request — queries are automatically scoped to the caller's org.
+**Multi-tenancy via RLS**: Every tenant table has a Postgres RLS policy on `app.current_org_id`. Set from JWT on every request; Arq jobs use `db_session(org_id)` to set it explicitly.
 
-**Auth**: JWT access tokens (15 min) + opaque refresh tokens (30 days). The frontend auto-refreshes on 401.
+**Auth**: JWT access tokens (15 min) + opaque refresh tokens (30 days, stored hashed). Frontend auto-refreshes on 401.
 
-**RAG chat**: Runs in the FastAPI process. User message → embed → pgvector search → build prompt → stream Claude response via SSE.
+**Internal API**: `/internal/*` routes let the agents service write results back to the server (save assistant message, update task status). Protected by `X-Internal-Secret` header.
 
-**Text-to-SQL agent**: Runs in the Arq worker as a LangGraph graph. Progress streams to the frontend via Redis Pub/Sub → SSE.
+**Document ingestion**: `POST /api/documents` → S3 upload → `ingest_document` Arq job (agents worker) → extract text (pypdf/python-docx) → chunk → embed (OpenAI) → store in `document_chunks` with pgvector → status `ready`.
 
-**SSE auth**: `EventSource` doesn't support custom headers, so SSE endpoints accept the JWT via `?token=` query param.
-
-## Other Commands
+## Common Commands
 
 ```bash
 make migrate-new msg='add column'   # Autogenerate Alembic migration
 make clean                          # Remove Docker containers + volumes
-make logs-backend                   # Tail backend logs
-make logs-worker                    # Tail Arq worker logs
+make logs-server                    # Tail server logs
+make logs-agents                    # Tail agents worker logs
+make redeploy-ecr                   # Build + push to ECR, deploy to EC2
 ```
 
-## Contributing
+## Infrastructure
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md).
+Terraform in `infra/` provisions the full AWS stack:
+
+```bash
+cp infra/terraform.tfvars.example infra/terraform.tfvars
+# set db_password and allowed_ssh_cidrs
+terraform -chdir=infra init && terraform -chdir=infra apply
+```
+
+CI deploys automatically to EC2 on push to `dev` via GitHub Actions + OIDC (no stored AWS keys).
 
 ## License
 

@@ -14,8 +14,13 @@ output "ssh_command" {
 }
 
 output "ecr_backend_url" {
-  description = "ECR URL for the backend image"
+  description = "ECR URL for the server image"
   value       = aws_ecr_repository.backend.repository_url
+}
+
+output "ecr_agents_url" {
+  description = "ECR URL for the agents image"
+  value       = aws_ecr_repository.agents.repository_url
 }
 
 output "ecr_web_url" {

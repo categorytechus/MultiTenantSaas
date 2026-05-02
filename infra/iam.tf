@@ -110,6 +110,7 @@ data "aws_iam_policy_document" "github_permissions" {
     ]
     resources = [
       aws_ecr_repository.backend.arn,
+      aws_ecr_repository.agents.arn,
       aws_ecr_repository.web.arn,
     ]
   }

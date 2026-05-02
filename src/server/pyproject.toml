@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "app"
+version = "0.1.0"
+description = "Multi-Tenant AI SaaS Server"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sqlmodel>=0.0.21",
+    "alembic>=1.13",
+    "psycopg[async]>=3.2",
+    "pgvector>=0.3",
+    "pydantic-settings>=2.5",
+    "python-jose[cryptography]>=3.3",
+    "bcrypt>=4.0",
+    "httpx>=0.27",
+    "aiofiles>=24.1",
+    "arq>=0.26",
+    "redis[hiredis]>=5.0",
+    "structlog>=24.4",
+    "anthropic>=0.40",
+    "python-multipart>=0.0.12",
+    "authlib>=1.3",
+]
+
+[project.scripts]
+server = "app.main:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
