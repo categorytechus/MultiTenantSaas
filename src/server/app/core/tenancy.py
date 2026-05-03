@@ -46,11 +46,9 @@ async def get_request_context(
     request: Request,
     token: str | None = Depends(optional_oauth2_scheme),
 ) -> RequestContext:
-    """
-    Build a RequestContext from the current request.
-    - Resolves tenant from Host header subdomain OR JWT org_id
-    - For localhost, skip subdomain resolution and trust JWT
-    """
+    # SSE endpoints send the JWT via ?token= (EventSource can't set headers)
+    if not token:
+        token = request.query_params.get("token") or None
     request_id = str(uuid.uuid4())
     ctx = RequestContext(request_id=request_id)
 

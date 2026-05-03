@@ -39,6 +39,6 @@ class DocumentChunk(SQLModel, table=True):
     content: str = Field(sa_column=Column(sa.Text, nullable=False))
     embedding: Optional[list[float]] = Field(
         default=None,
-        sa_column=Column(Vector(1536), nullable=True),
+        sa_column=Column(Vector(384), nullable=True),
     )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

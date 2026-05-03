@@ -1,14 +1,16 @@
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db import get_db
+from app.core.db import db_session, get_db
+from app.core.logging import get_logger
 from app.core.rbac import authorize
 from app.core.tenancy import RequestContext
 from app.integrations.s3 import delete as s3_delete, make_s3_key, presigned_get, upload
+from app.models.document import Document, DocumentChunk, DocumentStatus
 from app.services.audit import log_action
 from app.services.documents import (
     create_document,
@@ -16,8 +18,11 @@ from app.services.documents import (
     get_document,
     list_documents,
 )
+from app.services.ingestion import chunk_text, parse_document
+from app.integrations.embeddings import embed_batch
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
+logger = get_logger(__name__)
 
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 
@@ -46,28 +51,81 @@ def _doc_to_response(doc, download_url: str | None = None) -> dict:
     }
 
 
+async def _ingest_document_bg(
+    document_id: UUID,
+    org_id: UUID,
+    body: bytes,
+    mime_type: str | None,
+) -> None:
+    """
+    Background ingestion: parse → chunk → embed → insert chunks → mark ready.
+    Runs after the upload transaction has committed, so all DB writes are fresh sessions.
+    """
+    from sqlalchemy import text as sa_text
+
+    async def _set_status(s: str) -> None:
+        try:
+            async with db_session(org_id) as sess:
+                await sess.execute(
+                    sa_text("UPDATE documents SET status = :s WHERE id = CAST(:id AS uuid)"),
+                    {"s": s, "id": str(document_id)},
+                )
+        except Exception:
+            pass
+
+    try:
+        text = parse_document(body, mime_type)
+        if not text.strip():
+            logger.warning("Document produced no text", doc_id=str(document_id))
+            await _set_status(DocumentStatus.FAILED.value)
+            return
+
+        chunks = chunk_text(text)
+        logger.info("Chunked document for ingestion", doc_id=str(document_id), chunk_count=len(chunks))
+
+        embeddings = await embed_batch(chunks)
+
+        async with db_session(org_id) as sess:
+            for i, (content, embedding) in enumerate(zip(chunks, embeddings)):
+                sess.add(DocumentChunk(
+                    org_id=org_id,
+                    document_id=document_id,
+                    chunk_index=i,
+                    content=content,
+                    embedding=embedding,
+                ))
+            await sess.flush()
+            await sess.execute(
+                sa_text("UPDATE documents SET status = :s WHERE id = CAST(:id AS uuid)"),
+                {"s": DocumentStatus.READY.value, "id": str(document_id)},
+            )
+
+        logger.info("Ingestion complete", doc_id=str(document_id), chunks=len(chunks))
+
+    except Exception as e:
+        logger.error("Background ingestion failed", doc_id=str(document_id), error=str(e))
+        await _set_status(DocumentStatus.FAILED.value)
+
+
 @router.get("/", response_model=list[DocumentResponse])
 async def list_docs(
     ctx: RequestContext = authorize("documents:read"),
     session: AsyncSession = Depends(get_db),
 ) -> Any:
-    """List documents for the current org."""
     docs = await list_documents(session, ctx.org_id)
     return [_doc_to_response(d) for d in docs]
 
 
 @router.post("/", status_code=202)
 async def upload_document(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     ctx: RequestContext = authorize("documents:upload"),
-    session: AsyncSession = Depends(get_db),
 ) -> Any:
     """
-    Upload a document (<50MB).
-    Streams through FastAPI, uploads to S3/local, enqueues ingestion job.
-    Returns 202 Accepted.
+    Upload a document (<50MB). Commits the document record first, then runs
+    ingestion as a background task so the FK constraint is satisfied.
     """
-    # Read file body
     body = await file.read()
 
     if len(body) > MAX_FILE_SIZE:
@@ -79,55 +137,33 @@ async def upload_document(
     filename = file.filename or "upload"
     mime_type = file.content_type
     size_bytes = len(body)
-
-    # Determine file extension
     ext = filename.rsplit(".", 1)[-1] if "." in filename else "bin"
 
-    # Create document record first to get the ID
-    doc = await create_document(
-        session,
-        org_id=ctx.org_id,
-        user_id=ctx.user_id,
-        filename=filename,
-        s3_key="",  # Will be set after we have doc.id
-        mime_type=mime_type,
-        size_bytes=size_bytes,
-    )
-
-    # Build S3 key
-    s3_key = make_s3_key(str(ctx.org_id), str(doc.id), ext)
-    doc.s3_key = s3_key
-    session.add(doc)
-    await session.flush()
-
-    # Upload to S3 or local
-    await upload(
-        s3_key,
-        body,
-        tags={"org_id": str(ctx.org_id), "document_id": str(doc.id)},
-    )
-
-    # Enqueue ingestion job
-    from arq.connections import create_pool, RedisSettings
-    from app.core.config import settings as app_settings
-
-    try:
-        redis_conn = await create_pool(RedisSettings.from_dsn(app_settings.REDIS_URL))
-        await redis_conn.enqueue_job(
-            "ingest_document",
-            document_id=str(doc.id),
-            org_id=str(ctx.org_id),
+    # Commit document record in its own transaction so background task sees it
+    async with db_session(ctx.org_id) as session:
+        doc = await create_document(
+            session,
+            org_id=ctx.org_id,
+            user_id=ctx.user_id,
+            filename=filename,
+            s3_key="",
+            mime_type=mime_type,
+            size_bytes=size_bytes,
         )
-        await redis_conn.aclose()
-    except Exception as e:
-        # Don't fail the upload if we can't enqueue — log and continue
-        from app.core.logging import get_logger
-        logger = get_logger(__name__)
-        logger.error("Failed to enqueue ingest job", doc_id=str(doc.id), error=str(e))
+        s3_key = make_s3_key(str(ctx.org_id), str(doc.id), ext)
+        doc.s3_key = s3_key
+        session.add(doc)
+        await session.flush()
+        doc_id = doc.id
+        doc_snapshot = _doc_to_response(doc)
+        await log_action(session, ctx, "document.upload", "document", str(doc_id), {"filename": filename})
+    # Transaction committed here — document is now visible to other sessions
 
-    await log_action(session, ctx, "document.upload", "document", str(doc.id), {"filename": filename})
+    await upload(s3_key, body, tags={"org_id": str(ctx.org_id), "document_id": str(doc_id)})
 
-    return {"task_id": None, "document": _doc_to_response(doc)}
+    background_tasks.add_task(_ingest_document_bg, doc_id, ctx.org_id, body, mime_type)
+
+    return {"task_id": None, "document": doc_snapshot}
 
 
 @router.get("/{doc_id}", response_model=DocumentResponse)
@@ -136,7 +172,6 @@ async def get_doc(
     ctx: RequestContext = authorize("documents:read"),
     session: AsyncSession = Depends(get_db),
 ) -> Any:
-    """Get document details with a presigned download URL."""
     doc = await get_document(session, doc_id)
     download_url = await presigned_get(doc.s3_key) if doc.s3_key else None
     return _doc_to_response(doc, download_url)
@@ -148,12 +183,10 @@ async def delete_doc(
     ctx: RequestContext = authorize("documents:delete"),
     session: AsyncSession = Depends(get_db),
 ) -> None:
-    """Delete a document and its S3 object."""
     doc = await delete_document(session, doc_id)
     if doc.s3_key:
         try:
             await s3_delete(doc.s3_key)
         except Exception as e:
-            from app.core.logging import get_logger
-            get_logger(__name__).warning("Failed to delete S3 object", key=doc.s3_key, error=str(e))
+            logger.warning("Failed to delete S3 object", key=doc.s3_key, error=str(e))
     await log_action(session, ctx, "document.delete", "document", str(doc_id))

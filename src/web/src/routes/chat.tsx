@@ -1,10 +1,31 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
-import { Send, MessageSquare, Trash2, Wifi, WifiOff, Zap } from 'lucide-react'
-import { useChat } from '../hooks/useChat'
-import { ChatMessage } from '../types'
-import { Button } from '../components/ui/Button'
+import {
+  Send, MessageSquare, Plus, Edit2, Share2, Trash2,
+  Check, X, MoreHorizontal, Zap,
+} from 'lucide-react'
+import type { ChatMessage, ChatSession } from '../types'
+import { api } from '../lib/api'
+import { createSSE } from '../lib/sse'
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function uid() { return Math.random().toString(36).slice(2) }
+
+function generateTitle(msg: string): string {
+  const clean = msg.trim().replace(/\s+/g, ' ')
+  return clean.length > 50 ? clean.slice(0, 50) + '…' : clean
+}
+
+function timeAgo(iso: string): string {
+  const d = Date.now() - new Date(iso).getTime()
+  if (d < 60_000) return 'just now'
+  if (d < 3_600_000) return `${Math.floor(d / 60_000)}m ago`
+  if (d < 86_400_000) return `${Math.floor(d / 3_600_000)}h ago`
+  return `${Math.floor(d / 86_400_000)}d ago`
+}
 
 // ── Thinking animation ────────────────────────────────────────────────────────
+
 function ThinkingDots() {
   return (
     <span style={{ display: 'inline-flex', gap: 3, alignItems: 'center', padding: '2px 0' }}>
@@ -15,415 +36,563 @@ function ThinkingDots() {
   )
 }
 
-// ── Single chat bubble ────────────────────────────────────────────────────────
+// ── Chat bubble ───────────────────────────────────────────────────────────────
+
 function ChatBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === 'user'
-
   return (
-    <div
-      style={{
-        display: 'flex',
-        justifyContent: isUser ? 'flex-end' : 'flex-start',
-        marginBottom: 14,
-      }}
-    >
-      {/* Assistant avatar */}
+    <div style={{ display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start', marginBottom: 14 }}>
       {!isUser && (
-        <div
-          style={{
-            width: 28,
-            height: 28,
-            borderRadius: '50%',
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            marginRight: 8,
-            flexShrink: 0,
-            marginTop: 2,
-          }}
-        >
+        <div style={{
+          width: 28, height: 28, borderRadius: '50%',
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          marginRight: 8, flexShrink: 0, marginTop: 2,
+        }}>
           <MessageSquare size={13} style={{ color: 'white' }} />
         </div>
       )}
-
-      <div
-        style={{
-          maxWidth: '70%',
-          minWidth: 48,
-        }}
-      >
-        <div
-          style={{
-            padding: '10px 14px',
-            borderRadius: isUser ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
-            backgroundColor: isUser ? '#f4f4f5' : '#1a1a1a',
-            color: isUser ? '#1a1a1a' : '#ffffff',
-            fontSize: 13.5,
-            lineHeight: 1.6,
-            wordBreak: 'break-word',
-            whiteSpace: 'pre-wrap',
-          }}
-        >
-          {message.streaming && !message.content ? (
-            <ThinkingDots />
-          ) : (
-            <>
-              {message.content}
-              {message.streaming && <span style={{ opacity: 0.5, marginLeft: 2 }}>▋</span>}
-            </>
-          )}
+      <div style={{ maxWidth: '70%', minWidth: 48 }}>
+        <div style={{
+          padding: '10px 14px',
+          borderRadius: isUser ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
+          backgroundColor: isUser ? '#f4f4f5' : '#1a1a1a',
+          color: isUser ? '#1a1a1a' : '#fff',
+          fontSize: 13.5, lineHeight: 1.6, wordBreak: 'break-word', whiteSpace: 'pre-wrap',
+        }}>
+          {message.streaming && !message.content
+            ? <ThinkingDots />
+            : <>{message.content}{message.streaming && <span style={{ opacity: 0.5, marginLeft: 2 }}>▋</span>}</>
+          }
         </div>
-        <div
-          style={{
-            fontSize: 10.5,
-            color: '#bbb',
-            marginTop: 4,
-            textAlign: isUser ? 'right' : 'left',
-            paddingLeft: isUser ? 0 : 4,
-            paddingRight: isUser ? 4 : 0,
-          }}
-        >
+        <div style={{
+          fontSize: 10.5, color: '#bbb', marginTop: 4,
+          textAlign: isUser ? 'right' : 'left',
+          paddingLeft: isUser ? 0 : 4, paddingRight: isUser ? 4 : 0,
+        }}>
           {new Date(message.timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
         </div>
       </div>
-
-      {/* User avatar */}
       {isUser && (
-        <div
-          style={{
-            width: 28,
-            height: 28,
-            borderRadius: '50%',
-            backgroundColor: '#1a1a1a',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            marginLeft: 8,
-            flexShrink: 0,
-            marginTop: 2,
-            color: 'white',
-            fontSize: 11,
-            fontWeight: 600,
-          }}
-        >
-          U
+        <div style={{
+          width: 28, height: 28, borderRadius: '50%', backgroundColor: '#1a1a1a',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          marginLeft: 8, flexShrink: 0, marginTop: 2, color: 'white', fontSize: 11, fontWeight: 600,
+        }}>U</div>
+      )}
+    </div>
+  )
+}
+
+// ── Session library item ──────────────────────────────────────────────────────
+
+interface SessionItemProps {
+  session: ChatSession
+  isActive: boolean
+  disabled: boolean
+  onSelect: () => void
+  onRename: (title: string) => void
+  onShare: () => void
+  onDelete: () => void
+}
+
+function SessionItem({ session, isActive, disabled, onSelect, onRename, onShare, onDelete }: SessionItemProps) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(session.title || 'New Chat')
+  const menuRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // Keep draft in sync when title updates externally
+  useEffect(() => {
+    if (!editing) setDraft(session.title || 'New Chat')
+  }, [session.title, editing])
+
+  // Close menu on outside click
+  useEffect(() => {
+    if (!menuOpen) return
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [menuOpen])
+
+  // Focus + select-all when edit starts
+  useEffect(() => {
+    if (editing) setTimeout(() => inputRef.current?.select(), 10)
+  }, [editing])
+
+  const confirmRename = () => {
+    const t = draft.trim()
+    if (t && t !== (session.title || 'New Chat')) onRename(t)
+    setEditing(false)
+  }
+
+  const cancelRename = () => {
+    setDraft(session.title || 'New Chat')
+    setEditing(false)
+  }
+
+  return (
+    <div
+      onClick={() => !editing && !disabled && onSelect()}
+      onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLDivElement).style.backgroundColor = '#f0f0f0' }}
+      onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLDivElement).style.backgroundColor = 'transparent' }}
+      style={{
+        padding: '9px 10px',
+        borderRadius: 7,
+        backgroundColor: isActive ? '#ede9fe' : 'transparent',
+        border: `1px solid ${isActive ? '#c4b5fd' : 'transparent'}`,
+        cursor: editing || disabled ? 'default' : 'pointer',
+        marginBottom: 2,
+        transition: 'background-color 0.1s',
+        position: 'relative',
+      }}
+    >
+      {editing ? (
+        /* ── Inline title editor ── */
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }} onClick={e => e.stopPropagation()}>
+          <input
+            ref={inputRef}
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') confirmRename(); if (e.key === 'Escape') cancelRename() }}
+            onBlur={confirmRename}
+            style={{
+              flex: 1, border: '1px solid #c4b5fd', borderRadius: 4,
+              padding: '2px 6px', fontSize: 12.5, outline: 'none',
+              fontFamily: "'DM Sans', sans-serif", backgroundColor: 'white',
+            }}
+          />
+          <button onClick={confirmRename} style={iconBtn('#16a34a')}><Check size={12} /></button>
+          <button onClick={cancelRename} style={iconBtn('#999')}><X size={12} /></button>
+        </div>
+      ) : (
+        /* ── Session row ── */
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{
+              fontSize: 12.5, fontWeight: isActive ? 500 : 400, color: '#1a1a1a',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.4,
+            }}>
+              {session.title || 'New Chat'}
+            </div>
+            <div style={{ fontSize: 10.5, color: '#aaa', marginTop: 1 }}>
+              {timeAgo(session.created_at)}
+            </div>
+          </div>
+
+          {/* ── Context menu ── */}
+          <div ref={menuRef} style={{ position: 'relative', flexShrink: 0 }}>
+            <button
+              onClick={e => { e.stopPropagation(); setMenuOpen(v => !v) }}
+              style={iconBtn('#bbb')}
+              title="Options"
+            >
+              <MoreHorizontal size={13} />
+            </button>
+
+            {menuOpen && (
+              <div style={{
+                position: 'absolute', right: 0, top: '100%', marginTop: 4,
+                backgroundColor: 'white', border: '1px solid #ebebeb',
+                borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.1)',
+                zIndex: 200, width: 140, overflow: 'hidden',
+              }}>
+                <button
+                  onClick={e => { e.stopPropagation(); setMenuOpen(false); setEditing(true) }}
+                  style={dropItem()}
+                >
+                  <Edit2 size={12} /><span>Rename</span>
+                </button>
+                <button
+                  onClick={e => { e.stopPropagation(); setMenuOpen(false); onShare() }}
+                  style={dropItem()}
+                >
+                  <Share2 size={12} /><span>Share link</span>
+                </button>
+                <button
+                  onClick={e => { e.stopPropagation(); setMenuOpen(false); onDelete() }}
+                  style={dropItem('#e53e3e')}
+                >
+                  <Trash2 size={12} /><span>Delete</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
   )
 }
 
-// ── Quick action buttons ──────────────────────────────────────────────────────
-const QUICK_ACTIONS = [
-  { label: 'Recent documents', icon: '📄' },
-  { label: 'Summarize features', icon: '✨' },
-  { label: 'Get help', icon: '❓' },
-]
+const iconBtn = (color: string): React.CSSProperties => ({
+  border: 'none', background: 'none', cursor: 'pointer', color,
+  padding: '2px 3px', borderRadius: 4, display: 'flex', alignItems: 'center',
+})
 
-// ── Main chat page ────────────────────────────────────────────────────────────
+const dropItem = (color = '#333'): React.CSSProperties => ({
+  display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+  padding: '8px 12px', border: 'none', background: 'none',
+  cursor: 'pointer', fontSize: 12.5, color, textAlign: 'left',
+  fontFamily: "'DM Sans', sans-serif",
+})
+
+// ── API message shape ─────────────────────────────────────────────────────────
+
+interface ApiMsg { id: string; role: string; content: string; created_at: string }
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+
 export default function ChatPage() {
-  const { messages, streaming, connected, error, sendMessage, clearMessages } = useChat()
+  const [sessions, setSessions] = useState<ChatSession[]>([])
+  const [loadingSessions, setLoadingSessions] = useState(true)
+  const [activeId, setActiveId] = useState<string | null>(null)
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [loadingMsgs, setLoadingMsgs] = useState(false)
+  const [streaming, setStreaming] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [input, setInput] = useState('')
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [shareToast, setShareToast] = useState(false)
 
-  // Auto-scroll to bottom when messages change
+  const endRef = useRef<HTMLDivElement>(null)
+  const taRef = useRef<HTMLTextAreaElement>(null)
+  const cleanupRef = useRef<(() => void) | null>(null)
+
+  // ── Load sessions on mount ──────────────────────────────────────────────────
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    api.get<ChatSession[]>('/chat/sessions').then(({ data }) => {
+      if (data) {
+        setSessions(data)
+        if (data.length > 0) setActiveId(data[0].id)
+      }
+      setLoadingSessions(false)
+    })
+  }, [])
+
+  // ── Load messages when active session changes ───────────────────────────────
+  useEffect(() => {
+    if (!activeId) { setMessages([]); return }
+    setLoadingMsgs(true)
+    api.get<ApiMsg[]>(`/chat/sessions/${activeId}/messages`).then(({ data }) => {
+      if (data) {
+        setMessages(data.map(m => ({
+          id: m.id,
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+          timestamp: m.created_at,
+        })))
+      }
+      setLoadingMsgs(false)
+    })
+  }, [activeId])
+
+  // ── Auto-scroll ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Auto-resize textarea
-  const adjustTextarea = () => {
-    const ta = textareaRef.current
-    if (!ta) return
-    ta.style.height = 'auto'
-    ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`
-  }
+  // ── Actions ─────────────────────────────────────────────────────────────────
+
+  const startNewChat = useCallback(() => {
+    cleanupRef.current?.(); cleanupRef.current = null
+    setActiveId(null)
+    setMessages([])
+    setStreaming(false)
+    setError(null)
+    setInput('')
+    if (taRef.current) taRef.current.style.height = 'auto'
+  }, [])
+
+  const selectSession = useCallback((id: string) => {
+    if (streaming || id === activeId) return
+    cleanupRef.current?.(); cleanupRef.current = null
+    setActiveId(id)
+    setStreaming(false)
+    setError(null)
+  }, [streaming, activeId])
 
   const handleSend = useCallback(async () => {
     const text = input.trim()
     if (!text || streaming) return
     setInput('')
-    if (textareaRef.current) textareaRef.current.style.height = 'auto'
-    await sendMessage(text)
-  }, [input, streaming, sendMessage])
+    if (taRef.current) taRef.current.style.height = 'auto'
+    setError(null)
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
+    // Lazy session creation: title = first 50 chars of message (dummy AI title)
+    let sid = activeId
+    if (!sid) {
+      const { data, error: err } = await api.post<ChatSession>('/chat/sessions', {
+        title: generateTitle(text),
+      })
+      if (err || !data) { setError(err ?? 'Failed to start chat'); return }
+      sid = data.id
+      setActiveId(data.id)
+      setSessions(prev => [data, ...prev])
     }
-  }
 
-  const handleQuickAction = (label: string) => {
-    setInput(label)
-    textareaRef.current?.focus()
-  }
+    const userMsgId = uid()
+    const asstMsgId = uid()
+    setMessages(prev => [
+      ...prev,
+      { id: userMsgId, role: 'user' as const, content: text, timestamp: new Date().toISOString() },
+      { id: asstMsgId, role: 'assistant' as const, content: '', timestamp: new Date().toISOString(), streaming: true },
+    ])
+    setStreaming(true)
+
+    cleanupRef.current = createSSE(
+      `/api/chat/sessions/${sid}/stream?message=${encodeURIComponent(text)}`,
+      {
+        onToken: t => setMessages(prev => prev.map(m =>
+          m.id === asstMsgId ? { ...m, content: m.content + t } : m)),
+        onDone: () => {
+          setMessages(prev => prev.map(m =>
+            m.id === asstMsgId ? { ...m, streaming: false } : m))
+          setStreaming(false)
+          cleanupRef.current = null
+        },
+        onError: () => {
+          setMessages(prev => prev.map(m =>
+            m.id === asstMsgId
+              ? { ...m, content: m.content || 'Sorry, an error occurred. Please try again.', streaming: false }
+              : m))
+          setStreaming(false)
+          setError('Connection error. Please try again.')
+          cleanupRef.current = null
+        },
+      },
+    )
+  }, [input, streaming, activeId])
+
+  const handleRename = useCallback(async (sessionId: string, title: string) => {
+    const { error: err } = await api.patch(`/chat/sessions/${sessionId}`, { title })
+    if (!err) setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, title } : s))
+  }, [])
+
+  const handleShare = useCallback((sessionId: string) => {
+    const url = `${window.location.origin}/ai_assistant?session=${sessionId}`
+    navigator.clipboard.writeText(url).catch(() => {})
+    setShareToast(true)
+    setTimeout(() => setShareToast(false), 2500)
+  }, [])
+
+  const handleDelete = useCallback(async (sessionId: string) => {
+    const { error: err } = await api.delete<null>(`/chat/sessions/${sessionId}`)
+    if (!err) {
+      setSessions(prev => prev.filter(s => s.id !== sessionId))
+      if (activeId === sessionId) startNewChat()
+    }
+  }, [activeId, startNewChat])
+
+  const activeSession = sessions.find(s => s.id === activeId) ?? null
+
+  // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        height: '100%',
-        fontFamily: "'DM Sans', sans-serif",
-        backgroundColor: '#fff',
-      }}
-    >
-      {/* Chat header */}
-      <div
-        style={{
-          padding: '16px 24px',
-          borderBottom: '1px solid #f0f0f0',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexShrink: 0,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div
+    <div style={{ display: 'flex', height: '100%', fontFamily: "'DM Sans', sans-serif", backgroundColor: '#fff' }}>
+
+      {/* ═══════════════════ Library panel ═══════════════════ */}
+      <div style={{
+        width: 252, flexShrink: 0, display: 'flex', flexDirection: 'column',
+        height: '100%', borderRight: '1px solid #f0f0f0', backgroundColor: '#fafafa',
+      }}>
+        {/* Header */}
+        <div style={{ padding: '14px 12px 10px', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
+          <div style={{
+            fontSize: 10.5, fontWeight: 700, color: '#aaa',
+            textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10,
+          }}>
+            Chat History
+          </div>
+          <button
+            onClick={startNewChat}
+            onMouseEnter={e => {
+              const b = e.currentTarget as HTMLButtonElement
+              b.style.borderColor = '#7c3aed'; b.style.color = '#7c3aed'
+            }}
+            onMouseLeave={e => {
+              const b = e.currentTarget as HTMLButtonElement
+              b.style.borderColor = '#ddd'; b.style.color = '#666'
+            }}
             style={{
-              width: 32,
-              height: 32,
-              borderRadius: 8,
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
+              width: '100%', padding: '7px 10px', borderRadius: 7,
+              border: '1.5px dashed #ddd', backgroundColor: 'transparent',
+              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7,
+              fontSize: 12.5, color: '#666', fontFamily: "'DM Sans', sans-serif",
+              transition: 'border-color 0.12s, color 0.12s',
             }}
           >
-            <MessageSquare size={15} style={{ color: 'white' }} />
-          </div>
-          <div>
-            <h1 style={{ fontSize: 14, fontWeight: 600, color: '#1a1a1a' }}>AI Assistant</h1>
-            <p style={{ fontSize: 11.5, color: '#aaa' }}>Ask anything about your documents</p>
-          </div>
+            <Plus size={13} style={{ flexShrink: 0 }} />
+            New Chat
+          </button>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {/* Connection indicator */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            {connected ? (
-              <>
-                <Wifi size={13} style={{ color: '#16a34a' }} />
-                <span style={{ fontSize: 11.5, color: '#16a34a' }}>Connected</span>
-              </>
-            ) : (
-              <>
-                <WifiOff size={13} style={{ color: '#aaa' }} />
-                <span style={{ fontSize: 11.5, color: '#aaa' }}>Not connected</span>
-              </>
-            )}
-          </div>
-
-          {messages.length > 0 && (
-            <button
-              onClick={clearMessages}
-              title="Clear conversation"
-              style={{
-                padding: '5px 8px',
-                border: '1px solid #e5e5e5',
-                borderRadius: 6,
-                backgroundColor: 'white',
-                cursor: 'pointer',
-                color: '#888',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-                fontSize: 12,
-                fontFamily: "'DM Sans', sans-serif",
-              }}
-            >
-              <Trash2 size={12} />
-              Clear
-            </button>
+        {/* Session list */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '6px 8px' }}>
+          {loadingSessions ? (
+            <div style={{ textAlign: 'center', paddingTop: 24 }}>
+              <span style={{
+                width: 16, height: 16, borderRadius: '50%',
+                border: '2px solid #eee', borderTopColor: '#7c3aed',
+                display: 'inline-block', animation: 'spin 0.7s linear infinite',
+              }} />
+            </div>
+          ) : sessions.length === 0 ? (
+            <div style={{ textAlign: 'center', color: '#ccc', fontSize: 12.5, paddingTop: 24 }}>
+              No chats yet
+            </div>
+          ) : (
+            sessions.map(s => (
+              <SessionItem
+                key={s.id}
+                session={s}
+                isActive={s.id === activeId}
+                disabled={streaming}
+                onSelect={() => selectSession(s.id)}
+                onRename={title => handleRename(s.id, title)}
+                onShare={() => handleShare(s.id)}
+                onDelete={() => handleDelete(s.id)}
+              />
+            ))
           )}
         </div>
       </div>
 
-      {/* Messages area */}
-      <div
-        style={{
-          flex: 1,
-          overflowY: 'auto',
-          padding: '20px 24px',
-        }}
-      >
-        {messages.length === 0 ? (
-          // Empty state
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              height: '100%',
-              gap: 12,
-            }}
-          >
-            <div
-              style={{
-                width: 56,
-                height: 56,
-                borderRadius: 14,
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginBottom: 4,
-              }}
-            >
-              <Zap size={24} style={{ color: 'white' }} />
-            </div>
-            <h2 style={{ fontSize: 16, fontWeight: 600, color: '#1a1a1a' }}>
-              How can I help you today?
-            </h2>
-            <p style={{ fontSize: 13, color: '#888', textAlign: 'center', maxWidth: 360 }}>
-              Ask me anything about your documents. I'll search through your knowledge base and provide accurate answers.
-            </p>
+      {/* ═══════════════════ Chat panel ═══════════════════════ */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
 
-            {/* Quick actions */}
-            <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
-              {QUICK_ACTIONS.map((qa) => (
-                <button
-                  key={qa.label}
-                  onClick={() => handleQuickAction(qa.label)}
-                  style={{
-                    padding: '8px 14px',
-                    border: '1px solid #e5e5e5',
-                    borderRadius: 20,
-                    backgroundColor: 'white',
-                    cursor: 'pointer',
-                    fontSize: 12.5,
-                    color: '#555',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    fontFamily: "'DM Sans', sans-serif",
-                    transition: 'background-color 0.12s',
-                  }}
-                  onMouseEnter={(e) => { ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = '#f5f5f5' }}
-                  onMouseLeave={(e) => { ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'white' }}
-                >
-                  <span>{qa.icon}</span>
-                  {qa.label}
-                </button>
-              ))}
+        {/* Header */}
+        <div style={{
+          padding: '12px 22px', borderBottom: '1px solid #f0f0f0',
+          display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
+        }}>
+          <div style={{
+            width: 30, height: 30, borderRadius: 8,
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          }}>
+            <MessageSquare size={14} style={{ color: 'white' }} />
+          </div>
+          <div>
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: '#1a1a1a' }}>
+              {activeSession?.title ?? (activeId ? '…' : 'AI Assistant')}
+            </div>
+            <div style={{ fontSize: 11, color: '#aaa' }}>
+              {activeSession
+                ? `Started ${timeAgo(activeSession.created_at)}`
+                : 'Start a new conversation below'}
             </div>
           </div>
-        ) : (
-          <>
-            {messages.map((msg) => (
-              <ChatBubble key={msg.id} message={msg} />
-            ))}
-            <div ref={messagesEndRef} />
-          </>
+        </div>
+
+        {/* Messages */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
+          {loadingMsgs ? (
+            <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 40 }}>
+              <span style={{
+                width: 18, height: 18, borderRadius: '50%',
+                border: '2px solid #eee', borderTopColor: '#7c3aed',
+                display: 'inline-block', animation: 'spin 0.7s linear infinite',
+              }} />
+            </div>
+          ) : messages.length === 0 ? (
+            <div style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center',
+              justifyContent: 'center', height: '100%', gap: 10,
+            }}>
+              <div style={{
+                width: 48, height: 48, borderRadius: 14,
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <Zap size={20} style={{ color: 'white' }} />
+              </div>
+              <p style={{ fontSize: 15, fontWeight: 600, color: '#1a1a1a', margin: 0 }}>
+                How can I help you?
+              </p>
+              <p style={{ fontSize: 13, color: '#888', textAlign: 'center', maxWidth: 340, margin: 0 }}>
+                Ask anything about your documents. I'll search your knowledge base and answer accurately.
+              </p>
+            </div>
+          ) : (
+            <>
+              {messages.map(m => <ChatBubble key={m.id} message={m} />)}
+              <div ref={endRef} />
+            </>
+          )}
+        </div>
+
+        {/* Error bar */}
+        {error && (
+          <div style={{
+            margin: '0 24px 10px', padding: '7px 12px',
+            backgroundColor: '#fff5f5', border: '1px solid #fed7d7',
+            borderRadius: 7, fontSize: 12.5, color: '#e53e3e', flexShrink: 0,
+          }}>
+            {error}
+          </div>
         )}
+
+        {/* Input */}
+        <div style={{ padding: '12px 22px 18px', borderTop: '1px solid #f0f0f0', flexShrink: 0 }}>
+          <div style={{
+            display: 'flex', gap: 9, alignItems: 'flex-end',
+            backgroundColor: '#fafafa', border: '1px solid #e5e5e5',
+            borderRadius: 12, padding: '9px 11px',
+          }}>
+            <textarea
+              ref={taRef}
+              value={input}
+              onChange={e => {
+                setInput(e.target.value)
+                const ta = e.target
+                ta.style.height = 'auto'
+                ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`
+              }}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
+              placeholder="Ask a question… (Enter to send, Shift+Enter for newline)"
+              rows={1}
+              disabled={streaming}
+              style={{
+                flex: 1, border: 'none', outline: 'none', resize: 'none',
+                fontSize: 13.5, lineHeight: 1.5, backgroundColor: 'transparent',
+                color: '#1a1a1a', fontFamily: "'DM Sans', sans-serif",
+                maxHeight: 160, overflowY: 'auto',
+              }}
+            />
+            <button
+              onClick={handleSend}
+              disabled={!input.trim() || streaming}
+              style={{
+                width: 33, height: 33, borderRadius: 8, border: 'none', flexShrink: 0,
+                backgroundColor: !input.trim() || streaming ? '#e5e5e5' : '#1a1a1a',
+                cursor: !input.trim() || streaming ? 'not-allowed' : 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: !input.trim() || streaming ? '#aaa' : 'white',
+                transition: 'background-color 0.12s',
+              }}
+            >
+              {streaming
+                ? <span style={{ width: 13, height: 13, borderRadius: '50%', border: '2px solid #bbb', borderTopColor: 'transparent', display: 'inline-block', animation: 'spin 0.7s linear infinite' }} />
+                : <Send size={13} />
+              }
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* Error bar */}
-      {error && (
-        <div
-          style={{
-            margin: '0 24px 12px',
-            padding: '8px 14px',
-            backgroundColor: '#fff5f5',
-            border: '1px solid #fed7d7',
-            borderRadius: 7,
-            fontSize: 12.5,
-            color: '#e53e3e',
-            flexShrink: 0,
-          }}
-        >
-          {error}
+      {/* ── Share toast ── */}
+      {shareToast && (
+        <div style={{
+          position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)',
+          backgroundColor: '#1a1a1a', color: 'white', padding: '9px 18px',
+          borderRadius: 8, fontSize: 13, fontWeight: 500,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.18)', zIndex: 9999, pointerEvents: 'none',
+        }}>
+          Link copied to clipboard!
         </div>
       )}
-
-      {/* Input area */}
-      <div
-        style={{
-          padding: '14px 24px 20px',
-          borderTop: '1px solid #f0f0f0',
-          flexShrink: 0,
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            gap: 10,
-            alignItems: 'flex-end',
-            backgroundColor: '#fafafa',
-            border: '1px solid #e5e5e5',
-            borderRadius: 12,
-            padding: '10px 12px',
-          }}
-        >
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => {
-              setInput(e.target.value)
-              adjustTextarea()
-            }}
-            onKeyDown={handleKeyDown}
-            placeholder="Ask a question about your documents... (Enter to send, Shift+Enter for newline)"
-            rows={1}
-            disabled={streaming}
-            style={{
-              flex: 1,
-              border: 'none',
-              outline: 'none',
-              resize: 'none',
-              fontSize: 13.5,
-              lineHeight: 1.5,
-              backgroundColor: 'transparent',
-              color: '#1a1a1a',
-              fontFamily: "'DM Sans', sans-serif",
-              maxHeight: 160,
-              overflowY: 'auto',
-            }}
-          />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || streaming}
-            style={{
-              width: 34,
-              height: 34,
-              borderRadius: 8,
-              border: 'none',
-              backgroundColor: !input.trim() || streaming ? '#e5e5e5' : '#1a1a1a',
-              cursor: !input.trim() || streaming ? 'not-allowed' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: !input.trim() || streaming ? '#aaa' : 'white',
-              flexShrink: 0,
-              transition: 'background-color 0.12s',
-            }}
-          >
-            {streaming ? (
-              <span
-                style={{
-                  width: 14,
-                  height: 14,
-                  borderRadius: '50%',
-                  border: '2px solid #aaa',
-                  borderTopColor: 'transparent',
-                  display: 'inline-block',
-                  animation: 'spin 0.7s linear infinite',
-                }}
-              />
-            ) : (
-              <Send size={14} />
-            )}
-          </button>
-        </div>
-        <p style={{ fontSize: 11, color: '#ccc', textAlign: 'center', marginTop: 8 }}>
-          Responses are generated from your document knowledge base via RAG.
-        </p>
-      </div>
     </div>
   )
 }

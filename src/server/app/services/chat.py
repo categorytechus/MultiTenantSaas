@@ -1,5 +1,6 @@
 from uuid import UUID
 
+from sqlalchemy import delete as sql_delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -12,7 +13,6 @@ async def create_chat_session(
     user_id: UUID,
     title: str | None = None,
 ) -> ChatSession:
-    """Create a new chat session."""
     chat_session = ChatSession(
         org_id=org_id,
         user_id=user_id,
@@ -28,17 +28,41 @@ async def get_or_create_session(
     org_id: UUID,
     user_id: UUID,
     chat_id: UUID | None = None,
+    title: str | None = None,
 ) -> ChatSession:
-    """
-    Get an existing chat session by ID, or create a new one.
-    RLS ensures the session belongs to the current org.
-    """
     if chat_id is not None:
         existing = await session.get(ChatSession, chat_id)
         if existing and existing.org_id == org_id:
             return existing
 
-    return await create_chat_session(session, org_id, user_id)
+    return await create_chat_session(session, org_id, user_id, title)
+
+
+async def update_session_title(
+    session: AsyncSession,
+    chat_id: UUID,
+    org_id: UUID,
+    title: str,
+) -> ChatSession | None:
+    chat_session = await session.get(ChatSession, chat_id)
+    if not chat_session or chat_session.org_id != org_id:
+        return None
+    chat_session.title = title
+    session.add(chat_session)
+    return chat_session
+
+
+async def delete_session(
+    session: AsyncSession,
+    chat_id: UUID,
+    org_id: UUID,
+) -> bool:
+    chat_session = await session.get(ChatSession, chat_id)
+    if not chat_session or chat_session.org_id != org_id:
+        return False
+    await session.execute(sql_delete(ChatMessage).where(ChatMessage.chat_id == chat_id))
+    await session.delete(chat_session)
+    return True
 
 
 async def save_message(
@@ -66,7 +90,6 @@ async def list_sessions(
     org_id: UUID,
     user_id: UUID,
 ) -> list[ChatSession]:
-    """List chat sessions for a user in an org."""
     result = await session.execute(
         select(ChatSession)
         .where(ChatSession.org_id == org_id, ChatSession.user_id == user_id)
@@ -80,7 +103,6 @@ async def get_session_messages(
     chat_id: UUID,
     org_id: UUID,
 ) -> list[ChatMessage]:
-    """Get all messages for a chat session."""
     result = await session.execute(
         select(ChatMessage)
         .where(ChatMessage.chat_id == chat_id, ChatMessage.org_id == org_id)

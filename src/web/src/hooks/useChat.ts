@@ -16,7 +16,7 @@ export function useChat() {
   const cleanupRef = useRef<(() => void) | null>(null)
 
   const initSession = useCallback(async () => {
-    const { data, error: err } = await api.post<ChatSession>('/chat/sessions')
+    const { data, error: err } = await api.post<ChatSession>('/chat/sessions', {})
     if (err || !data) {
       setError(err ?? 'Failed to create chat session')
       return null
