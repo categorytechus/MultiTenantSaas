@@ -108,4 +108,4 @@ EOF
 **/.env
 **/.env.*
 !**/.env.example
-!**/.env.sample
+!**/.env.samplesrc/web/.vite/
