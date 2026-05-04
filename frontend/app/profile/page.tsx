@@ -10,7 +10,7 @@ interface MeUser {
   id: string;
   email: string;
   full_name: string;
-  user_type: 'super_admin' | 'org_admin' | 'user';
+  user_type: 'super_admin' | 'user';
   status: string;
 }
 
@@ -31,6 +31,8 @@ export default function ProfilePage() {
   const [passwordMessage, setPasswordMessage] = useState('');
   const [passwordError, setPasswordError] = useState('');
 
+  const [roleLabel, setRoleLabel] = useState('');
+
   useEffect(() => {
     (async () => {
       const token = localStorage.getItem('accessToken');
@@ -47,6 +49,14 @@ export default function ProfilePage() {
         const me = res.data.data;
         setUser(me);
         setName(me.full_name || '');
+        // Derive role label from JWT
+        try {
+          const payload = JSON.parse(atob(token.split('.')[1]));
+          const roles: string[] = payload.roles ?? [];
+          if (me.user_type === 'super_admin') setRoleLabel('Super Admin');
+          else if (roles.includes('org_admin')) setRoleLabel('Org Admin');
+          else setRoleLabel('User');
+        } catch { setRoleLabel(me.user_type); }
       } catch {
         router.push('/auth/signin');
       } finally {
@@ -181,7 +191,7 @@ export default function ProfilePage() {
 
                     <div className="field">
                       <label className="field-label">Role</label>
-                      <input className="fi" type="text" value={user?.user_type || ''} disabled />
+                      <input className="fi" type="text" value={roleLabel} disabled />
                     </div>
 
                     <button className="btn btn-primary" type="submit" disabled={profileSaving}>

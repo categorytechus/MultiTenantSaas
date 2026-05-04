@@ -51,6 +51,14 @@ spec:
               value: "http://localhost/api/auth/google/callback"
             - name: CLIENT_URL
               value: "http://localhost"
+            - name: FRONTEND_URL
+              value: "http://localhost"
+            - name: EMAIL_DEBUG_FALLBACK
+              value: "false"
+            - name: SES_FROM_EMAIL
+              value: ""
+            - name: AWS_REGION
+              value: "us-east-1"
           livenessProbe:
             httpGet:
               path: /health

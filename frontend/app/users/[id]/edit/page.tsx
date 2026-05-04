@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Layout from "../../../../components/Layout";
 import { apiFetch } from "../../../../src/lib/api";
+import { assignableMemberRoles } from "../../../../src/lib/org-member-roles";
 import './users-id-edit.css';
 
 interface Role {
@@ -48,11 +49,12 @@ export default function EditUserPage() {
         const meRes = await apiFetch<{ data: { user_type: string } }>(
           "/auth/me",
         );
-        if (!meRes.success || meRes.data.data.user_type === "user") {
+        const payload = JSON.parse(atob(token.split(".")[1]));
+        const jwtRoles: string[] = payload.roles ?? [];
+        if (!meRes.success || (meRes.data.data.user_type !== "super_admin" && !jwtRoles.includes("org_admin"))) {
           router.push("/dashboard");
           return;
         }
-        const payload = JSON.parse(atob(token.split(".")[1]));
         const oid = payload.org_id;
         if (!oid) {
           setError("No org context");
@@ -78,9 +80,7 @@ export default function EditUserPage() {
           }
         }
         if (rolesRes.success) {
-          setAvailableRoles(
-            rolesRes.data.data.filter((r: Role) => !r.is_system),
-          );
+          setAvailableRoles(assignableMemberRoles(rolesRes.data.data));
         }
       } catch {
         setError("Failed to load data");

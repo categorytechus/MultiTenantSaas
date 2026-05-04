@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import Layout from "../../components/Layout";
 import KnowledgeBaseSync from "../../components/KnowledgeBaseSync";
 import { apiFetch } from "../../src/lib/api";
+import { PERMISSION_MODULE_ENABLED } from "../../src/lib/permissions";
 import './documents.css';
 
 interface Document {
@@ -52,6 +54,7 @@ function formatDate(dateString: string) {
 }
 
 export default function DocumentsPage() {
+  const router = useRouter();
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -83,13 +86,34 @@ export default function DocumentsPage() {
     description: "",
   });
 
+  // Permission guard: check if user has access to the documents module
+  useEffect(() => {
+    if (!PERMISSION_MODULE_ENABLED) return;
+    const unrestricted = sessionStorage.getItem("userModulesUnrestricted");
+    if (unrestricted) return; // super_admin / org_admin — always allowed
+    const raw = sessionStorage.getItem("userModules");
+    if (raw) {
+      try {
+        const modules: string[] = JSON.parse(raw);
+        if (!modules.includes("documents")) {
+          router.replace("/dashboard");
+        }
+      } catch { /* ignore parse error */ }
+    }
+    // If sessionStorage not yet populated, Layout.tsx will handle redirect via sidebar
+  }, [router]);
+
   useEffect(() => {
     fetchDocuments();
     fetchCurrentUser();
     fetchOrgRoles();
   }, []);
 
-  async function fetchCurrentUser() {
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, startDate, endDate]);
+
+  const fetchCurrentUser = async () => {
     try {
       const meRes = await apiFetch<{ data: CurrentUser }>("/auth/me");
       if (meRes.success) {
@@ -98,9 +122,9 @@ export default function DocumentsPage() {
     } catch {
       // No-op: upload validation will handle missing user context
     }
-  }
+  };
 
-  async function fetchOrgRoles() {
+  const fetchOrgRoles = async () => {
     try {
       const token = localStorage.getItem("accessToken");
       if (!token) return;
@@ -118,9 +142,9 @@ export default function DocumentsPage() {
     } catch {
       // No-op: role dropdown will stay empty.
     }
-  }
+  };
 
-  async function fetchDocuments() {
+  const fetchDocuments = async () => {
     try {
       const res = await apiFetch<{ data: Document[] }>("/documents");
       if (res.success) {
@@ -131,7 +155,7 @@ export default function DocumentsPage() {
     } finally {
       setLoading(false);
     }
-  }
+  };
 
   const handleFileSelect = (
     eOrFile: React.ChangeEvent<HTMLInputElement> | File,
@@ -408,29 +432,20 @@ export default function DocumentsPage() {
             className="search-input"
             placeholder="Search by file name..."
             value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value);
-                setCurrentPage(1);
-              }}
+            onChange={(e) => setSearchTerm(e.target.value)}
           />
           <input
             type="date"
             className="date-input"
             value={startDate}
-              onChange={(e) => {
-                setStartDate(e.target.value);
-                setCurrentPage(1);
-              }}
+            onChange={(e) => setStartDate(e.target.value)}
           />
           <span className="date-sep">to</span>
           <input
             type="date"
             className="date-input"
             value={endDate}
-              onChange={(e) => {
-                setEndDate(e.target.value);
-                setCurrentPage(1);
-              }}
+            onChange={(e) => setEndDate(e.target.value)}
           />
           <button className="btn-upload" onClick={() => setShowUploadModal(true)}>
             <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">

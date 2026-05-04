@@ -62,8 +62,10 @@ export default function UsersPage() {
         return;
       }
       const ut = meRes.data.data.user_type;
-      setCurrentUserType(ut);
-      if (ut === "user") {
+      const jwtPayload = JSON.parse(atob(token.split(".")[1]));
+      const jwtRoles: string[] = jwtPayload.roles ?? [];
+      setCurrentUserType(jwtRoles.includes("org_admin") ? "org_admin" : ut);
+      if (ut !== "super_admin" && !jwtRoles.includes("org_admin")) {
         router.push("/dashboard");
         return;
       }
@@ -96,11 +98,7 @@ export default function UsersPage() {
   }, [router]);
 
   useEffect(() => {
-    const run = () => {
-      void guardAndFetch();
-    };
-    const timer = window.setTimeout(run, 0);
-    return () => window.clearTimeout(timer);
+    guardAndFetch();
   }, [guardAndFetch]);
 
   const handleDelete = async () => {
@@ -166,7 +164,10 @@ export default function UsersPage() {
           subtitle="Manage users in your organization"
           actions={
             <div className="header-actions">
-              <Button variant="secondary" onClick={() => router.push("/users/invite")}>
+              <Button
+                variant="secondary"
+                onClick={() => router.push("/users/invite")}
+              >
                 Invite User
               </Button>
               <Button onClick={() => router.push("/users/create")}>
@@ -222,15 +223,16 @@ export default function UsersPage() {
           <Card className="card">
             {users.length === 0 ? (
               <div className="empty">
-                No users in this organization yet. Create or invite the first one.
+                No users in this organization yet. Create or invite the first
+                one.
               </div>
             ) : (
+              <div className="table-responsive-wrap">
               <table className="table">
                 <thead>
                   <tr>
                     <th>Name</th>
                     <th>Email</th>
-                    <th>Type</th>
                     <th>Roles</th>
                     <th>Status</th>
                     <th>Created</th>
@@ -244,14 +246,12 @@ export default function UsersPage() {
                       <td style={{ fontWeight: 500 }}>{u.full_name || "—"}</td>
                       <td style={{ color: "#555" }}>{u.email}</td>
                       <td>
-                        <span className={`type-badge type-${u.user_type}`}>
-                          {u.user_type === "org_admin" ? "Org Admin" : "User"}
-                        </span>
-                      </td>
-                      <td>
                         {u.roles?.length ? (
                           u.roles.map((r) => (
-                            <span key={r.id} className="role-tag">
+                            <span
+                              key={r.id}
+                              className={`role-tag${r.name === "org_admin" ? " role-tag-org_admin" : ""}`}
+                            >
                               {r.name}
                             </span>
                           ))
@@ -346,16 +346,6 @@ export default function UsersPage() {
                                 className="kebab-item"
                                 onClick={() => {
                                   setOpenMenuFor(null);
-                                  router.push(`/users/${u.id}/permissions`);
-                                }}
-                              >
-                                Permissions
-                              </button>
-                              <button
-                                type="button"
-                                className="kebab-item kebab-danger"
-                                onClick={() => {
-                                  setOpenMenuFor(null);
                                   setDeleteTarget(u);
                                 }}
                               >
@@ -369,6 +359,7 @@ export default function UsersPage() {
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </Card>
         )}

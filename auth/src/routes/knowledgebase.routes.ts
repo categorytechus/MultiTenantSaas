@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { authenticateToken } from '../middleware/auth.middleware';
+import { requirePermission } from '../middleware/permission.middleware';
 import {
   syncKnowledgeBase,
   getSyncStatus,
@@ -11,9 +12,9 @@ const router = Router();
 // All routes require authentication
 router.use(authenticateToken);
 
-// Routes
-router.post('/sync', syncKnowledgeBase);        // Trigger manual sync
-router.get('/sync/:jobId', getSyncStatus);      // Get sync job status
-router.get('/sync', listSyncJobs);              // List recent sync jobs
+// Knowledge base sync is part of the documents module
+router.post('/sync', requirePermission('documents:create'), syncKnowledgeBase);
+router.get('/sync/:jobId', requirePermission('documents:view'), getSyncStatus);
+router.get('/sync', requirePermission('documents:view'), listSyncJobs);
 
 export default router;

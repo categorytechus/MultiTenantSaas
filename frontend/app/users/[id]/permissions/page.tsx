@@ -82,9 +82,10 @@ export default function UserPermissionsPage() {
       try {
         const me = await apiFetch<{ data: { user_type: string } }>('/auth/me');
         if (!me.success) { router.push('/auth/signin'); return; }
-        if (me.data.data.user_type === 'user') { router.push('/dashboard'); return; }
-
         const payload = JSON.parse(atob(token.split('.')[1]));
+        const jwtRoles: string[] = payload.roles ?? [];
+        if (me.data.data.user_type !== 'super_admin' && !jwtRoles.includes('org_admin')) { router.push('/dashboard'); return; }
+
         const oid = payload.org_id || '';
 
         // Load org users to get user name

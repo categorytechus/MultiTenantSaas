@@ -51,6 +51,12 @@ services:
       - "4000:4000"
     environment:
       - NODE_ENV=development
+      - EMAIL_DEBUG_FALLBACK=true
+      - FRONTEND_URL=http://localhost:3000
+      - SES_FROM_EMAIL=mock
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=mock
+      - AWS_SECRET_ACCESS_KEY=mock
       - DB_HOST=postgres
       - DB_USER=postgres
       - DB_NAME=multitenant_saas

@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Layout from '../../components/Layout';
 import { apiFetch, getWebSocketUrl } from '../../src/lib/api';
+import { PERMISSION_MODULE_ENABLED } from '../../src/lib/permissions';
 import './ai-assistant.css';
 
 interface Message {
@@ -14,6 +16,7 @@ interface Message {
 }
 
 export default function AIAssistantPage() {
+  const router = useRouter();
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -31,6 +34,22 @@ export default function AIAssistantPage() {
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
+
+  // Permission guard: check if user has access to the ai_assistant module
+  useEffect(() => {
+    if (!PERMISSION_MODULE_ENABLED) return;
+    const unrestricted = sessionStorage.getItem("userModulesUnrestricted");
+    if (unrestricted) return;
+    const raw = sessionStorage.getItem("userModules");
+    if (raw) {
+      try {
+        const modules: string[] = JSON.parse(raw);
+        if (!modules.includes("ai_assistant")) {
+          router.replace("/dashboard");
+        }
+      } catch { /* ignore parse error */ }
+    }
+  }, [router]);
 
   useEffect(() => {
     scrollToBottom();

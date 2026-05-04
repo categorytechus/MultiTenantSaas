@@ -64,6 +64,8 @@ services:
       - "4000:4000"
     environment:
       - NODE_ENV=development
+      - EMAIL_DEBUG_FALLBACK=true
+      - FRONTEND_URL=http://localhost:3000
       - DB_HOST=postgres
       - DB_USER=postgres
       - DB_NAME=multitenant_saas

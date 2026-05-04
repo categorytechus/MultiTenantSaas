@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import './set-password.css';
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
+
 function SetPasswordContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -85,10 +87,16 @@ function SetPasswordContent() {
     }
     setLoading(true);
     try {
-      // TODO (Phase 2): Replace mock with real API call to POST /auth/set-password
-      // Request: { token, email, password }
-      // Expected response: { success: true }
-      await new Promise(r => setTimeout(r, 900));
+      const res = await fetch(`${API_BASE}/auth/set-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, email: decodeURIComponent(email), password }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setError(data.message || 'Failed to set password. The link may have expired.');
+        return;
+      }
       setDone(true);
     } catch {
       setError('Something went wrong. Please try again or contact your administrator.');
@@ -188,22 +196,15 @@ function SetPasswordContent() {
   );
 }
 
-function SetPasswordFallback() {
-  return (
-    <div className="page">
-      <div className="wrap">
-        <div className="heading">
-          <h1>Loading...</h1>
-          <p>Preparing password setup.</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function SetPasswordPage() {
   return (
-    <Suspense fallback={<SetPasswordFallback />}>
+    <Suspense
+      fallback={
+        <div className="page" style={{ textAlign: 'center', color: '#9a9a9a' }}>
+          Loading…
+        </div>
+      }
+    >
       <SetPasswordContent />
     </Suspense>
   );

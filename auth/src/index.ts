@@ -12,6 +12,7 @@ import webUrlRoutes from "./routes/weburl.routes";
 import userAdminRoutes from "./routes/user-admin.routes";
 import orgUsersRoutes from "./routes/org-users.routes";
 import roleManagementRoutes from "./routes/role-management.routes";
+import permissionsRoutes from "./routes/permissions.routes";
 import { authenticateToken } from "./middleware/auth.middleware";
 import { requireOrgAdmin } from "./middleware/permission.middleware";
 // Reference catalog for future use (not used by org custom-role forms today)
@@ -48,6 +49,7 @@ app.use("/api/organizations", organizationRoutes);
 app.use("/api/organizations/:orgId/users", orgUsersRoutes);
 app.use("/api/organizations/:orgId/roles", roleManagementRoutes);
 app.use("/api/admin", userAdminRoutes);
+app.use("/api", permissionsRoutes);
 app.get(
   "/api/permissions",
   authenticateToken,

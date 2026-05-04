@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
+import pool from '../config/database';
 
 dotenv.config();
 
@@ -11,8 +12,9 @@ const JWT_REFRESH_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRES_IN || '7d';
 export interface JWTPayload {
   sub: string;
   email: string;
-  user_type?: 'super_admin' | 'org_admin' | 'user';
+  user_type?: 'super_admin' | 'user';
   org_id?: string;
+  roles?: string[];
   permissions?: string[];
   token_version?: number;
   type: 'access' | 'refresh';
@@ -47,4 +49,27 @@ export const generateTokenPair = (payload: Omit<JWTPayload, 'type'>) => {
     accessToken: generateAccessToken(payload),
     refreshToken: generateRefreshToken(payload),
   };
+};
+
+/**
+ * Load the role names a user has in a given organization.
+ * Returns an empty array when org_id is null (e.g. super_admin with no org context).
+ */
+export const loadOrgRoles = async (
+  userId: string,
+  organizationId: string | null,
+): Promise<string[]> => {
+  if (!organizationId) return [];
+  try {
+    const result = await pool.query(
+      `SELECT r.name
+       FROM user_roles ur
+       JOIN roles r ON ur.role_id = r.id
+       WHERE ur.user_id = $1 AND ur.organization_id = $2`,
+      [userId, organizationId],
+    );
+    return result.rows.map((row: { name: string }) => row.name);
+  } catch {
+    return [];
+  }
 };

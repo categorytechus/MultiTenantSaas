@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { apiFetch } from '../../../src/lib/api';
 import CONFIG from '../../../src/lib/config';
@@ -9,6 +9,8 @@ import './auth-signin.css';
 
 export default function SignInPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const returnUrl = searchParams.get('returnUrl') || '';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPwd, setShowPwd] = useState(false);
@@ -35,6 +37,8 @@ export default function SignInPage() {
       localStorage.setItem('refreshToken', res.data.data.refreshToken);
       if (res.data.data.must_change_password) {
         router.push('/auth/set-password');
+      } else if (returnUrl) {
+        router.push(returnUrl);
       } else {
         router.push('/dashboard');
       }
@@ -99,8 +103,8 @@ export default function SignInPage() {
               {loading ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
-          <p className="foot">Need access? Contact your organization administrator.</p>
 
+          <p className="foot">Need access? Contact your organization administrator.</p>
         </div>
 
         <p className="terms">By continuing you agree to our <a href="#">Terms</a> and <a href="#">Privacy Policy</a></p>
