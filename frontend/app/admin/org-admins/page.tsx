@@ -78,7 +78,9 @@ export default function OrgAdminsPage() {
         const payload = JSON.parse(atob(tokenData.split(".")[1]));
         selectedOrgId = payload.org_id || "";
       }
-      const query = selectedOrgId ? `?orgId=${encodeURIComponent(selectedOrgId)}` : "";
+      const query = selectedOrgId
+        ? `?orgId=${encodeURIComponent(selectedOrgId)}`
+        : "";
       const adminsRes = await apiFetch<{ data: OrgAdmin[] }>(
         `/admin/org-admins${query}`,
       );
@@ -92,11 +94,7 @@ export default function OrgAdminsPage() {
   }, [router]);
 
   useEffect(() => {
-    const run = () => {
-      void guardAndFetch();
-    };
-    const timer = window.setTimeout(run, 0);
-    return () => window.clearTimeout(timer);
+    guardAndFetch();
   }, [guardAndFetch]);
 
   // Delete: if deleteOrgId set → remove from that org only; otherwise full delete
@@ -184,7 +182,7 @@ export default function OrgAdminsPage() {
               Manage organization administrators across all orgs
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: "flex", gap: 8 }}>
             <button
               className="btn btn-ghost"
               onClick={() => router.push("/admin/org-admins/invite")}
@@ -223,6 +221,7 @@ export default function OrgAdminsPage() {
             {admins.length === 0 ? (
               <div className="empty">No org admins found.</div>
             ) : (
+              <div className="table-responsive-wrap">
               <table className="table">
                 <thead>
                   <tr>
@@ -372,6 +371,7 @@ export default function OrgAdminsPage() {
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
         )}

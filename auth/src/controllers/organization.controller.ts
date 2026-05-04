@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import pool from "../config/database";
-import { generateTokenPair } from "../utils/jwt";
+import { generateTokenPair, loadOrgRoles } from "../utils/jwt";
 
 /**
  * Get user's organizations
@@ -96,19 +96,8 @@ export const switchOrganization = async (
       orgRole = membershipResult.rows[0].role;
     }
 
-    // Get user's permissions for this organization
-    const permissionsResult = await pool.query(
-      `SELECT DISTINCT p.resource, p.action
-       FROM user_roles ur
-       JOIN role_permissions rp ON ur.role_id = rp.role_id
-       JOIN permissions p ON rp.permission_id = p.id
-       WHERE ur.user_id = $1 AND ur.organization_id = $2`,
-      [userId, organizationId],
-    );
-
-    const permissions = permissionsResult.rows.map(
-      (p) => `${p.resource}:${p.action}`,
-    );
+    // Load roles for this organization (empty for super_admin acting as guest)
+    const roles = await loadOrgRoles(userId, organizationId);
 
     // Generate new tokens with organization context
     const tokens = generateTokenPair({
@@ -116,7 +105,7 @@ export const switchOrganization = async (
       email,
       user_type: userType,
       org_id: organizationId,
-      permissions,
+      roles,
     });
 
     res.status(200).json({
@@ -129,7 +118,7 @@ export const switchOrganization = async (
           slug: orgSlug,
           role: orgRole,
         },
-        permissions,
+        roles,
         ...tokens,
       },
     });

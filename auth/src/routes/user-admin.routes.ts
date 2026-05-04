@@ -15,6 +15,7 @@ import {
   createOrganization,
   updateOrganization,
   deleteOrganization,
+  createOrgAdminInvite,
 } from '../controllers/user-admin.controller';
 import { authenticateToken } from '../middleware/auth.middleware';
 import { requireSuperAdmin } from '../middleware/permission.middleware';
@@ -60,7 +61,7 @@ router.post(
   [
     body('email').isEmail().normalizeEmail(),
     body('name').optional().trim().notEmpty(),
-    body('organizationId').notEmpty().isUUID(),
+    body('organizationId').notEmpty().isUUID('loose'),
   ],
   validateRequest,
   createOrgAdmin
@@ -81,6 +82,17 @@ router.delete('/org-admins/:id', deleteOrgAdmin);
 
 // Remove org admin from a specific org only
 router.delete('/org-admins/:id/organizations/:orgId', removeOrgAdminFromOrg);
+
+// Generate org admin invite link
+router.post(
+  '/org-admins/invites',
+  [
+    body('email').isEmail().normalizeEmail(),
+    body('organizationId').notEmpty().isUUID('loose'),
+  ],
+  validateRequest,
+  createOrgAdminInvite
+);
 
 // All Users (read-only global view)
 router.get('/users', listAllUsers);

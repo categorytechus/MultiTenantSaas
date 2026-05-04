@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Layout from "../../../components/Layout";
 import { apiFetch } from "../../../src/lib/api";
+import { assignableMemberRoles } from "../../../src/lib/org-member-roles";
 import '../create/users-create.css';
 
 interface Role {
@@ -21,6 +22,7 @@ export default function InviteUserPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [signupLink, setSignupLink] = useState<string | null>(null);
+  const [inviteEmailSent, setInviteEmailSent] = useState(false);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -29,17 +31,18 @@ export default function InviteUserPage() {
     (async () => {
       try {
         const meRes = await apiFetch<{ data: { user_type: string } }>("/auth/me");
-        if (!meRes.success || meRes.data.data.user_type === "user") {
+        const payload = JSON.parse(atob(token.split(".")[1]));
+        const jwtRoles: string[] = payload.roles ?? [];
+        if (!meRes.success || (meRes.data.data.user_type !== "super_admin" && !jwtRoles.includes("org_admin"))) {
           router.push("/dashboard");
           return;
         }
-        const payload = JSON.parse(atob(token.split(".")[1]));
         const oid = payload.org_id;
         if (!oid) { setError("No org context. Switch to an org first."); return; }
         setOrgId(oid);
         const rolesRes = await apiFetch<{ data: Role[] }>(`/organizations/${oid}/roles`);
         if (rolesRes.success) {
-          setRoles(rolesRes.data.data.filter((r: Role) => !r.is_system));
+          setRoles(assignableMemberRoles(rolesRes.data.data));
         }
       } catch {
         setError("Failed to load data");
@@ -53,13 +56,25 @@ export default function InviteUserPage() {
     setError("");
     setLoading(true);
     try {
-      // TODO (Phase 2): Replace mock with real API call to POST /organizations/${orgId}/invites
-      // Request: { email, roleId }
-      // Expected response: { data: { signup_link: string, role: string, organization_id: string } }
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      const base = typeof window !== "undefined" ? window.location.origin : "";
-      const link = `${base}/auth/signup/${orgId}?role=user${roleId ? `&roleId=${roleId}` : ""}`;
-      setSignupLink(link);
+      const res = await apiFetch<{ data: { signup_link?: string }; warnings?: { code: string }[] }>(`/organizations/${orgId}/users/invites`, {
+        method: "POST",
+        body: JSON.stringify({ email }),
+      });
+      if (!res.success) {
+        setError(res.error || "Failed to generate invite link");
+        return;
+      }
+      const warnings = res.data.warnings;
+      if (warnings?.some((w) => w.code === "email_failed")) {
+        setError("Invite was saved but the email could not be sent. Check server logs or try again.");
+        return;
+      }
+      const link = res.data.data.signup_link;
+      if (link) {
+        setSignupLink(link);
+      } else {
+        setInviteEmailSent(true);
+      }
     } catch {
       setError("Failed to generate invite link");
     } finally {
@@ -74,6 +89,29 @@ export default function InviteUserPage() {
       setTimeout(() => setCopied(false), 2000);
     }
   };
+
+  if (inviteEmailSent) {
+    return (
+      <Layout>
+        <div className="page">
+          <div className="form-card" style={{ maxWidth: 520 }}>
+            <div className="page-title" style={{ marginBottom: 8 }}>Invitation sent</div>
+            <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 24, lineHeight: 1.6 }}>
+              We sent an invitation email to <strong>{email}</strong>. They can complete signup from the link in that message.
+            </p>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button className="btn btn-ghost" onClick={() => { setInviteEmailSent(false); setEmail(""); }} style={{ flex: 1 }}>
+                Invite Another
+              </button>
+              <button className="btn btn-primary" onClick={() => router.push('/users')} style={{ flex: 1 }}>
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
 
   if (signupLink) {
     return (

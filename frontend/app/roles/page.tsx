@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Layout from "../../components/Layout";
 import { apiFetch } from "../../src/lib/api";
-import './roles.css';
+import "./roles.css";
 
 // Org custom roles: title + description only (no permission matrix in UI for now)
 
@@ -14,6 +14,10 @@ interface Role {
   description: string | null;
   is_system: boolean;
   created_at: string;
+}
+
+function isSystemBaseRole(r: Role) {
+  return r.is_system && (r.name === "org_admin" || r.name === "user");
 }
 
 export default function RolesPage() {
@@ -33,11 +37,16 @@ export default function RolesPage() {
     }
     try {
       const meRes = await apiFetch<{ data: { user_type: string } }>("/auth/me");
-      if (!meRes.success || meRes.data.data.user_type === "user") {
+      const payload = JSON.parse(atob(token.split(".")[1]));
+      const jwtRoles: string[] = payload.roles ?? [];
+      if (
+        !meRes.success ||
+        (meRes.data.data.user_type !== "super_admin" &&
+          !jwtRoles.includes("org_admin"))
+      ) {
         router.push("/dashboard");
         return;
       }
-      const payload = JSON.parse(atob(token.split(".")[1]));
       const oid = payload.org_id;
       if (!oid) {
         setError("no-org");
@@ -58,10 +67,7 @@ export default function RolesPage() {
   }, [router]);
 
   useEffect(() => {
-    const t = window.setTimeout(() => {
-      void guardAndFetch();
-    }, 0);
-    return () => window.clearTimeout(t);
+    guardAndFetch();
   }, [guardAndFetch]);
 
   const handleDelete = async () => {
@@ -87,13 +93,13 @@ export default function RolesPage() {
 
   return (
     <Layout>
-            <div className="page">
+      <div className="page">
         <div className="page-header">
           <div>
             <div className="page-title">Roles</div>
             <div className="page-subtitle">
-              Labels for your organization (e.g. HR, Sales) — name and
-              description only
+              Define labels for your organization and assign module access per
+              role. Users inherit permissions from their roles.
             </div>
           </div>
           <button
@@ -164,12 +170,14 @@ export default function RolesPage() {
                 No roles yet. Create a custom role to get started.
               </div>
             ) : (
+              <div className="table-responsive-wrap">
               <table className="table">
                 <thead>
                   <tr>
                     <th>Role</th>
                     <th>Type</th>
-                    <th></th>
+                    <th>Permissions</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -195,6 +203,32 @@ export default function RolesPage() {
                         >
                           {r.is_system ? "System" : "Custom"}
                         </span>
+                      </td>
+                      <td>
+                        {isSystemBaseRole(r) ? (
+                          <span
+                            className="perm-cell-na"
+                            title={
+                              r.name === "org_admin"
+                                ? "Organization Admin has full access to all modules enabled for your org"
+                                : "User is a system role with simplified permission view"
+                            }
+                          >
+                            {r.name === "org_admin"
+                              ? "Built-in full access"
+                              : "Built-in role"}
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-permissions"
+                            onClick={() =>
+                              router.push(`/roles/${r.id}/permissions`)
+                            }
+                          >
+                            Manage
+                          </button>
+                        )}
                       </td>
                       <td>
                         {!r.is_system && (
@@ -223,6 +257,7 @@ export default function RolesPage() {
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
         )}

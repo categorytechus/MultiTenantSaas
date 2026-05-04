@@ -16,6 +16,7 @@ export default function InviteOrgAdminPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [signupLink, setSignupLink] = useState<string | null>(null);
+  const [inviteEmailSent, setInviteEmailSent] = useState(false);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -53,13 +54,25 @@ export default function InviteOrgAdminPage() {
     setError('');
     setLoading(true);
     try {
-      // TODO (Phase 2): Replace mock with real API call to POST /admin/org-admins/invites
-      // Request: { email, organizationId }
-      // Expected response: { data: { signup_link: string, role: 'org_admin', organization_id: string } }
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      const base = typeof window !== 'undefined' ? window.location.origin : '';
-      const link = `${base}/auth/signup/${organizationId}?role=org_admin`;
-      setSignupLink(link);
+      const res = await apiFetch<{ data: { signup_link?: string }; warnings?: { code: string }[] }>('/admin/org-admins/invites', {
+        method: 'POST',
+        body: JSON.stringify({ email, organizationId }),
+      });
+      if (!res.success) {
+        setError(res.error || 'Failed to generate invite link');
+        return;
+      }
+      const warnings = res.data.warnings;
+      if (warnings?.some((w) => w.code === 'email_failed')) {
+        setError('Invite was saved but the email could not be sent. Check server logs or try again.');
+        return;
+      }
+      const link = res.data.data.signup_link;
+      if (link) {
+        setSignupLink(link);
+      } else {
+        setInviteEmailSent(true);
+      }
     } catch {
       setError('Failed to generate invite link');
     } finally {
@@ -76,6 +89,30 @@ export default function InviteOrgAdminPage() {
   };
 
   const selectedOrg = orgs.find(o => o.id === organizationId);
+
+  if (inviteEmailSent) {
+    return (
+      <Layout>
+        <div className="page">
+          <div className="form-card" style={{ maxWidth: 520 }}>
+            <div className="page-title" style={{ marginBottom: 8 }}>Invitation sent</div>
+            <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 24, lineHeight: 1.6 }}>
+              We sent an invitation email to <strong>{email}</strong>
+              {selectedOrg ? <> for <strong>{selectedOrg.name}</strong></> : null}. They can complete signup from the link in that message.
+            </p>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button className="btn btn-ghost" onClick={() => { setInviteEmailSent(false); setEmail(''); }} style={{ flex: 1 }}>
+                Invite Another
+              </button>
+              <button className="btn btn-primary" onClick={() => router.push('/admin/org-admins')} style={{ flex: 1 }}>
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
 
   if (signupLink) {
     return (

@@ -16,6 +16,7 @@
   "dependencies": {
     "@aws-sdk/client-bedrock-agent": "^3.1007.0",
     "@aws-sdk/client-s3": "^3.996.0",
+    "@aws-sdk/client-ses": "^3.1041.0",
     "@aws-sdk/s3-request-presigner": "^3.996.0",
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",

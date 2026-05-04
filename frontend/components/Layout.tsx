@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useEffect, useRef, ReactNode } from "react";
+import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { apiFetch } from "../src/lib/api";
+import { PERMISSION_MODULE_ENABLED } from "../src/lib/permissions";
 import "./layout.css";
 
 interface Org {
@@ -15,7 +17,7 @@ interface User {
   id: string;
   email: string;
   full_name?: string;
-  user_type?: "super_admin" | "org_admin" | "user";
+  user_type?: "super_admin" | "user";
 }
 
 const DOT_COLORS = ["#1a1a1a", "#2563eb", "#7c3aed", "#0891b2", "#059669"];
@@ -45,6 +47,8 @@ export default function Layout({ children }: LayoutProps) {
   const [open, setOpen] = useState(false);
   const [switching, setSwitching] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  // null = no restriction (super_admin / org_admin), string[] = allowed module IDs for regular users
+  const [userModules, setUserModules] = useState<string[] | null>(null);
   const dropRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -137,6 +141,39 @@ export default function Layout({ children }: LayoutProps) {
             }
           }
         }
+        // Module sidebar + page guards (see PERMISSION_MODULE_ENABLED in src/lib/permissions.ts)
+        const freshToken = localStorage.getItem("accessToken");
+        if (freshToken) {
+          try {
+            if (!PERMISSION_MODULE_ENABLED) {
+              sessionStorage.removeItem("userModules");
+              sessionStorage.setItem("userModulesUnrestricted", "1");
+            } else {
+              const jwtParsed = JSON.parse(atob(freshToken.split(".")[1]));
+              const freshRoles: string[] = jwtParsed.roles ?? [];
+              const freshOrgId: string | undefined = jwtParsed.org_id;
+              const isSA = userData.user_type === "super_admin";
+              const isOA = freshRoles.includes("org_admin");
+
+              if (isSA || isOA) {
+                sessionStorage.removeItem("userModules");
+                sessionStorage.setItem("userModulesUnrestricted", "1");
+              } else if (freshOrgId) {
+                const mpRes = await apiFetch<{
+                  data: { modules: string[] };
+                }>(`/organizations/${freshOrgId}/my-permissions`);
+                if (mpRes.success) {
+                  const modules = mpRes.data.data.modules;
+                  setUserModules(modules);
+                  sessionStorage.setItem("userModules", JSON.stringify(modules));
+                  sessionStorage.removeItem("userModulesUnrestricted");
+                }
+              }
+            }
+          } catch {
+            // ignore — sidebar defaults to showing everything if fetch fails
+          }
+        }
       } catch {
         router.push("/auth/signin");
       } finally {
@@ -146,11 +183,8 @@ export default function Layout({ children }: LayoutProps) {
   }, [router]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setMobileSidebarOpen(false);
-      setOpen(false);
-    }, 0);
-    return () => window.clearTimeout(timer);
+    setMobileSidebarOpen(false);
+    setOpen(false);
   }, [pathname]);
 
   useEffect(() => {
@@ -182,8 +216,11 @@ export default function Layout({ children }: LayoutProps) {
       if (res.success) {
         localStorage.setItem("accessToken", res.data.data.accessToken);
         localStorage.setItem("refreshToken", res.data.data.refreshToken);
+        // Clear cached modules — they will be re-fetched on the next page load
+        sessionStorage.removeItem("userModules");
+        sessionStorage.removeItem("userModulesUnrestricted");
         setCur({ ...org, role: res.data.data.organization.role });
-        window.location.reload(); // Refresh to update permissions
+        window.location.reload();
       }
     } finally {
       setSwitching(false);
@@ -206,6 +243,8 @@ export default function Layout({ children }: LayoutProps) {
       if (res.success) {
         localStorage.setItem("accessToken", res.data.data.accessToken);
         localStorage.setItem("refreshToken", res.data.data.refreshToken);
+        sessionStorage.removeItem("userModules");
+        sessionStorage.removeItem("userModulesUnrestricted");
         setCur(null);
         window.location.reload();
       }
@@ -224,7 +263,20 @@ export default function Layout({ children }: LayoutProps) {
   const curIdx = orgs.findIndex((o) => o.id === cur?.id);
 
   const isSuperAdmin = user?.user_type === "super_admin";
-  const isOrgAdmin = user?.user_type === "org_admin" || isSuperAdmin;
+  // Read roles from current JWT claim (scoped to active org)
+  const jwtRoles: string[] = (() => {
+    try {
+      const token = localStorage.getItem("accessToken");
+      if (!token) return [];
+      return JSON.parse(atob(token.split(".")[1])).roles ?? [];
+    } catch { return []; }
+  })();
+  const isOrgAdmin = jwtRoles.includes("org_admin") || isSuperAdmin;
+
+  // Returns true if the user has access to a given module.
+  // null userModules means unrestricted (super_admin / org_admin).
+  const hasModule = (moduleId: string) =>
+    userModules === null || userModules.includes(moduleId);
 
   // Determine breadcrumb based on pathname
   const getBreadcrumb = () => {
@@ -248,6 +300,8 @@ export default function Layout({ children }: LayoutProps) {
       return { section: "User Management", page: "Roles" };
     if (pathname === "/roles/create")
       return { section: "User Management", page: "Create Role" };
+    if (pathname.startsWith("/roles/") && pathname.endsWith("/permissions"))
+      return { section: "User Management", page: "Role Permissions" };
     if (pathname.startsWith("/roles/"))
       return { section: "User Management", page: "Edit Role" };
     if (pathname === "/admin/super-admins")
@@ -272,8 +326,6 @@ export default function Layout({ children }: LayoutProps) {
       return { section: "Administration", page: "Org Permissions" };
     if (pathname.startsWith("/admin/org-permissions/"))
       return { section: "Administration", page: "Manage Org Permissions" };
-    if (pathname.startsWith("/users/") && pathname.endsWith("/permissions"))
-      return { section: "User Management", page: "User Permissions" };
     return { section: "Dashboard", page: "Overview" };
   };
 
@@ -341,10 +393,11 @@ export default function Layout({ children }: LayoutProps) {
             <div className="brand-sub">Multi-tenant SaaS</div>
           </div>
 
+          <div className="sidebar-nav-scroll">
           {isSuperAdmin && (
             <div className="nav-section">
               <div className="nav-label">Administration</div>
-              <a
+              <Link
                 href="/admin/super-admins"
                 className={`nav-item${pathname.startsWith("/admin/super-admins") ? " active" : ""}`}
               >
@@ -359,8 +412,8 @@ export default function Layout({ children }: LayoutProps) {
                   <path d="M18.5 2.5l.5 2 2 .5-2 .5-.5 2-.5-2-2-.5 2-.5z" />
                 </svg>
                 Super Admins
-              </a>
-              <a
+              </Link>
+              <Link
                 href="/admin/org-admins"
                 className={`nav-item${pathname.startsWith("/admin/org-admins") ? " active" : ""}`}
               >
@@ -374,8 +427,8 @@ export default function Layout({ children }: LayoutProps) {
                   <polyline points="9 22 9 12 15 12 15 22" />
                 </svg>
                 Org Admins
-              </a>
-              <a
+              </Link>
+              <Link
                 href="/admin/organizations"
                 className={`nav-item${pathname.startsWith("/admin/organizations") ? " active" : ""}`}
               >
@@ -388,10 +441,9 @@ export default function Layout({ children }: LayoutProps) {
                   <path d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                 </svg>
                 Organizations
-              </a>
-              <button
-                type="button"
-                onClick={() => router.push("/admin/org-permissions")}
+              </Link>
+              <Link
+                href="/admin/org-permissions"
                 className={`nav-item${pathname.startsWith("/admin/org-permissions") ? " active" : ""}`}
               >
                 <svg
@@ -403,14 +455,14 @@ export default function Layout({ children }: LayoutProps) {
                   <path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                 </svg>
                 Permissions
-              </button>
+              </Link>
             </div>
           )}
 
           {isOrgAdmin && (
             <div className="nav-section">
               <div className="nav-label">User Management</div>
-              <a
+              <Link
                 href="/users"
                 className={`nav-item${pathname === "/users" || pathname.startsWith("/users/") ? " active" : ""}`}
               >
@@ -425,8 +477,8 @@ export default function Layout({ children }: LayoutProps) {
                   <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
                 </svg>
                 Users
-              </a>
-              <a
+              </Link>
+              <Link
                 href="/roles"
                 className={`nav-item${pathname === "/roles" || pathname.startsWith("/roles/") ? " active" : ""}`}
               >
@@ -439,13 +491,13 @@ export default function Layout({ children }: LayoutProps) {
                   <path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                 </svg>
                 Roles
-              </a>
+              </Link>
             </div>
           )}
 
           <div className="nav-section">
             <div className="nav-label">Home</div>
-            <a
+            <Link
               href="/dashboard"
               className={`nav-item${pathname === "/dashboard" ? " active" : ""}`}
             >
@@ -461,23 +513,25 @@ export default function Layout({ children }: LayoutProps) {
                 <rect x="3" y="14" width="7" height="7" />
               </svg>
               Dashboard
-            </a>
-            <a
-              href="/ai_assistant"
-              className={`nav-item nav-ai${pathname === "/ai_assistant" ? " active" : ""}`}
-            >
-              <svg
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                viewBox="0 0 24 24"
+            </Link>
+            {hasModule("ai_assistant") && (
+              <Link
+                href="/ai_assistant"
+                className={`nav-item nav-ai${pathname === "/ai_assistant" ? " active" : ""}`}
               >
-                <path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
-                <circle cx="18" cy="5" r="3" />
-              </svg>
-              <span className="nav-ai-text">AI Assistant</span>
-            </a>
-            <a
+                <svg
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+                  <circle cx="18" cy="5" r="3" />
+                </svg>
+                <span className="nav-ai-text">AI Assistant</span>
+              </Link>
+            )}
+            <Link
               href="/profile"
               className={`nav-item${pathname === "/profile" ? " active" : ""}`}
             >
@@ -491,12 +545,14 @@ export default function Layout({ children }: LayoutProps) {
                 <circle cx="12" cy="7" r="4" />
               </svg>
               My Profile
-            </a>
+            </Link>
           </div>
 
+          {(hasModule("documents") || hasModule("web_urls")) && (
           <div className="nav-section">
             <div className="nav-label">Knowledge Base</div>
-            <a
+            {hasModule("documents") && (
+            <Link
               href="/documents"
               className={`nav-item${pathname === "/documents" ? " active" : ""}`}
             >
@@ -509,8 +565,10 @@ export default function Layout({ children }: LayoutProps) {
                 <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
               Documents
-            </a>
-            <a
+            </Link>
+            )}
+            {hasModule("web_urls") && (
+            <Link
               href="/web-urls"
               className={`nav-item${pathname === "/web-urls" ? " active" : ""}`}
             >
@@ -523,7 +581,10 @@ export default function Layout({ children }: LayoutProps) {
                 <path d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
               </svg>
               Web URLs
-            </a>
+            </Link>
+            )}
+          </div>
+          )}
           </div>
 
           <div className="sidebar-footer">

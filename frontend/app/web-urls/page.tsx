@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import Layout from "../../components/Layout";
 import { apiFetch } from "../../src/lib/api";
+import { PERMISSION_MODULE_ENABLED } from "../../src/lib/permissions";
 import './web-urls.css';
 
 interface WebUrl {
@@ -43,6 +45,7 @@ function formatDate(dateString: string) {
 }
 
 export default function WebUrlPage() {
+  const router = useRouter();
   const [urls, setUrls] = useState<WebUrl[]>([]);
   const [loading, setLoading] = useState(true);
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -72,6 +75,22 @@ export default function WebUrlPage() {
     role: "",
     description: "",
   });
+
+  // Permission guard: check if user has access to the web_urls module
+  useEffect(() => {
+    if (!PERMISSION_MODULE_ENABLED) return;
+    const unrestricted = sessionStorage.getItem("userModulesUnrestricted");
+    if (unrestricted) return;
+    const raw = sessionStorage.getItem("userModules");
+    if (raw) {
+      try {
+        const modules: string[] = JSON.parse(raw);
+        if (!modules.includes("web_urls")) {
+          router.replace("/dashboard");
+        }
+      } catch { /* ignore parse error */ }
+    }
+  }, [router]);
 
   useEffect(() => {
     const initializePage = async () => {
@@ -109,7 +128,11 @@ export default function WebUrlPage() {
     initializePage();
   }, []);
 
-  async function fetchUrls() {
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, startDate, endDate]);
+
+  const fetchUrls = async () => {
     try {
       const res = await apiFetch<{ data: WebUrl[] }>("/web-urls");
       if (res.success) {
@@ -122,7 +145,7 @@ export default function WebUrlPage() {
     } finally {
       setLoading(false);
     }
-  }
+  };
 
   const handleUrlSubmit = () => {
     setShowUploadModal(true);
@@ -317,29 +340,20 @@ export default function WebUrlPage() {
             className="search-input"
             placeholder="Search by URL or title..."
             value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value);
-                setCurrentPage(1);
-              }}
+            onChange={(e) => setSearchTerm(e.target.value)}
           />
           <input
             type="date"
             className="date-input"
             value={startDate}
-              onChange={(e) => {
-                setStartDate(e.target.value);
-                setCurrentPage(1);
-              }}
+            onChange={(e) => setStartDate(e.target.value)}
           />
           <span className="date-sep">to</span>
           <input
             type="date"
             className="date-input"
             value={endDate}
-              onChange={(e) => {
-                setEndDate(e.target.value);
-                setCurrentPage(1);
-              }}
+            onChange={(e) => setEndDate(e.target.value)}
           />
           <button className="btn-upload" onClick={handleUrlSubmit}>
             <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">

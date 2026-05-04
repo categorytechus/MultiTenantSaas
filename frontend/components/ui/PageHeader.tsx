@@ -8,7 +8,11 @@ interface PageHeaderProps {
   actions?: ReactNode;
 }
 
-export default function PageHeader({ title, subtitle, actions }: PageHeaderProps) {
+export default function PageHeader({
+  title,
+  subtitle,
+  actions,
+}: PageHeaderProps) {
   return (
     <div className="app-page-header">
       <div>

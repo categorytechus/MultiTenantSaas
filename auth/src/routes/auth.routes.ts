@@ -12,6 +12,9 @@ import {
   setPassword,
   updateProfile,
   googleCallback,
+  signupViaInvite,
+  getInviteInfo,
+  acceptInvite,
 } from '../controllers/auth.controller';
 import { authenticateToken } from '../middleware/auth.middleware';
 import { validateRequest } from '../middleware/validation.middleware';
@@ -123,21 +126,44 @@ router.post(
 
 /**
  * POST /api/auth/set-password
- * Set password on first login (must_change_password = true)
- * Does not require current password — bumps token_version on success
+ * Two modes:
+ *  - Unauthenticated: { token, email, password } — setup link flow
+ *  - Authenticated: { newPassword } — must_change_password flow
+ */
+router.post('/set-password', setPassword);
+
+/**
+ * GET /api/auth/invite-info
+ * Public — returns org name, role, email, user_exists for a given invite token
+ */
+router.get('/invite-info', getInviteInfo);
+
+/**
+ * POST /api/auth/accept-invite
+ * Authenticated — existing user accepts invite: joins org, returns new JWT
  */
 router.post(
-  '/set-password',
+  '/accept-invite',
   authenticateToken,
+  [body('token').notEmpty(), body('orgId').notEmpty()],
+  validateRequest,
+  acceptInvite,
+);
+
+/**
+ * POST /api/auth/signup/:orgId
+ * Register via an invite link
+ */
+router.post(
+  '/signup/:orgId',
   [
-    body('newPassword')
-      .isString()
-      .withMessage('newPassword is required')
-      .isLength({ min: 8 })
-      .withMessage('newPassword must be at least 8 characters long'),
+    body('token').notEmpty(),
+    body('email').isEmail().normalizeEmail(),
+    body('name').trim().notEmpty(),
+    body('password').isLength({ min: 8 }),
   ],
   validateRequest,
-  setPassword
+  signupViaInvite
 );
 
 /**

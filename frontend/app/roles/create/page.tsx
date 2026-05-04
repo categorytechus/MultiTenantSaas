@@ -27,11 +27,12 @@ export default function CreateRolePage() {
         const meRes = await apiFetch<{ data: { user_type: string } }>(
           "/auth/me",
         );
-        if (!meRes.success || meRes.data.data.user_type === "user") {
+        const payload = JSON.parse(atob(token.split(".")[1]));
+        const jwtRoles: string[] = payload.roles ?? [];
+        if (!meRes.success || (meRes.data.data.user_type !== "super_admin" && !jwtRoles.includes("org_admin"))) {
           router.push("/dashboard");
           return;
         }
-        const payload = JSON.parse(atob(token.split(".")[1]));
         const oid = payload.org_id;
         if (!oid) {
           setError("No org context");

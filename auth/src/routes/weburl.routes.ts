@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { authenticateToken } from '../middleware/auth.middleware';
+import { requirePermission } from '../middleware/permission.middleware';
 import {
   createWebUrl,
   getWebUrls,
@@ -14,10 +15,10 @@ const router = Router();
 router.use(authenticateToken);
 
 // Routes
-router.post('/', createWebUrl);           // Create new web URL
-router.get('/', getWebUrls);              // Get all web URLs for organization
-router.get('/:id', getWebUrl);            // Get single web URL
-router.put('/:id', updateWebUrl);         // Update web URL
-router.delete('/:id', deleteWebUrl);      // Delete web URL (soft delete)
+router.get('/', requirePermission('web_urls:view'), getWebUrls);
+router.get('/:id', requirePermission('web_urls:view'), getWebUrl);
+router.post('/', requirePermission('web_urls:create'), createWebUrl);
+router.put('/:id', requirePermission('web_urls:update'), updateWebUrl);
+router.delete('/:id', requirePermission('web_urls:delete'), deleteWebUrl);
 
 export default router;

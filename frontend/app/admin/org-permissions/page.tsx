@@ -16,13 +16,6 @@ interface OrgRow {
 
 const TOTAL_MODULES = 3;
 
-// TODO (Phase 2): Replace with real counts from GET /admin/organizations/:orgId/modules
-const MOCK_ORG_MODULE_COUNTS: Record<string, number> = {
-  '11111111-1111-1111-1111-111111111111': 3,
-  '22222222-2222-2222-2222-222222222222': 2,
-  '33333333-3333-3333-3333-333333333333': 1,
-};
-
 export default function OrgPermissionsPage() {
   const router = useRouter();
   const [orgs, setOrgs] = useState<OrgRow[]>([]);
@@ -47,10 +40,21 @@ export default function OrgPermissionsPage() {
         const query = orgId ? `?orgId=${encodeURIComponent(orgId)}` : '';
         const res = await apiFetch<{ data: { id: string; name: string; slug: string; status: string }[] }>(`/admin/organizations${query}`);
         if (res.success) {
-          setOrgs(res.data.data.map(o => ({
-            ...o,
-            enabledModuleCount: MOCK_ORG_MODULE_COUNTS[o.id] ?? 0,
-          })));
+          // Fetch module counts for each org in parallel
+          const orgsWithCounts = await Promise.all(
+            res.data.data.map(async (o) => {
+              try {
+                const modRes = await apiFetch<{ data: { id: string; enabled: boolean }[] }>(`/admin/organizations/${o.id}/modules`);
+                const enabledModuleCount = modRes.success
+                  ? modRes.data.data.filter((m) => m.enabled).length
+                  : 0;
+                return { ...o, enabledModuleCount };
+              } catch {
+                return { ...o, enabledModuleCount: 0 };
+              }
+            })
+          );
+          setOrgs(orgsWithCounts);
         }
       } finally {
         setLoading(false);
