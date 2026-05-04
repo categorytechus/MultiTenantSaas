@@ -23,6 +23,7 @@ export default function OrgSignupPage() {
   const role = searchParams.get('role') || 'user';
   const inviteToken = searchParams.get('token') || '';
   const inviteEmail = searchParams.get('email') || '';
+  const inviteInvalid = !inviteToken || !orgId;
   const roleLabel = ROLE_LABELS[role] || 'Team Member';
 
   const [name, setName] = useState('');
@@ -34,20 +35,18 @@ export default function OrgSignupPage() {
   const [submitState, setSubmitState] = useState<SubmitState>('idle');
   const [errorMsg, setErrorMsg] = useState('');
 
-  // Invite info state
-  const [inviteInfoLoading, setInviteInfoLoading] = useState(true);
-  const [inviteInfoError, setInviteInfoError] = useState('');
+  // Invite info state (skip fetch UI when params are missing — no effect setState)
+  const [inviteInfoLoading, setInviteInfoLoading] = useState(!inviteInvalid);
+  const [inviteInfoError, setInviteInfoError] = useState(
+    inviteInvalid ? 'Invalid invite link.' : '',
+  );
   const [orgName, setOrgName] = useState('');
   const [userExists, setUserExists] = useState(false);
   const [joinState, setJoinState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
   const [joinError, setJoinError] = useState('');
 
   useEffect(() => {
-    if (!inviteToken || !orgId) {
-      setInviteInfoError('Invalid invite link.');
-      setInviteInfoLoading(false);
-      return;
-    }
+    if (inviteInvalid) return;
     (async () => {
       try {
         const res = await fetch(
@@ -66,7 +65,7 @@ export default function OrgSignupPage() {
         setInviteInfoLoading(false);
       }
     })();
-  }, [inviteToken, orgId]);
+  }, [inviteInvalid, inviteToken, orgId]);
 
   const handleJoin = async () => {
     const token = localStorage.getItem('accessToken');
