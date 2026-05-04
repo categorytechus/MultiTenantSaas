@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Layout from "../../components/Layout";
 import { apiFetch } from "../../src/lib/api";
@@ -92,6 +92,21 @@ export default function WebUrlPage() {
     }
   }, [router]);
 
+  const fetchUrls = useCallback(async () => {
+    try {
+      const res = await apiFetch<{ data: WebUrl[] }>("/web-urls");
+      if (res.success) {
+        setUrls(res.data.data);
+      } else {
+        alert(res.error || "Failed to load URLs");
+      }
+    } catch {
+      alert("Failed to load URLs");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     const initializePage = async () => {
       await fetchUrls();
@@ -126,7 +141,7 @@ export default function WebUrlPage() {
     };
 
     initializePage();
-  }, []);
+  }, [fetchUrls]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -134,21 +149,6 @@ export default function WebUrlPage() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, [searchTerm, startDate, endDate]);
-
-  const fetchUrls = async () => {
-    try {
-      const res = await apiFetch<{ data: WebUrl[] }>("/web-urls");
-      if (res.success) {
-        setUrls(res.data.data);
-      } else {
-        alert(res.error || "Failed to load URLs");
-      }
-    } catch {
-      alert("Failed to load URLs");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleUrlSubmit = () => {
     setShowUploadModal(true);
