@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Layout from '../../../components/Layout';
 import { apiFetch } from '../../../src/lib/api';
@@ -34,20 +34,7 @@ export default function OrganizationsPage() {
     return () => document.removeEventListener('mousedown', onDocMouseDown);
   }, []);
 
-  useEffect(() => {
-    const token = localStorage.getItem('accessToken');
-    if (!token) { router.push('/auth/signin'); return; }
-    (async () => {
-      const me = await apiFetch<{ data: { user_type: string } }>('/auth/me');
-      if (!me.success || me.data.data.user_type !== 'super_admin') {
-        router.push('/dashboard');
-        return;
-      }
-      await load();
-    })();
-  }, [router]);
-
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       let selectedOrgId = '';
@@ -64,7 +51,20 @@ export default function OrganizationsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    const token = localStorage.getItem('accessToken');
+    if (!token) { router.push('/auth/signin'); return; }
+    (async () => {
+      const me = await apiFetch<{ data: { user_type: string } }>('/auth/me');
+      if (!me.success || me.data.data.user_type !== 'super_admin') {
+        router.push('/dashboard');
+        return;
+      }
+      await load();
+    })();
+  }, [router, load]);
 
   const handleDelete = async (id: string, name: string) => {
     if (!confirm(`Delete organization "${name}"? This action cannot be undone.`)) return;

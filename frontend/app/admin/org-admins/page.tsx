@@ -94,7 +94,11 @@ export default function OrgAdminsPage() {
   }, [router]);
 
   useEffect(() => {
-    guardAndFetch();
+    const run = () => {
+      void guardAndFetch();
+    };
+    const timer = window.setTimeout(run, 0);
+    return () => window.clearTimeout(timer);
   }, [guardAndFetch]);
 
   // Delete: if deleteOrgId set → remove from that org only; otherwise full delete
