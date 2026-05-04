@@ -1,14 +1,28 @@
-import json
+"""
+Arq job: fetch history, retrieve RAG context, stream Gemini response via Redis.
+
+Flow:
+  1. Mark task running
+  2. Open DB connection with RLS set to org_id
+  3. Fetch full conversation history from chat_messages
+  4. Embed the user message and retrieve the top-k document chunks (RAG)
+  5. Call Gemini — tokens streamed token-by-token to Redis pub/sub
+  6. Save the completed assistant message + sources via /internal/*
+  7. Mark task succeeded and publish [done]
+"""
 from typing import Any
 
-import redis.asyncio as aioredis
 import httpx
+import psycopg
+import redis.asyncio as aioredis
+from pgvector.psycopg import register_vector_async
 
-from app.agents.chat import build_llm, run_agent
+from app.agents.chat import run_agent
 from app.config import settings
+from app.embeddings import embed_query
 from app.http import save_assistant_message, update_task
+from app.rag import retrieve_chunks
 from app.redis import publish, task_channel
-from app.streaming import RedisStreamer
 
 
 async def run_chat(
@@ -19,15 +33,6 @@ async def run_chat(
     session_id: str,
     message: str,
 ) -> None:
-    """
-    Arq job: run the chat agent and stream tokens back via Redis pub/sub.
-
-    Flow:
-      1. Mark task as running
-      2. Run LangChain agent — tokens published to Redis via RedisStreamer
-      3. Save assistant message via server internal API
-      4. Mark task as succeeded and signal [done]
-    """
     redis: aioredis.Redis = ctx["redis"]
     http: httpx.AsyncClient = ctx["http"]
     channel = task_channel(org_id, task_id)
@@ -35,11 +40,36 @@ async def run_chat(
     await update_task(http, task_id, org_id, "running")
 
     try:
-        streamer = RedisStreamer(redis, channel)
-        llm = build_llm(settings.ANTHROPIC_API_KEY, callbacks=[streamer])
-        response = await run_agent(llm, history=[], user_message=message)
+        db_url = settings.DATABASE_URL.replace("postgresql+psycopg://", "postgresql://")
 
-        await save_assistant_message(http, session_id, org_id, response)
+        async with await psycopg.AsyncConnection.connect(db_url) as conn:
+            await register_vector_async(conn)
+
+            async with conn.transaction():
+                await conn.execute(f"SET LOCAL app.current_org_id = '{org_id}'")
+
+                # Fetch full conversation (server saves the user message before enqueueing)
+                cur = await conn.execute(
+                    "SELECT role, content FROM chat_messages "
+                    "WHERE chat_id = %s ORDER BY created_at ASC",
+                    [session_id],
+                )
+                conversation = [{"role": r, "content": c} for r, c in await cur.fetchall()]
+
+                # RAG: embed the current user message and retrieve relevant chunks
+                query_vector = await embed_query(message)
+                chunks = await retrieve_chunks(conn, query_vector)
+
+        response = await run_agent(
+            api_key=settings.GEMINI_API_KEY,
+            conversation=conversation,
+            context_chunks=chunks,
+            redis=redis,
+            channel=channel,
+        )
+
+        sources = [{"filename": c["filename"], "score": round(c["score"], 4)} for c in chunks]
+        await save_assistant_message(http, session_id, org_id, response, sources)
         await update_task(http, task_id, org_id, "succeeded", output={"content": response})
         await publish(redis, channel, {"type": "done"})
 

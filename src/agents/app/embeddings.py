@@ -1,28 +1,29 @@
-"""OpenAI embeddings — mirrors src/server/app/integrations/embeddings.py."""
-import openai
+"""Local embeddings via fastembed — 384-dim, matches document_chunks.embedding column."""
+import asyncio
 
-from app.config import settings
+from fastembed import TextEmbedding
 
-MODEL = "text-embedding-3-small"
-DIMS = 1536
-BATCH = 64
+MODEL_NAME = "BAAI/bge-small-en-v1.5"
+DIMS = 384
+
+_model: TextEmbedding | None = None
 
 
-def _zeros() -> list[float]:
-    return [0.0] * DIMS
+def _get_model() -> TextEmbedding:
+    global _model
+    if _model is None:
+        _model = TextEmbedding(MODEL_NAME)
+    return _model
+
+
+def _embed_sync(texts: list[str]) -> list[list[float]]:
+    return [list(v) for v in _get_model().embed(texts)]
 
 
 async def embed_batch(texts: list[str]) -> list[list[float]]:
-    if not settings.OPENAI_API_KEY:
-        return [_zeros() for _ in texts]
+    return await asyncio.to_thread(_embed_sync, texts)
 
-    client = openai.AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-    results: list[list[float]] = []
-    for i in range(0, len(texts), BATCH):
-        resp = await client.embeddings.create(
-            model=MODEL,
-            input=texts[i : i + BATCH],
-            encoding_format="float",
-        )
-        results.extend(item.embedding for item in sorted(resp.data, key=lambda x: x.index))
-    return results
+
+async def embed_query(text: str) -> list[float]:
+    results = await embed_batch([text])
+    return results[0]

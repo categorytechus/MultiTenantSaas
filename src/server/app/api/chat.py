@@ -1,14 +1,19 @@
+import json
 from typing import Any, AsyncIterator
 from uuid import UUID
 
+from arq.connections import RedisSettings, create_pool
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.db import db_session, get_db
+from app.core.redis import get_redis, task_channel
 from app.core.tenancy import RequestContext, get_required_context
-from app.integrations.llm import llm
+from app.models.agent_task import AgentTaskType
+from app.services.agent_tasks import create_task
 from app.services.chat import (
     delete_session,
     get_or_create_session,
@@ -19,11 +24,6 @@ from app.services.chat import (
 )
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
-
-SYSTEM_PROMPT = (
-    "You are a helpful AI assistant for a document knowledge base. "
-    "Answer questions clearly and concisely based on the context provided."
-)
 
 
 class CreateSessionRequest(BaseModel):
@@ -136,44 +136,78 @@ async def stream_chat(
     ctx: RequestContext = Depends(get_required_context),
 ) -> StreamingResponse:
     """
-    SSE endpoint: saves user message, streams LLM tokens, saves assistant reply.
-    JWT passed via ?token= query param (EventSource limitation).
+    SSE endpoint for chat.
+
+    1. Saves the user message and creates an AgentTask record.
+    2. Subscribes to the Redis pub/sub channel for that task.
+    3. Enqueues `run_chat` on the Arq worker (subscribe-before-enqueue avoids
+       missing tokens if the worker is very fast).
+    4. Forwards token/done/error events from Redis to the browser as SSE.
+
+    JWT is passed via ?token= query param because EventSource doesn't support
+    custom headers.
     """
     if not message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
+    # Persist user message and create the task record in one transaction.
     async with db_session(ctx.org_id) as sess:
         chat_session = await get_or_create_session(sess, ctx.org_id, ctx.user_id, chat_id)
         await save_message(sess, chat_session.id, ctx.org_id, "user", message)
-        history = await get_session_messages(sess, chat_session.id, ctx.org_id)
-        session_id = chat_session.id
-        org_id = ctx.org_id
+        task = await create_task(
+            sess,
+            org_id=ctx.org_id,
+            user_id=ctx.user_id,
+            task_type=AgentTaskType.CHAT,
+            input_data={"session_id": str(chat_session.id), "message": message},
+        )
+        session_id = str(chat_session.id)
+        task_id = str(task.id)
+        org_id = str(ctx.org_id)
 
-    messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
-    for msg in history:
-        messages.append({"role": msg.role, "content": msg.content})
+    channel = task_channel(org_id, task_id)
 
     async def event_stream() -> AsyncIterator[str]:
-        tokens: list[str] = []
+        redis = await get_redis()
+        pubsub = redis.pubsub()
+
+        # Subscribe before enqueueing so no tokens are missed.
+        await pubsub.subscribe(channel)
+
         try:
-            async for token in llm.stream(messages):
+            arq = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
+            await arq.enqueue_job(
+                "run_chat",
+                task_id=task_id,
+                org_id=org_id,
+                session_id=session_id,
+                message=message,
+            )
+            await arq.aclose()
+
+            async for raw in pubsub.listen():
                 if await request.is_disconnected():
                     break
-                tokens.append(token)
-                yield f"data: {token}\n\n"
-        except Exception as e:
-            yield f"data: [ERROR] {str(e)}\n\n"
-            return
+                if raw["type"] != "message":
+                    continue
+                try:
+                    event = json.loads(raw["data"])
+                except (json.JSONDecodeError, KeyError):
+                    continue
 
-        assistant_content = "".join(tokens)
-        if assistant_content:
-            try:
-                async with db_session(org_id) as sess:
-                    await save_message(sess, session_id, org_id, "assistant", assistant_content)
-            except Exception:
-                pass
+                event_type = event.get("type")
+                if event_type == "token":
+                    yield f"data: {event['data']}\n\n"
+                elif event_type == "done":
+                    yield "data: [DONE]\n\n"
+                    break
+                elif event_type == "error":
+                    yield f"data: [ERROR] {event.get('data', 'Unknown error')}\n\n"
+                    break
 
-        yield "data: [DONE]\n\n"
+        finally:
+            await pubsub.unsubscribe(channel)
+            await pubsub.aclose()
 
     return StreamingResponse(
         event_stream(),

@@ -86,6 +86,44 @@ function FadeTitle({ title }: { title: string }) {
   )
 }
 
+// ── Typewriter for streaming assistant messages ───────────────────────────────
+
+function useTypewriter(fullText: string, enabled: boolean, charsPerSec = 50) {
+  const fullTextRef = useRef(fullText)
+  fullTextRef.current = fullText
+
+  const [pos, setPos] = useState(() => (enabled ? 0 : fullText.length))
+
+  useEffect(() => {
+    if (!enabled) return
+    const id = setInterval(() => {
+      setPos(p => {
+        const len = fullTextRef.current.length
+        return p < len ? p + 1 : p
+      })
+    }, 1000 / charsPerSec)
+    return () => clearInterval(id)
+  }, [enabled, charsPerSec])
+
+  return fullText.slice(0, pos)
+}
+
+function AssistantContent({ content, streaming }: { content: string; streaming?: boolean }) {
+  // Capture on mount: was this a live streaming message or a historical one?
+  // Historical messages (streaming=false at mount) skip the animation entirely.
+  const enabledRef = useRef(!!streaming)
+  const displayed = useTypewriter(content, enabledRef.current)
+  const showCursor = !!streaming || displayed.length < content.length
+
+  if (!content && streaming) return <ThinkingDots />
+  return (
+    <>
+      {displayed}
+      {showCursor && <span style={{ opacity: 0.5, marginLeft: 2 }}>▋</span>}
+    </>
+  )
+}
+
 // ── Chat bubble ───────────────────────────────────────────────────────────────
 
 function ChatBubble({ message }: { message: ChatMessage }) {
@@ -110,9 +148,9 @@ function ChatBubble({ message }: { message: ChatMessage }) {
           color: isUser ? '#1a1a1a' : '#fff',
           fontSize: 13.5, lineHeight: 1.6, wordBreak: 'break-word', whiteSpace: 'pre-wrap',
         }}>
-          {message.streaming && !message.content
-            ? <ThinkingDots />
-            : <>{message.content}{message.streaming && <span style={{ opacity: 0.5, marginLeft: 2 }}>▋</span>}</>}
+          {isUser
+            ? message.content
+            : <AssistantContent content={message.content} streaming={message.streaming} />}
         </div>
         <div style={{
           fontSize: 10.5, color: '#bbb', marginTop: 4,

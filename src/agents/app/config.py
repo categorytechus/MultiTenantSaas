@@ -1,9 +1,15 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Resolves to the project root regardless of the working directory the worker is
+# launched from (src/agents/ via Makefile).
+_ENV_FILE = Path(__file__).parents[3] / ".env"
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_ENV_FILE,
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore",
@@ -13,7 +19,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+psycopg://postgres:postgres@localhost:5432/multitenant"
     SERVER_URL: str = "http://localhost:8000"
     SECRET_KEY: str = "change-me-in-production"
-    ANTHROPIC_API_KEY: str = ""
+    GEMINI_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
     ENVIRONMENT: str = "development"
 
