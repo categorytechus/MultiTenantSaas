@@ -13,7 +13,7 @@ function uid() { return Math.random().toString(36).slice(2) }
 
 function generateTitle(msg: string): string {
   const clean = msg.trim().replace(/\s+/g, ' ')
-  return clean.length > 50 ? clean.slice(0, 50) + '…' : clean
+  return clean.length > 52 ? clean.slice(0, 52) + '…' : clean
 }
 
 function timeAgo(iso: string): string {
@@ -24,14 +24,64 @@ function timeAgo(iso: string): string {
   return `${Math.floor(d / 86_400_000)}d ago`
 }
 
-// ── Thinking animation ────────────────────────────────────────────────────────
+// ── Thinking dots ─────────────────────────────────────────────────────────────
 
 function ThinkingDots() {
   return (
     <span style={{ display: 'inline-flex', gap: 3, alignItems: 'center', padding: '2px 0' }}>
-      <span className="thinking-dot" />
-      <span className="thinking-dot" />
-      <span className="thinking-dot" />
+      <span className="thinking-dot" /><span className="thinking-dot" /><span className="thinking-dot" />
+    </span>
+  )
+}
+
+// ── Typewriter title (character-by-character reveal) ──────────────────────────
+
+function TypewriterText({ text, speed = 26 }: { text: string; speed?: number }) {
+  const [displayed, setDisplayed] = useState('')
+
+  useEffect(() => {
+    setDisplayed('')
+    if (!text) return
+    let i = 0
+    const t = setInterval(() => {
+      i += 1
+      setDisplayed(text.slice(0, i))
+      if (i >= text.length) clearInterval(t)
+    }, speed)
+    return () => clearInterval(t)
+  }, [text, speed])
+
+  return <>{displayed}</>
+}
+
+// ── Library title with fade-swap on change ────────────────────────────────────
+
+function FadeTitle({ title }: { title: string }) {
+  const [displayed, setDisplayed] = useState(title)
+  const [fading, setFading] = useState(false)
+  const prevRef = useRef(title)
+
+  useEffect(() => {
+    if (title === prevRef.current) return
+    setFading(true)
+    const t = setTimeout(() => {
+      setDisplayed(title)
+      prevRef.current = title
+      setFading(false)
+    }, 140)
+    return () => clearTimeout(t)
+  }, [title])
+
+  return (
+    <span style={{
+      opacity: fading ? 0 : 1,
+      transition: 'opacity 0.14s ease',
+      display: 'block',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+    }}>
+      {displayed}
     </span>
   )
 }
@@ -62,8 +112,7 @@ function ChatBubble({ message }: { message: ChatMessage }) {
         }}>
           {message.streaming && !message.content
             ? <ThinkingDots />
-            : <>{message.content}{message.streaming && <span style={{ opacity: 0.5, marginLeft: 2 }}>▋</span>}</>
-          }
+            : <>{message.content}{message.streaming && <span style={{ opacity: 0.5, marginLeft: 2 }}>▋</span>}</>}
         </div>
         <div style={{
           fontSize: 10.5, color: '#bbb', marginTop: 4,
@@ -84,7 +133,7 @@ function ChatBubble({ message }: { message: ChatMessage }) {
   )
 }
 
-// ── Session library item ──────────────────────────────────────────────────────
+// ── Session item ──────────────────────────────────────────────────────────────
 
 interface SessionItemProps {
   session: ChatSession
@@ -101,14 +150,11 @@ function SessionItem({ session, isActive, disabled, onSelect, onRename, onShare,
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(session.title || 'New Chat')
   const menuRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
 
-  // Keep draft in sync when title updates externally
   useEffect(() => {
     if (!editing) setDraft(session.title || 'New Chat')
   }, [session.title, editing])
 
-  // Close menu on outside click
   useEffect(() => {
     if (!menuOpen) return
     const handler = (e: MouseEvent) => {
@@ -118,21 +164,12 @@ function SessionItem({ session, isActive, disabled, onSelect, onRename, onShare,
     return () => document.removeEventListener('mousedown', handler)
   }, [menuOpen])
 
-  // Focus + select-all when edit starts
-  useEffect(() => {
-    if (editing) setTimeout(() => inputRef.current?.select(), 10)
-  }, [editing])
-
   const confirmRename = () => {
     const t = draft.trim()
     if (t && t !== (session.title || 'New Chat')) onRename(t)
     setEditing(false)
   }
-
-  const cancelRename = () => {
-    setDraft(session.title || 'New Chat')
-    setEditing(false)
-  }
+  const cancelRename = () => { setDraft(session.title || 'New Chat'); setEditing(false) }
 
   return (
     <div
@@ -140,25 +177,21 @@ function SessionItem({ session, isActive, disabled, onSelect, onRename, onShare,
       onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLDivElement).style.backgroundColor = '#f0f0f0' }}
       onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLDivElement).style.backgroundColor = 'transparent' }}
       style={{
-        padding: '9px 10px',
-        borderRadius: 7,
+        padding: '9px 10px', borderRadius: 7, marginBottom: 2,
         backgroundColor: isActive ? '#ede9fe' : 'transparent',
         border: `1px solid ${isActive ? '#c4b5fd' : 'transparent'}`,
         cursor: editing || disabled ? 'default' : 'pointer',
-        marginBottom: 2,
-        transition: 'background-color 0.1s',
-        position: 'relative',
+        transition: 'background-color 0.1s', position: 'relative',
       }}
     >
       {editing ? (
-        /* ── Inline title editor ── */
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }} onClick={e => e.stopPropagation()}>
           <input
-            ref={inputRef}
             value={draft}
             onChange={e => setDraft(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') confirmRename(); if (e.key === 'Escape') cancelRename() }}
             onBlur={confirmRename}
+            autoFocus
             style={{
               flex: 1, border: '1px solid #c4b5fd', borderRadius: 4,
               padding: '2px 6px', fontSize: 12.5, outline: 'none',
@@ -169,30 +202,17 @@ function SessionItem({ session, isActive, disabled, onSelect, onRename, onShare,
           <button onClick={cancelRename} style={iconBtn('#999')}><X size={12} /></button>
         </div>
       ) : (
-        /* ── Session row ── */
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{
-              fontSize: 12.5, fontWeight: isActive ? 500 : 400, color: '#1a1a1a',
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.4,
-            }}>
-              {session.title || 'New Chat'}
+            <div style={{ fontSize: 12.5, fontWeight: isActive ? 500 : 400, color: '#1a1a1a', lineHeight: 1.4 }}>
+              <FadeTitle title={session.title || 'New Chat'} />
             </div>
-            <div style={{ fontSize: 10.5, color: '#aaa', marginTop: 1 }}>
-              {timeAgo(session.created_at)}
-            </div>
+            <div style={{ fontSize: 10.5, color: '#aaa', marginTop: 1 }}>{timeAgo(session.created_at)}</div>
           </div>
-
-          {/* ── Context menu ── */}
           <div ref={menuRef} style={{ position: 'relative', flexShrink: 0 }}>
-            <button
-              onClick={e => { e.stopPropagation(); setMenuOpen(v => !v) }}
-              style={iconBtn('#bbb')}
-              title="Options"
-            >
+            <button onClick={e => { e.stopPropagation(); setMenuOpen(v => !v) }} style={iconBtn('#bbb')} title="Options">
               <MoreHorizontal size={13} />
             </button>
-
             {menuOpen && (
               <div style={{
                 position: 'absolute', right: 0, top: '100%', marginTop: 4,
@@ -200,22 +220,13 @@ function SessionItem({ session, isActive, disabled, onSelect, onRename, onShare,
                 borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.1)',
                 zIndex: 200, width: 140, overflow: 'hidden',
               }}>
-                <button
-                  onClick={e => { e.stopPropagation(); setMenuOpen(false); setEditing(true) }}
-                  style={dropItem()}
-                >
+                <button onClick={e => { e.stopPropagation(); setMenuOpen(false); setEditing(true) }} style={dropItem()}>
                   <Edit2 size={12} /><span>Rename</span>
                 </button>
-                <button
-                  onClick={e => { e.stopPropagation(); setMenuOpen(false); onShare() }}
-                  style={dropItem()}
-                >
+                <button onClick={e => { e.stopPropagation(); setMenuOpen(false); onShare() }} style={dropItem()}>
                   <Share2 size={12} /><span>Share link</span>
                 </button>
-                <button
-                  onClick={e => { e.stopPropagation(); setMenuOpen(false); onDelete() }}
-                  style={dropItem('#e53e3e')}
-                >
+                <button onClick={e => { e.stopPropagation(); setMenuOpen(false); onDelete() }} style={dropItem('#e53e3e')}>
                   <Trash2 size={12} /><span>Delete</span>
                 </button>
               </div>
@@ -239,8 +250,6 @@ const dropItem = (color = '#333'): React.CSSProperties => ({
   fontFamily: "'DM Sans', sans-serif",
 })
 
-// ── API message shape ─────────────────────────────────────────────────────────
-
 interface ApiMsg { id: string; role: string; content: string; created_at: string }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
@@ -255,10 +264,14 @@ export default function ChatPage() {
   const [error, setError] = useState<string | null>(null)
   const [input, setInput] = useState('')
   const [shareToast, setShareToast] = useState(false)
+  // Tracks the title currently being type-written in the chat header
+  const [animatingTitle, setAnimatingTitle] = useState<{ id: string; title: string } | null>(null)
 
   const endRef = useRef<HTMLDivElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const cleanupRef = useRef<(() => void) | null>(null)
+  // Prevents the messages-load effect from overwriting optimistic messages on new-session create
+  const skipNextMsgLoadRef = useRef(false)
 
   // ── Load sessions on mount ──────────────────────────────────────────────────
   useEffect(() => {
@@ -271,9 +284,16 @@ export default function ChatPage() {
     })
   }, [])
 
-  // ── Load messages when active session changes ───────────────────────────────
+  // ── Reload messages when switching sessions ─────────────────────────────────
   useEffect(() => {
     if (!activeId) { setMessages([]); return }
+
+    // Skip reload when we just created the session and added messages optimistically
+    if (skipNextMsgLoadRef.current) {
+      skipNextMsgLoadRef.current = false
+      return
+    }
+
     setLoadingMsgs(true)
     api.get<ApiMsg[]>(`/chat/sessions/${activeId}/messages`).then(({ data }) => {
       if (data) {
@@ -302,6 +322,7 @@ export default function ChatPage() {
     setStreaming(false)
     setError(null)
     setInput('')
+    setAnimatingTitle(null)
     if (taRef.current) taRef.current.style.height = 'auto'
   }, [])
 
@@ -311,6 +332,7 @@ export default function ChatPage() {
     setActiveId(id)
     setStreaming(false)
     setError(null)
+    setAnimatingTitle(null)
   }, [streaming, activeId])
 
   const handleSend = useCallback(async () => {
@@ -320,16 +342,33 @@ export default function ChatPage() {
     if (taRef.current) taRef.current.style.height = 'auto'
     setError(null)
 
-    // Lazy session creation: title = first 50 chars of message (dummy AI title)
     let sid = activeId
+
     if (!sid) {
-      const { data, error: err } = await api.post<ChatSession>('/chat/sessions', {
-        title: generateTitle(text),
-      })
+      // Create session with placeholder title — real title arrives asynchronously below
+      const { data, error: err } = await api.post<ChatSession>('/chat/sessions', { title: 'New Chat' })
       if (err || !data) { setError(err ?? 'Failed to start chat'); return }
+
       sid = data.id
+      // Mark: skip the next messages-load triggered by setActiveId so optimistic bubbles survive
+      skipNextMsgLoadRef.current = true
       setActiveId(data.id)
       setSessions(prev => [data, ...prev])
+
+      // Simulate async AI title generation (~1 s delay)
+      const capturedSid = data.id
+      const capturedText = text
+      const delay = 900 + Math.random() * 400
+      setTimeout(async () => {
+        const aiTitle = generateTitle(capturedText)
+        const { error: titleErr } = await api.patch<ChatSession>(`/chat/sessions/${capturedSid}`, { title: aiTitle })
+        if (!titleErr) {
+          setSessions(prev => prev.map(s => s.id === capturedSid ? { ...s, title: aiTitle } : s))
+          // Trigger typewriter animation in the header
+          setAnimatingTitle({ id: capturedSid, title: aiTitle })
+          setTimeout(() => setAnimatingTitle(null), aiTitle.length * 28 + 400)
+        }
+      }, delay)
     }
 
     const userMsgId = uid()
@@ -344,19 +383,15 @@ export default function ChatPage() {
     cleanupRef.current = createSSE(
       `/api/chat/sessions/${sid}/stream?message=${encodeURIComponent(text)}`,
       {
-        onToken: t => setMessages(prev => prev.map(m =>
-          m.id === asstMsgId ? { ...m, content: m.content + t } : m)),
+        onToken: t => setMessages(prev =>
+          prev.map(m => m.id === asstMsgId ? { ...m, content: m.content + t } : m)),
         onDone: () => {
-          setMessages(prev => prev.map(m =>
-            m.id === asstMsgId ? { ...m, streaming: false } : m))
-          setStreaming(false)
-          cleanupRef.current = null
+          setMessages(prev => prev.map(m => m.id === asstMsgId ? { ...m, streaming: false } : m))
+          setStreaming(false); cleanupRef.current = null
         },
         onError: () => {
           setMessages(prev => prev.map(m =>
-            m.id === asstMsgId
-              ? { ...m, content: m.content || 'Sorry, an error occurred. Please try again.', streaming: false }
-              : m))
+            m.id === asstMsgId ? { ...m, content: m.content || 'Sorry, an error occurred. Please try again.', streaming: false } : m))
           setStreaming(false)
           setError('Connection error. Please try again.')
           cleanupRef.current = null
@@ -387,34 +422,37 @@ export default function ChatPage() {
 
   const activeSession = sessions.find(s => s.id === activeId) ?? null
 
+  // ── Derived header title ────────────────────────────────────────────────────
+  const headerTitleNode = (() => {
+    if (animatingTitle?.id === activeId) {
+      return <TypewriterText text={animatingTitle.title} speed={26} />
+    }
+    if (activeSession?.title && activeSession.title !== 'New Chat') {
+      return <>{activeSession.title}</>
+    }
+    if (activeId) return <>New Chat</>
+    return <>AI Assistant</>
+  })()
+
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
     <div style={{ display: 'flex', height: '100%', fontFamily: "'DM Sans', sans-serif", backgroundColor: '#fff' }}>
 
-      {/* ═══════════════════ Library panel ═══════════════════ */}
+      {/* ════════════ Library panel ════════════ */}
       <div style={{
         width: 252, flexShrink: 0, display: 'flex', flexDirection: 'column',
         height: '100%', borderRight: '1px solid #f0f0f0', backgroundColor: '#fafafa',
       }}>
-        {/* Header */}
         <div style={{ padding: '14px 12px 10px', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
           <div style={{
             fontSize: 10.5, fontWeight: 700, color: '#aaa',
             textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10,
-          }}>
-            Chat History
-          </div>
+          }}>Chat History</div>
           <button
             onClick={startNewChat}
-            onMouseEnter={e => {
-              const b = e.currentTarget as HTMLButtonElement
-              b.style.borderColor = '#7c3aed'; b.style.color = '#7c3aed'
-            }}
-            onMouseLeave={e => {
-              const b = e.currentTarget as HTMLButtonElement
-              b.style.borderColor = '#ddd'; b.style.color = '#666'
-            }}
+            onMouseEnter={e => { const b = e.currentTarget; b.style.borderColor = '#7c3aed'; b.style.color = '#7c3aed' }}
+            onMouseLeave={e => { const b = e.currentTarget; b.style.borderColor = '#ddd'; b.style.color = '#666' }}
             style={{
               width: '100%', padding: '7px 10px', borderRadius: 7,
               border: '1.5px dashed #ddd', backgroundColor: 'transparent',
@@ -428,43 +466,34 @@ export default function ChatPage() {
           </button>
         </div>
 
-        {/* Session list */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '6px 8px' }}>
           {loadingSessions ? (
-            <div style={{ textAlign: 'center', paddingTop: 24 }}>
-              <span style={{
-                width: 16, height: 16, borderRadius: '50%',
-                border: '2px solid #eee', borderTopColor: '#7c3aed',
-                display: 'inline-block', animation: 'spin 0.7s linear infinite',
-              }} />
+            <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 24 }}>
+              <span style={{ width: 16, height: 16, borderRadius: '50%', border: '2px solid #eee', borderTopColor: '#7c3aed', display: 'inline-block', animation: 'spin 0.7s linear infinite' }} />
             </div>
           ) : sessions.length === 0 ? (
-            <div style={{ textAlign: 'center', color: '#ccc', fontSize: 12.5, paddingTop: 24 }}>
-              No chats yet
-            </div>
-          ) : (
-            sessions.map(s => (
-              <SessionItem
-                key={s.id}
-                session={s}
-                isActive={s.id === activeId}
-                disabled={streaming}
-                onSelect={() => selectSession(s.id)}
-                onRename={title => handleRename(s.id, title)}
-                onShare={() => handleShare(s.id)}
-                onDelete={() => handleDelete(s.id)}
-              />
-            ))
-          )}
+            <div style={{ textAlign: 'center', color: '#ccc', fontSize: 12.5, paddingTop: 24 }}>No chats yet</div>
+          ) : sessions.map(s => (
+            <SessionItem
+              key={s.id}
+              session={s}
+              isActive={s.id === activeId}
+              disabled={streaming}
+              onSelect={() => selectSession(s.id)}
+              onRename={title => handleRename(s.id, title)}
+              onShare={() => handleShare(s.id)}
+              onDelete={() => handleDelete(s.id)}
+            />
+          ))}
         </div>
       </div>
 
-      {/* ═══════════════════ Chat panel ═══════════════════════ */}
+      {/* ════════════ Chat panel ════════════════ */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
 
         {/* Header */}
         <div style={{
-          padding: '12px 22px', borderBottom: '1px solid #f0f0f0',
+          padding: '11px 22px', borderBottom: '1px solid #f0f0f0',
           display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
         }}>
           <div style={{
@@ -475,8 +504,8 @@ export default function ChatPage() {
             <MessageSquare size={14} style={{ color: 'white' }} />
           </div>
           <div>
-            <div style={{ fontSize: 13.5, fontWeight: 600, color: '#1a1a1a' }}>
-              {activeSession?.title ?? (activeId ? '…' : 'AI Assistant')}
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: '#1a1a1a', lineHeight: 1.3 }}>
+              {headerTitleNode}
             </div>
             <div style={{ fontSize: 11, color: '#aaa' }}>
               {activeSession
@@ -490,29 +519,16 @@ export default function ChatPage() {
         <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
           {loadingMsgs ? (
             <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 40 }}>
-              <span style={{
-                width: 18, height: 18, borderRadius: '50%',
-                border: '2px solid #eee', borderTopColor: '#7c3aed',
-                display: 'inline-block', animation: 'spin 0.7s linear infinite',
-              }} />
+              <span style={{ width: 18, height: 18, borderRadius: '50%', border: '2px solid #eee', borderTopColor: '#7c3aed', display: 'inline-block', animation: 'spin 0.7s linear infinite' }} />
             </div>
           ) : messages.length === 0 ? (
-            <div style={{
-              display: 'flex', flexDirection: 'column', alignItems: 'center',
-              justifyContent: 'center', height: '100%', gap: 10,
-            }}>
-              <div style={{
-                width: 48, height: 48, borderRadius: 14,
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 10 }}>
+              <div style={{ width: 48, height: 48, borderRadius: 14, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <Zap size={20} style={{ color: 'white' }} />
               </div>
-              <p style={{ fontSize: 15, fontWeight: 600, color: '#1a1a1a', margin: 0 }}>
-                How can I help you?
-              </p>
+              <p style={{ fontSize: 15, fontWeight: 600, color: '#1a1a1a', margin: 0 }}>How can I help you?</p>
               <p style={{ fontSize: 13, color: '#888', textAlign: 'center', maxWidth: 340, margin: 0 }}>
-                Ask anything about your documents. I'll search your knowledge base and answer accurately.
+                Ask anything about your documents.
               </p>
             </div>
           ) : (
@@ -523,24 +539,24 @@ export default function ChatPage() {
           )}
         </div>
 
-        {/* Error bar */}
+        {/* Error */}
         {error && (
-          <div style={{
-            margin: '0 24px 10px', padding: '7px 12px',
-            backgroundColor: '#fff5f5', border: '1px solid #fed7d7',
-            borderRadius: 7, fontSize: 12.5, color: '#e53e3e', flexShrink: 0,
-          }}>
+          <div style={{ margin: '0 24px 10px', padding: '7px 12px', backgroundColor: '#fff5f5', border: '1px solid #fed7d7', borderRadius: 7, fontSize: 12.5, color: '#e53e3e', flexShrink: 0 }}>
             {error}
           </div>
         )}
 
         {/* Input */}
-        <div style={{ padding: '12px 22px 18px', borderTop: '1px solid #f0f0f0', flexShrink: 0 }}>
+        <div style={{ padding: '10px 22px 16px', borderTop: '1px solid #f0f0f0', flexShrink: 0 }}>
           <div style={{
-            display: 'flex', gap: 9, alignItems: 'flex-end',
-            backgroundColor: '#fafafa', border: '1px solid #e5e5e5',
-            borderRadius: 12, padding: '9px 11px',
-          }}>
+            display: 'flex', alignItems: 'center', gap: 8,
+            backgroundColor: '#f8f8f8', border: '1.5px solid #e5e5e5',
+            borderRadius: 12, padding: '0 6px 0 14px',
+            transition: 'border-color 0.15s',
+          }}
+            onFocusCapture={e => (e.currentTarget as HTMLDivElement).style.borderColor = '#7c3aed'}
+            onBlurCapture={e => (e.currentTarget as HTMLDivElement).style.borderColor = '#e5e5e5'}
+          >
             <textarea
               ref={taRef}
               value={input}
@@ -556,6 +572,7 @@ export default function ChatPage() {
               disabled={streaming}
               style={{
                 flex: 1, border: 'none', outline: 'none', resize: 'none',
+                padding: '10px 0', margin: 0,
                 fontSize: 13.5, lineHeight: 1.5, backgroundColor: 'transparent',
                 color: '#1a1a1a', fontFamily: "'DM Sans', sans-serif",
                 maxHeight: 160, overflowY: 'auto',
@@ -565,8 +582,8 @@ export default function ChatPage() {
               onClick={handleSend}
               disabled={!input.trim() || streaming}
               style={{
-                width: 33, height: 33, borderRadius: 8, border: 'none', flexShrink: 0,
-                backgroundColor: !input.trim() || streaming ? '#e5e5e5' : '#1a1a1a',
+                width: 32, height: 32, borderRadius: 8, border: 'none', flexShrink: 0,
+                backgroundColor: !input.trim() || streaming ? '#e8e8e8' : '#1a1a1a',
                 cursor: !input.trim() || streaming ? 'not-allowed' : 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 color: !input.trim() || streaming ? '#aaa' : 'white',
@@ -575,14 +592,16 @@ export default function ChatPage() {
             >
               {streaming
                 ? <span style={{ width: 13, height: 13, borderRadius: '50%', border: '2px solid #bbb', borderTopColor: 'transparent', display: 'inline-block', animation: 'spin 0.7s linear infinite' }} />
-                : <Send size={13} />
-              }
+                : <Send size={13} />}
             </button>
           </div>
+          <p style={{ fontSize: 11, color: '#ccc', textAlign: 'center', marginTop: 6 }}>
+            Responses are generated from your document knowledge base.
+          </p>
         </div>
       </div>
 
-      {/* ── Share toast ── */}
+      {/* Share toast */}
       {shareToast && (
         <div style={{
           position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)',

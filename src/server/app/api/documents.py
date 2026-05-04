@@ -1,3 +1,4 @@
+import json
 from typing import Any
 from uuid import UUID
 
@@ -20,6 +21,7 @@ from app.services.documents import (
 )
 from app.services.ingestion import chunk_text, parse_document
 from app.integrations.embeddings import embed_batch
+from app.integrations.llm import generate_document_metadata
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 logger = get_logger(__name__)
@@ -36,9 +38,18 @@ class DocumentResponse(BaseModel):
     s3_key: str
     created_at: str
     download_url: str | None = None
+    extracted_title: str | None = None
+    summary: str | None = None
+    keywords: list[str] | None = None
 
 
 def _doc_to_response(doc, download_url: str | None = None) -> dict:
+    kw = doc.keywords
+    if isinstance(kw, str):
+        try:
+            kw = json.loads(kw)
+        except Exception:
+            kw = None
     return {
         "id": str(doc.id),
         "filename": doc.filename,
@@ -48,6 +59,9 @@ def _doc_to_response(doc, download_url: str | None = None) -> dict:
         "s3_key": doc.s3_key,
         "created_at": doc.created_at.isoformat(),
         "download_url": download_url,
+        "extracted_title": doc.extracted_title,
+        "summary": doc.summary,
+        "keywords": kw if isinstance(kw, list) else None,
     }
 
 
@@ -56,9 +70,10 @@ async def _ingest_document_bg(
     org_id: UUID,
     body: bytes,
     mime_type: str | None,
+    filename: str = "document",
 ) -> None:
     """
-    Background ingestion: parse → chunk → embed → insert chunks → mark ready.
+    Background ingestion: parse → chunk → embed → generate metadata → insert chunks → mark ready.
     Runs after the upload transaction has committed, so all DB writes are fresh sessions.
     """
     from sqlalchemy import text as sa_text
@@ -83,7 +98,10 @@ async def _ingest_document_bg(
         chunks = chunk_text(text)
         logger.info("Chunked document for ingestion", doc_id=str(document_id), chunk_count=len(chunks))
 
-        embeddings = await embed_batch(chunks)
+        embeddings, metadata = await _run_parallel(
+            embed_batch(chunks),
+            generate_document_metadata(text, filename),
+        )
 
         async with db_session(org_id) as sess:
             for i, (content, embedding) in enumerate(zip(chunks, embeddings)):
@@ -96,8 +114,18 @@ async def _ingest_document_bg(
                 ))
             await sess.flush()
             await sess.execute(
-                sa_text("UPDATE documents SET status = :s WHERE id = CAST(:id AS uuid)"),
-                {"s": DocumentStatus.READY.value, "id": str(document_id)},
+                sa_text(
+                    "UPDATE documents SET status = :s, extracted_title = :title, "
+                    "summary = :summary, keywords = CAST(:keywords AS json) "
+                    "WHERE id = CAST(:id AS uuid)"
+                ),
+                {
+                    "s": DocumentStatus.READY.value,
+                    "id": str(document_id),
+                    "title": metadata.get("title") or None,
+                    "summary": metadata.get("summary") or None,
+                    "keywords": json.dumps(metadata.get("keywords") or []),
+                },
             )
 
         logger.info("Ingestion complete", doc_id=str(document_id), chunks=len(chunks))
@@ -107,7 +135,12 @@ async def _ingest_document_bg(
         await _set_status(DocumentStatus.FAILED.value)
 
 
-@router.get("/", response_model=list[DocumentResponse])
+async def _run_parallel(*coros):
+    import asyncio
+    return await asyncio.gather(*coros)
+
+
+@router.get("", response_model=list[DocumentResponse])
 async def list_docs(
     ctx: RequestContext = authorize("documents:read"),
     session: AsyncSession = Depends(get_db),
@@ -116,7 +149,7 @@ async def list_docs(
     return [_doc_to_response(d) for d in docs]
 
 
-@router.post("/", status_code=202)
+@router.post("", status_code=202)
 async def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
@@ -161,7 +194,7 @@ async def upload_document(
 
     await upload(s3_key, body, tags={"org_id": str(ctx.org_id), "document_id": str(doc_id)})
 
-    background_tasks.add_task(_ingest_document_bg, doc_id, ctx.org_id, body, mime_type)
+    background_tasks.add_task(_ingest_document_bg, doc_id, ctx.org_id, body, mime_type, filename)
 
     return {"task_id": None, "document": doc_snapshot}
 

@@ -48,6 +48,9 @@ export interface Document {
   created_at: string
   download_url?: string | null
   org_id?: string
+  extracted_title?: string | null
+  summary?: string | null
+  keywords?: string[] | null
   // Derived/compat
   file_type: string      // alias for mime_type (set in hook)
   size: number           // alias for size_bytes (set in hook)

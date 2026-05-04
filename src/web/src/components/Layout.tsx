@@ -21,7 +21,6 @@ function getBreadcrumb(pathname: string): { section: string; page: string } {
   if (pathname === '/dashboard') return { section: 'Home', page: 'Dashboard' }
   if (pathname === '/documents') return { section: 'Knowledge Base', page: 'Documents' }
   if (pathname === '/ai_assistant') return { section: 'Home', page: 'AI Assistant' }
-  if (pathname === '/agents') return { section: 'Home', page: 'Text-to-SQL Agent' }
   if (pathname === '/users') return { section: 'User Management', page: 'Users' }
   if (pathname === '/users/create') return { section: 'User Management', page: 'Create User' }
   if (pathname === '/users/invite') return { section: 'User Management', page: 'Invite User' }
@@ -195,12 +194,6 @@ export function Layout({ children, user }: LayoutProps) {
         {navItem('/documents', 'Documents',
           <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
             <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-          </svg>
-        )}
-        {navItem('/agents', 'Text-to-SQL',
-          <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-            <ellipse cx="12" cy="5" rx="9" ry="3" /><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
-            <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
           </svg>
         )}
       </div>

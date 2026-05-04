@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 import sqlalchemy as sa
 from pgvector.sqlalchemy import Vector
 from sqlmodel import Column, Field, SQLModel
+from sqlalchemy import JSON
 
 
 class DocumentStatus(str, Enum):
@@ -27,6 +28,9 @@ class Document(SQLModel, table=True):
     status: str = Field(default=DocumentStatus.PROCESSING.value)
     uploaded_by: UUID | None = Field(default=None, foreign_key="users.id")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    extracted_title: str | None = Field(default=None, sa_column=Column(sa.Text, nullable=True))
+    summary: str | None = Field(default=None, sa_column=Column(sa.Text, nullable=True))
+    keywords: Optional[Any] = Field(default=None, sa_column=Column(JSON, nullable=True))
 
 
 class DocumentChunk(SQLModel, table=True):

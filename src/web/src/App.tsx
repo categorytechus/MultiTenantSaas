@@ -10,7 +10,6 @@ import SignupPage from './routes/signup'
 import DashboardPage from './routes/dashboard'
 import DocumentsPage from './routes/documents'
 import ChatPage from './routes/chat'
-import AgentsPage from './routes/agents'
 import UsersPage from './routes/users'
 import CreateUserPage from './routes/users/create'
 import InviteUserPage from './routes/users/invite'
@@ -71,7 +70,6 @@ export default function App() {
           <Route path="/documents" element={<ProtectedPage><DocumentsPage /></ProtectedPage>} />
           <Route path="/ai_assistant" element={<ProtectedPage><ChatPage /></ProtectedPage>} />
           <Route path="/chat" element={<Navigate to="/ai_assistant" replace />} />
-          <Route path="/agents" element={<ProtectedPage><AgentsPage /></ProtectedPage>} />
           <Route path="/users" element={<ProtectedPage><UsersPage /></ProtectedPage>} />
           <Route path="/users/create" element={<ProtectedPage><CreateUserPage /></ProtectedPage>} />
           <Route path="/users/invite" element={<ProtectedPage><InviteUserPage /></ProtectedPage>} />

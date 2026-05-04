@@ -9,17 +9,17 @@ export function useDocuments(params?: {
   from?: string
   to?: string
 }) {
-  const query = new URLSearchParams()
-  if (params?.page) query.set('page', String(params.page))
-  if (params?.size) query.set('size', String(params.size))
-  if (params?.search) query.set('search', params.search)
-  if (params?.from) query.set('from', params.from)
-  if (params?.to) query.set('to', params.to)
+  const sp = new URLSearchParams()
+  if (params?.page) sp.set('page', String(params.page))
+  if (params?.size) sp.set('size', String(params.size))
+  if (params?.search) sp.set('search', params.search)
+  if (params?.from) sp.set('from', params.from)
+  if (params?.to) sp.set('to', params.to)
 
-  const qs = query.toString()
+  const qs = sp.toString()
   const path = `/documents${qs ? `?${qs}` : ''}`
 
-  return useQuery({
+  const query = useQuery({
     queryKey: ['documents', params],
     queryFn: async () => {
       const { data, error } = await api.get<DocumentsResponse | Document[]>(path)
@@ -43,6 +43,7 @@ export function useDocuments(params?: {
       return { ...resp, items: (resp.items ?? []).map(normalize) }
     },
   })
+  return query
 }
 
 export function useUploadDocument() {

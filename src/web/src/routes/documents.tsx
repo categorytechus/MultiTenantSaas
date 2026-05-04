@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback } from 'react'
-import { Upload, Search, Trash2, Eye, FileText, Image, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Upload, Search, Trash2, Eye, FileText, Image, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react'
 import { useDocuments, useUploadDocument, useDeleteDocument } from '../hooks/useDocuments'
 import { Document } from '../types'
 import { Button } from '../components/ui/Button'
@@ -9,6 +9,8 @@ import { Modal } from '../components/ui/Modal'
 import { Spinner } from '../components/ui/Spinner'
 
 const PAGE_SIZE = 10
+
+const spinKeyframes = `@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -221,7 +223,7 @@ export default function DocumentsPage() {
   const [uploadOpen, setUploadOpen] = useState(false)
   const [deleteDoc, setDeleteDoc] = useState<Document | null>(null)
 
-  const { data, isLoading, error } = useDocuments({
+  const { data, isLoading, error, refetch, isFetching } = useDocuments({
     page,
     size: PAGE_SIZE,
     search: search || undefined,
@@ -241,6 +243,7 @@ export default function DocumentsPage() {
 
   return (
     <div style={{ padding: '28px 32px', maxWidth: 1200, fontFamily: "'DM Sans', sans-serif" }}>
+      <style>{spinKeyframes}</style>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
         <div>
@@ -251,10 +254,21 @@ export default function DocumentsPage() {
             Manage and search your knowledge base documents.
           </p>
         </div>
-        <Button onClick={() => setUploadOpen(true)}>
-          <Upload size={14} />
-          Upload document
-        </Button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Button
+            variant="secondary"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            title="Refresh document statuses"
+          >
+            <RefreshCw size={14} style={{ animation: isFetching ? 'spin 1s linear infinite' : 'none' }} />
+            Refresh
+          </Button>
+          <Button onClick={() => setUploadOpen(true)}>
+            <Upload size={14} />
+            Upload document
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -376,11 +390,27 @@ export default function DocumentsPage() {
                 >
                   {/* Filename */}
                   <td style={{ padding: '11px 14px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <FileText size={14} style={{ color: '#aaa', flexShrink: 0 }} />
-                      <span style={{ fontSize: 13, color: '#1a1a1a', fontWeight: 500, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {doc.filename}
-                      </span>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                      <FileText size={14} style={{ color: '#aaa', flexShrink: 0, marginTop: 2 }} />
+                      <div>
+                        <span style={{ fontSize: 13, color: '#1a1a1a', fontWeight: 500, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
+                          {doc.extracted_title || doc.filename}
+                        </span>
+                        {doc.extracted_title && (
+                          <span style={{ fontSize: 11, color: '#aaa', display: 'block', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {doc.filename}
+                          </span>
+                        )}
+                        {doc.keywords && doc.keywords.length > 0 && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 4, maxWidth: 240 }}>
+                            {doc.keywords.slice(0, 4).map((kw) => (
+                              <span key={kw} style={{ fontSize: 10, background: '#f0f4ff', color: '#4a6fa5', borderRadius: 4, padding: '1px 5px', fontWeight: 500 }}>
+                                {kw}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </td>
                   {/* Category */}
@@ -406,7 +436,7 @@ export default function DocumentsPage() {
                     <span style={{ fontSize: 12, color: '#888' }}>{formatBytes(doc.size)}</span>
                   </td>
                   {/* Status */}
-                  <td style={{ padding: '11px 14px' }}>
+                  <td style={{ padding: '11px 14px' }} title={doc.summary || undefined}>
                     <StatusBadge status={doc.status} />
                   </td>
                   {/* Date */}
