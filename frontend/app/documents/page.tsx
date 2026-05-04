@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Layout from "../../components/Layout";
 import KnowledgeBaseSync from "../../components/KnowledgeBaseSync";
@@ -103,20 +103,7 @@ export default function DocumentsPage() {
     // If sessionStorage not yet populated, Layout.tsx will handle redirect via sidebar
   }, [router]);
 
-  useEffect(() => {
-    fetchDocuments();
-    fetchCurrentUser();
-    fetchOrgRoles();
-  }, []);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setCurrentPage(1);
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [searchTerm, startDate, endDate]);
-
-  const fetchCurrentUser = async () => {
+  const fetchCurrentUser = useCallback(async () => {
     try {
       const meRes = await apiFetch<{ data: CurrentUser }>("/auth/me");
       if (meRes.success) {
@@ -125,9 +112,9 @@ export default function DocumentsPage() {
     } catch {
       // No-op: upload validation will handle missing user context
     }
-  };
+  }, []);
 
-  const fetchOrgRoles = async () => {
+  const fetchOrgRoles = useCallback(async () => {
     try {
       const token = localStorage.getItem("accessToken");
       if (!token) return;
@@ -145,9 +132,9 @@ export default function DocumentsPage() {
     } catch {
       // No-op: role dropdown will stay empty.
     }
-  };
+  }, []);
 
-  const fetchDocuments = async () => {
+  const fetchDocuments = useCallback(async () => {
     try {
       const res = await apiFetch<{ data: Document[] }>("/documents");
       if (res.success) {
@@ -158,7 +145,20 @@ export default function DocumentsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    void fetchDocuments();
+    void fetchCurrentUser();
+    void fetchOrgRoles();
+  }, [fetchDocuments, fetchCurrentUser, fetchOrgRoles]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setCurrentPage(1);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [searchTerm, startDate, endDate]);
 
   const handleFileSelect = (
     eOrFile: React.ChangeEvent<HTMLInputElement> | File,
