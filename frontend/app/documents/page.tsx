@@ -148,9 +148,12 @@ export default function DocumentsPage() {
   }, []);
 
   useEffect(() => {
-    void fetchDocuments();
-    void fetchCurrentUser();
-    void fetchOrgRoles();
+    const timer = window.setTimeout(() => {
+      void fetchDocuments();
+      void fetchCurrentUser();
+      void fetchOrgRoles();
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [fetchDocuments, fetchCurrentUser, fetchOrgRoles]);
 
   useEffect(() => {
