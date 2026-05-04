@@ -129,7 +129,10 @@ export default function WebUrlPage() {
   }, []);
 
   useEffect(() => {
-    setCurrentPage(1);
+    const timer = window.setTimeout(() => {
+      setCurrentPage(1);
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [searchTerm, startDate, endDate]);
 
   const fetchUrls = async () => {
