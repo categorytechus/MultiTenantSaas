@@ -27,6 +27,22 @@ services:
       timeout: 5s
       retries: 5
 
+  # One-off migrations: same image as server, DB host is `postgres` (Compose DNS), not localhost.
+  db-migrate:
+    build:
+      context: src/server
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/multitenant
+    # Runtime image has /opt/venv/bin (alembic); `uv` is not installed in that stage.
+    command: ["alembic", "upgrade", "head"]
+    volumes:
+      - ./src/server:/app
+    working_dir: /app
+
   server:
     build:
       context: src/server

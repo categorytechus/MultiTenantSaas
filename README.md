@@ -71,13 +71,27 @@ make dev
 ```bash
 make db-up      # Postgres + Redis in Docker
 make install    # uv sync (server + agents) + npm install
-make migrate    # Alembic migrations
+make migrate         # Alembic via host Python (needs Postgres on localhost:5432)
+make migrate-docker  # Same migrations inside Docker (only needs Compose Postgres; skips host :5432)
 
 # In separate terminals:
 make server     # FastAPI on :8000
 make agents     # Arq worker — document ingest + AI chat agents
 make web        # Vite on :3000
 ```
+
+**Optional: activate the venv (macOS / Linux)** — `make install` runs `uv sync` in `src/server` and `src/agents`, each with its own `.venv`. To use `python` or tools without `uv run`, `cd` into that folder and activate:
+
+```bash
+cd src/server
+source .venv/bin/activate
+```
+
+Do the same under `src/agents` for the worker. The `make server` / `make agents` / `make migrate` targets use `uv run` and do not require activation.
+
+If `make migrate` prints **nothing on 127.0.0.1:5432**, either Postgres is not running (`make db-up` and wait until it is healthy) or your Docker setup does not publish **5432 to the host** (some contexts never bind `localhost:5432`). In that case run **`make migrate-docker`**, which starts the `postgres` service and runs Alembic in a one-off container on the Compose network (`DATABASE_URL` uses host `postgres`, not `localhost`). Use **`make migrate` without `sudo`** on macOS so `uv` uses your project `.venv`.
+
+**Windows (Command Prompt)** — from the directory that contains `.venv`: `call .venv\Scripts\activate.bat`
 
 ## Environment Variables
 
@@ -125,11 +139,24 @@ Browser  →  GET /api/chat/sessions/{id}/stream?message=...&token=JWT
 ## Common Commands
 
 ```bash
-make migrate-new msg='add column'   # Autogenerate Alembic migration
-make clean                          # Remove Docker containers + volumes
+make migrate-new msg='add column'   # Autogenerate Alembic migration (host DB on :5432)
+make migrate-docker                 # Apply migrations when host :5432 is unavailable
+make clean                          # Remove Docker containers + volumes (wipes local DB)
 make logs-server                    # Tail server logs
 make logs-agents                    # Tail agents worker logs
 make redeploy-ecr                   # Build + push to ECR, deploy to EC2
+```
+
+## Troubleshooting (Docker Postgres)
+
+**`dependency failed to start: container ... postgres ... exited (1)`** — inspect logs: `docker compose logs postgres`.
+
+If you see **“data directory was initialized by PostgreSQL version 15, which is not compatible with … version 16”**, the named volume still holds an old cluster. This project uses **Postgres 16** (`pgvector/pgvector:pg16`). Wipe local volumes and recreate (destroys dev data only):
+
+```bash
+docker compose down -v --remove-orphans   # same as: make clean
+make db-up
+make migrate-docker                      # or: make migrate
 ```
 
 ## Infrastructure

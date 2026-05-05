@@ -20,7 +20,7 @@ RUN uv venv /opt/venv && \
         "uvicorn[standard]>=0.30" \
         "sqlmodel>=0.0.21" \
         "alembic>=1.13" \
-        "psycopg[async]>=3.2" \
+        "psycopg[binary]>=3.2" \
         "pgvector>=0.3" \
         "pydantic-settings>=2.5" \
         "python-jose[cryptography]>=3.3" \

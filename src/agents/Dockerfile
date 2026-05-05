@@ -12,7 +12,7 @@ RUN uv venv /opt/venv && \
         "langchain>=0.3" \
         "langchain-anthropic>=0.3" \
         "langchain-core>=0.3" \
-        "psycopg[async]>=3.2" \
+        "psycopg[binary]>=3.2" \
         "pgvector>=0.3" \
         "redis[hiredis]>=5.0" \
         "pydantic-settings>=2.5" \

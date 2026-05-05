@@ -1,3 +1,4 @@
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config
@@ -16,6 +17,11 @@ import app.models.agent_task  # noqa: F401
 import app.models.audit_log  # noqa: F401
 
 config = context.config
+
+# Allow `docker compose run ... -e DATABASE_URL=...@postgres:5432/...` and host `.env` workflows.
+_database_url = os.environ.get("DATABASE_URL")
+if _database_url:
+    config.set_main_option("sqlalchemy.url", _database_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

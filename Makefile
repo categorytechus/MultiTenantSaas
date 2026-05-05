@@ -1,4 +1,4 @@
-.PHONY: help dev server agents web migrate install lint clean db-up ecr-login redeploy-ecr
+.PHONY: help dev server agents web migrate migrate-docker install lint clean db-up ecr-login redeploy-ecr
 
 PYTHON := python3
 UV := uv
@@ -18,7 +18,7 @@ help:
 	@echo "  make dev             Start all 4 services (server, agents, web, db)"
 	@echo "  make dev-detach      Same, detached"
 	@echo "  make db-up           Start only Postgres + Redis"
-	@echo "  make clean           Remove containers and volumes"
+	@echo "  make clean           Remove containers and volumes (fixes PG data dir / version mismatch)"
 	@echo ""
 	@echo "Local dev (requires Postgres + Redis via make db-up):"
 	@echo "  make install         Install all dependencies (uv sync + npm install)"
@@ -27,7 +27,8 @@ help:
 	@echo "  make web             Vite dev server on :3000"
 	@echo ""
 	@echo "Database:"
-	@echo "  make migrate         alembic upgrade head"
+	@echo "  make migrate              alembic upgrade head (host → localhost:5432)"
+	@echo "  make migrate-docker       same, inside Docker (uses @postgres; no host port needed)"
 	@echo "  make migrate-new msg='...'  autogenerate migration"
 	@echo ""
 	@echo "Logs (Docker):"
@@ -50,6 +51,10 @@ dev-detach:
 db-up:
 	docker compose up postgres redis -d
 
+migrate-docker:
+	docker compose up postgres -d
+	docker compose run --rm db-migrate
+
 # ── Local (no Docker for app) ──────────────────────────────────────────────
 
 install:
@@ -67,6 +72,17 @@ web:
 	cd $(WEB_DIR) && npm run dev
 
 migrate:
+	@if ! nc -z 127.0.0.1 5432 2>/dev/null; then \
+		echo ""; \
+		echo "  Nothing is listening on 127.0.0.1:5432 (Postgres)."; \
+		echo "  From the repo root, start Postgres (and Redis) with:"; \
+		echo "    make db-up"; \
+		echo "  If Docker is running but host port 5432 still fails (common with some setups), run:"; \
+		echo "    make migrate-docker"; \
+		echo "  (Do not use sudo for make migrate on macOS unless you know you need it.)"; \
+		echo ""; \
+		exit 1; \
+	fi
 	cd $(SERVER_DIR) && $(UV) run alembic upgrade head
 
 migrate-new:
