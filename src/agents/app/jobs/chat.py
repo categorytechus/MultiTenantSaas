@@ -61,7 +61,6 @@ async def run_chat(
                 chunks = await retrieve_chunks(conn, query_vector)
 
         response = await run_agent(
-            api_key=settings.GEMINI_API_KEY,
             conversation=conversation,
             context_chunks=chunks,
             redis=redis,

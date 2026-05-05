@@ -26,8 +26,11 @@ class Settings(BaseSettings):
     S3_REGION: str = "us-east-1"
     AWS_ACCESS_KEY_ID: str = ""
     AWS_SECRET_ACCESS_KEY: str = ""
+    AWS_SESSION_TOKEN: str = ""
 
-    ANTHROPIC_API_KEY: str = ""
+    BEDROCK_MODEL_ARN: str = ""
+    BEDROCK_MODEL_PROVIDER: str = "anthropic"
+    AWS_BEDROCK_REGION: str = "us-east-1"
     OPENAI_API_KEY: str = ""
 
     ENVIRONMENT: str = "development"

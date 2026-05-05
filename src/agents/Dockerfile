@@ -10,7 +10,7 @@ RUN uv venv /opt/venv && \
         "arq>=0.26" \
         "httpx>=0.27" \
         "langchain>=0.3" \
-        "langchain-anthropic>=0.3" \
+        "langchain-aws>=0.2" \
         "langchain-core>=0.3" \
         "psycopg[async]>=3.2" \
         "pgvector>=0.3" \
