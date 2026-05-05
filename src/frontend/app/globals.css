@@ -1,0 +1,209 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap');
+
+:root {
+  /* Typography */
+  --font-sans: 'DM Sans', sans-serif;
+  /* --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace; */
+
+  /* Color system */
+  --color-bg: #ffffff;
+  --color-surface: #ffffff;
+  --color-surface-muted: #faf9f7;
+  --color-border: #ebe9e6;
+  --color-text: #1a1a1a;
+  --color-text-muted: #707070;
+  --color-primary: #1a1a1a;
+  --color-primary-hover: #333333;
+  --color-primary-contrast: #ffffff;
+  --color-secondary: #f5f4f1;
+  --color-secondary-hover: #ece9e5;
+  --color-danger: #dc2626;
+  --color-danger-bg: #fef2f2;
+  --color-warning: #b45309;
+  --color-warning-bg: #fef3c7;
+  --color-success: #166534;
+  --color-success-bg: #dcfce7;
+
+  /* Radius and spacing */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --space-page: 32px;
+  --shadow-sm: 0 3px 10px rgba(0,0,0,.06);
+  --shadow-md: 0 20px 60px rgba(0,0,0,.12);
+}
+
+@theme inline {
+  --color-background: var(--color-bg);
+  --color-foreground: var(--color-text);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  overflow-x: hidden;
+}
+
+/* Shared layout primitives */
+.app-page {
+  padding: var(--space-page);
+  min-width: 0;
+}
+
+/*
+  Auth routes style `.page` as a centered flex column (sign-in, sign-up, etc.).
+  That CSS stays loaded after client-side navigation, so it would otherwise
+  override dashboard `.page` rules that only set padding. Reset inside the app
+  shell so management pages stay full-width and top-aligned.
+*/
+.layout .content-wrapper > .page,
+.layout .content-wrapper > .app-page.page {
+  display: block;
+  min-height: 0;
+  flex-direction: unset;
+  align-items: unset;
+  justify-content: unset;
+  background: transparent;
+  padding: var(--space-page);
+}
+
+.app-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 640px) {
+  :root {
+    --space-page: 16px;
+  }
+
+  .app-page-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .app-page-header > *:last-child {
+    width: 100%;
+  }
+}
+
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+@media (max-width: 640px) {
+  .header-actions {
+    justify-content: stretch;
+  }
+
+  .header-actions > * {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}
+
+/* Horizontal scroll for wide data tables inside cards */
+.table-responsive-wrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.table-responsive-wrap .table {
+  min-width: 720px;
+}
+
+.app-page-title {
+  font-size: 20px;
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  color: var(--color-text);
+}
+
+.app-page-subtitle {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.app-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.app-btn {
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 9px 16px;
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.app-btn-primary {
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+
+.app-btn-primary:hover {
+  background: var(--color-primary-hover);
+  box-shadow: var(--shadow-sm);
+}
+
+.app-btn-secondary {
+  background: var(--color-secondary);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+}
+
+.app-btn-secondary:hover {
+  background: var(--color-secondary-hover);
+}
+
+.app-input,
+.app-select,
+.app-textarea {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  padding: 10px 12px;
+}
+
+.app-textarea {
+  min-height: 84px;
+  resize: vertical;
+}
+
+.app-label {
+  display: block;
+  margin-bottom: 4px;
+  color: #555;
+  font-size: 12px;
+  font-weight: 600;
+}

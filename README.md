@@ -53,6 +53,8 @@ Makefile
 
 **Prerequisites**: Docker & Docker Compose, Node.js 20+, Python 3.12+, [uv](https://docs.astral.sh/uv/)
 
+**Working directory**: Run `make` from **`MultiTenantSaas/`** (same folder as `Makefile` and `docker-compose.yml`). If your editor workspace is the parent directory and you see `No rule to make target 'web'`, either `cd MultiTenantSaas` or use the parent **`Makefile`** that forwards into this folder.
+
 ### Option A — Docker Compose (recommended)
 
 ```bash
@@ -71,7 +73,7 @@ make dev
 ```bash
 make db-up      # Postgres + Redis in Docker
 make install    # uv sync (server + agents) + npm install
-make migrate         # Alembic via host Python (needs Postgres on localhost:5432)
+make migrate         # Alembic migration (default chain, needs Postgres on localhost:5432)
 make migrate-docker  # Same migrations inside Docker (only needs Compose Postgres; skips host :5432)
 
 # In separate terminals:
@@ -158,6 +160,21 @@ docker compose down -v --remove-orphans   # same as: make clean
 make db-up
 make migrate-docker                      # or: make migrate
 ```
+
+## Troubleshooting (Vite / `make web`)
+
+**`EACCES: permission denied, mkdir '.../node_modules/.vite/...'`** — `node_modules` was probably created **as root** when the **`web` Docker service** ran `npm install` on the bind-mounted `src/web` directory. The Vite dev server is configured to use **`src/web/.vite`** as its cache directory (user-writable) so pre-bundling does not write under `node_modules/.vite`.
+
+You should still fix ownership of `node_modules` and `package-lock.json` so installs and upgrades work without sudo:
+
+```bash
+cd MultiTenantSaas
+sudo chown -R "$(id -un):$(id -gn)" src/web/node_modules src/web/package-lock.json
+```
+
+Alternatively: `sudo rm -rf src/web/node_modules src/web/package-lock.json && cd src/web && npm install`.
+
+Compose mounts an **anonymous volume** on `/app/node_modules` for the `web` service so future **`make dev` / Docker web** installs do not leave root-owned `node_modules` on your Mac.
 
 ## Infrastructure
 

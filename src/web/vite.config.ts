@@ -2,6 +2,8 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
+  // Avoid writing under node_modules/.vite (often root-owned after Docker npm install on bind mounts).
+  cacheDir: '.vite',
   plugins: [react()],
   server: {
     port: 3000,

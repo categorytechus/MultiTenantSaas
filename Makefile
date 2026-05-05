@@ -27,7 +27,7 @@ help:
 	@echo "  make web             Vite dev server on :3000"
 	@echo ""
 	@echo "Database:"
-	@echo "  make migrate              alembic upgrade head (host → localhost:5432)"
+	@echo "  make migrate              alembic upgrade head (default chain, host → localhost:5432)"
 	@echo "  make migrate-docker       same, inside Docker (uses @postgres; no host port needed)"
 	@echo "  make migrate-new msg='...'  autogenerate migration"
 	@echo ""
@@ -81,6 +81,19 @@ migrate:
 		echo "    make migrate-docker"; \
 		echo "  (Do not use sudo for make migrate on macOS unless you know you need it.)"; \
 		echo ""; \
+		exit 1; \
+	fi
+	@ready=0; \
+	for i in $$(seq 1 45); do \
+		if cd $(SERVER_DIR) && $(UV) run python -c "import psycopg; conn=psycopg.connect('postgresql://postgres:postgres@localhost:5432/multitenant'); conn.close()"; then \
+			echo "Database is ready."; \
+			ready=1; \
+			break; \
+		fi; \
+		sleep 1; \
+	done; \
+	if [ $$ready -ne 1 ]; then \
+		echo "Database not ready after 45 seconds."; \
 		exit 1; \
 	fi
 	cd $(SERVER_DIR) && $(UV) run alembic upgrade head

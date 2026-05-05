@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { User as UserType, Organization } from '../types'
 import { api } from '../lib/api'
-import { clearTokens } from '../lib/auth'
+import { clearTokens, setTokens } from '../lib/auth'
 
 const DOT_COLORS = ['#1a1a1a', '#2563eb', '#7c3aed', '#0891b2', '#059669']
 
@@ -91,8 +91,7 @@ export function Layout({ children, user }: LayoutProps) {
         { org_id: org.id }
       )
       if (data) {
-        localStorage.setItem('access_token', data.access_token)
-        localStorage.setItem('refresh_token', data.refresh_token)
+        setTokens(data.access_token, data.refresh_token)
         window.location.reload()
       }
     } finally {

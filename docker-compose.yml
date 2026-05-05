@@ -115,6 +115,8 @@ services:
       VITE_API_URL: http://server:8000
     volumes:
       - ./src/web:/app
+      # Keep container npm install off the bind mount so files are not root-owned on the host.
+      - /app/node_modules
     depends_on:
       - server
 

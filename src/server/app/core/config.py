@@ -26,7 +26,12 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
 
     ENVIRONMENT: str = "development"
-    CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:3000"]
+    CORS_ORIGINS: List[str] = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
 
     # Used for local dev when S3 is not configured
     LOCAL_UPLOAD_DIR: str = "/tmp/uploads"
@@ -36,3 +41,7 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# Support comma-separated CORS_ORIGINS from environment files.
+if isinstance(settings.CORS_ORIGINS, str):
+    settings.CORS_ORIGINS = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
