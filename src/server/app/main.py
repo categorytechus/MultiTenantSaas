@@ -10,6 +10,11 @@ from fastapi.responses import JSONResponse
 from app.core.config import settings
 from app.core.logging import bind_request_context, clear_request_context, get_logger, setup_logging
 from app.core.redis import close_redis, get_redis
+import asyncio
+import sys
+
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 logger = get_logger(__name__)
 
