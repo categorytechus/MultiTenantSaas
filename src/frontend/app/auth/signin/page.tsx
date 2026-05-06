@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { apiFetch } from '../../../src/lib/api';
+import { PERMISSION_MODULE_ENABLED } from '../../../src/lib/permissions';
 import CONFIG from '../../../src/lib/config';
 import './auth-signin.css';
 
@@ -35,7 +36,12 @@ export default function SignInPage() {
         method: 'POST',
         body: JSON.stringify({ email, password }),
       });
-      if (!res.success) throw new Error(res.error);
+      if (!res.success) {
+        if (res.status === 401) {
+          throw new Error('Invalid email or password. Please try again.');
+        }
+        throw new Error(res.error || 'Unable to sign in right now. Please try again.');
+      }
       const accessToken = res.data.access_token ?? res.data.data?.access_token;
       const refreshToken = res.data.refresh_token ?? res.data.data?.refresh_token;
       const mustChangePassword =
@@ -45,8 +51,39 @@ export default function SignInPage() {
         throw new Error('Login response missing tokens');
       }
 
+      // Reset module visibility cache when switching accounts.
+      sessionStorage.removeItem("userModules");
+      sessionStorage.removeItem("userModulesUnrestricted");
       localStorage.setItem('accessToken', accessToken);
       localStorage.setItem('refreshToken', refreshToken);
+
+      // Capture role/module access at login time for immediate sidebar guards.
+      if (PERMISSION_MODULE_ENABLED) {
+        try {
+          const payload = JSON.parse(atob(accessToken.split(".")[1])) as {
+            org_id?: string;
+            role?: string;
+          };
+          const role = (payload.role || "").toLowerCase().replace(/-/g, "_");
+          if (role === "super_admin" || role === "tenant_admin") {
+            sessionStorage.setItem("userModulesUnrestricted", "1");
+          } else if (payload.org_id) {
+            const mpRes = await apiFetch<{ data: { modules: string[] } }>(
+              `/organizations/${payload.org_id}/my-permissions`,
+            );
+            if (mpRes.success) {
+              sessionStorage.setItem(
+                "userModules",
+                JSON.stringify(mpRes.data.data.modules || []),
+              );
+            }
+          }
+        } catch {
+          // Ignore cache warm-up errors; runtime guards still apply.
+        }
+      } else {
+        sessionStorage.setItem("userModulesUnrestricted", "1");
+      }
       if (mustChangePassword) {
         router.push('/auth/set-password');
       } else if (returnUrl) {

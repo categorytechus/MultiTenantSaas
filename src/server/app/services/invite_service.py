@@ -6,6 +6,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -29,6 +30,58 @@ def invite_role_to_membership_role(role_str: str) -> Role:
     return Role.USER
 
 
+def _custom_role_id_from_invite(role_str: str) -> UUID | None:
+    if not role_str.startswith("role:"):
+        return None
+    try:
+        return UUID(role_str.split(":", 1)[1])
+    except Exception:
+        return None
+
+
+async def _assign_custom_role_if_any(
+    session: AsyncSession,
+    *,
+    user_id: UUID,
+    org_id: UUID,
+    invite_role: str,
+) -> None:
+    role_id = _custom_role_id_from_invite(invite_role)
+    if role_id is None:
+        return
+
+    table_exists = await session.execute(text("SELECT to_regclass('public.user_roles')"))
+    if table_exists.scalar_one_or_none() is not None:
+        await session.execute(
+            text(
+                """
+                INSERT INTO user_roles (id, user_id, role_id, organization_id, granted_at, created_at)
+                VALUES (gen_random_uuid(), :user_id, :role_id, :org_id, NOW(), NOW())
+                ON CONFLICT (user_id, role_id, organization_id) DO NOTHING
+                """
+            ),
+            {"user_id": user_id, "role_id": role_id, "org_id": org_id},
+        )
+        return
+
+    # Compatibility fallback for schemas without user_roles table.
+    from app.models.org import OrgMembership
+    from app.models.rbac import RbacRole
+
+    role = await session.get(RbacRole, role_id)
+    if role and (role.is_system or role.organization_id == org_id):
+        m = await session.execute(
+            select(OrgMembership).where(
+                OrgMembership.user_id == user_id,
+                OrgMembership.org_id == org_id,
+            )
+        )
+        membership = m.scalars().first()
+        if membership:
+            membership.role = role.name
+            session.add(membership)
+
+
 def link_query_role(membership_role: Role) -> str:
     """Query param for Next.js signup UI (`org_admin` vs `user`)."""
     return "org_admin" if membership_role == Role.TENANT_ADMIN else "user"
@@ -44,16 +97,17 @@ async def create_invite_record(
     email: str,
     org_id: UUID,
     invited_by: UUID | None,
-    role: Role = Role.TENANT_ADMIN,
+    role: Role | str = Role.TENANT_ADMIN,
 ) -> tuple[InviteToken, str]:
     """Insert invite row and return (row, plaintext token)."""
     email_norm = normalize_email(email)
     plain = generate_invite_plain_token()
+    role_value = role.value if isinstance(role, Role) else str(role)
     row = InviteToken(
         token=plain,
         email=email_norm,
         org_id=org_id,
-        role=role.value,
+        role=role_value,
         invited_by=invited_by,
         expires_at=_utcnow() + timedelta(days=settings.INVITE_TOKEN_EXPIRE_DAYS),
     )
@@ -152,6 +206,7 @@ async def complete_signup_with_invite(
     session.add(
         OrgMembership(user_id=user.id, org_id=org_id, role=mem_role.value),
     )
+    await _assign_custom_role_if_any(session, user_id=user.id, org_id=org_id, invite_role=row.role)
 
     row.used_at = now
     session.add(row)
@@ -197,7 +252,11 @@ async def accept_invite_for_user(
     mem_role = invite_role_to_membership_role(row.role)
 
     if existing:
-        access_token = _make_access_token(user, org, Role(existing.role))
+        try:
+            existing_role = Role(existing.role)
+        except ValueError:
+            existing_role = Role.USER
+        access_token = _make_access_token(user, org, existing_role)
         opaque_refresh = _persist_scoped_refresh(session, user.id, org_id)
         await session.flush()
         return {"success": True, "data": {"access_token": access_token, "refresh_token": opaque_refresh}}
@@ -209,6 +268,7 @@ async def accept_invite_for_user(
         return {"success": False, "message": "This invite link has expired."}
 
     session.add(OrgMembership(user_id=user.id, org_id=org_id, role=mem_role.value))
+    await _assign_custom_role_if_any(session, user_id=user.id, org_id=org_id, invite_role=row.role)
     row.used_at = now
     session.add(row)
 

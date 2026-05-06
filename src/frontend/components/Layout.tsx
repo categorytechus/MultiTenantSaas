@@ -70,6 +70,15 @@ function extractRolesFromToken(token: string): string[] {
   }
 }
 
+function extractPrimaryRoleFromToken(token: string): string | null {
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1])) as { role?: string };
+    return payload.role ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export default function Layout({ children }: LayoutProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -82,6 +91,7 @@ export default function Layout({ children }: LayoutProps) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   // null = no restriction (super_admin / org_admin), string[] = allowed module IDs for regular users
   const [userModules, setUserModules] = useState<string[] | null>(null);
+  const [modulesResolved, setModulesResolved] = useState(false);
   const dropRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -106,10 +116,11 @@ export default function Layout({ children }: LayoutProps) {
         const userData = uRes.data.data;
         setUser(userData);
 
+        const primaryRole = extractPrimaryRoleFromToken(token)
+          ?.toLowerCase()
+          .replace(/-/g, "_");
         const loginTokenRoles = token ? extractRolesFromToken(token) : [];
-        const isSuperFromToken = loginTokenRoles
-          .map((r) => r.toLowerCase().replace(/-/g, "_"))
-          .includes("super_admin");
+        const isSuperFromToken = primaryRole === "super_admin";
 
         if (isSuperAdminUserType(userData.user_type) || isSuperFromToken) {
           // Super admins see all organizations
@@ -132,7 +143,7 @@ export default function Layout({ children }: LayoutProps) {
           }
         } else {
           // Regular users see their own orgs
-          const oRes = await apiFetch<{ data: Org[] }>("/organizations");
+          const oRes = await apiFetch<{ data: Org[] }>("/organizations/");
           if (oRes.success && oRes.data.data.length > 0) {
             setOrgs(oRes.data.data);
             // Set current org from JWT if one is already selected
@@ -177,6 +188,23 @@ export default function Layout({ children }: LayoutProps) {
               // Fallback visual selection if token switch fails for any reason.
               setCur(fallbackOrg);
             }
+          } else {
+            // Fallback for intermittent auth/proxy issues on org list call:
+            // if token already has org context, keep header selector populated.
+            const jwtPayload = JSON.parse(atob(token.split(".")[1])) as {
+              org_id?: string;
+              tenant_slug?: string;
+            };
+            if (jwtPayload.org_id) {
+              const fallbackOrg: Org = {
+                id: jwtPayload.org_id,
+                name: jwtPayload.tenant_slug || "Current Organization",
+                slug: jwtPayload.tenant_slug || "current-org",
+                role: "user",
+              };
+              setOrgs([fallbackOrg]);
+              setCur(fallbackOrg);
+            }
           }
         }
         // Module sidebar + page guards (see PERMISSION_MODULE_ENABLED in src/lib/permissions.ts)
@@ -186,37 +214,51 @@ export default function Layout({ children }: LayoutProps) {
             if (!PERMISSION_MODULE_ENABLED) {
               sessionStorage.removeItem("userModules");
               sessionStorage.setItem("userModulesUnrestricted", "1");
+              setModulesResolved(true);
             } else {
               const jwtParsed = JSON.parse(atob(freshToken.split(".")[1])) as {
                 org_id?: string;
               };
-              const freshRoles = extractRolesFromToken(freshToken);
+              const freshPrimaryRole = extractPrimaryRoleFromToken(freshToken)
+                ?.toLowerCase()
+                .replace(/-/g, "_");
               const freshOrgId: string | undefined = jwtParsed.org_id;
               const isSA =
                 isSuperAdminUserType(userData.user_type) ||
-                freshRoles
-                  .map((r) => r.toLowerCase().replace(/-/g, "_"))
-                  .includes("super_admin");
-              const isOA = hasOrgAdminRole(freshRoles);
+                freshPrimaryRole === "super_admin";
+              const isOA = freshPrimaryRole === "tenant_admin";
 
               if (isSA || isOA) {
                 sessionStorage.removeItem("userModules");
                 sessionStorage.setItem("userModulesUnrestricted", "1");
+                setModulesResolved(true);
               } else if (freshOrgId) {
-                const mpRes = await apiFetch<{
-                  data: { modules: string[] };
-                }>(`/organizations/${freshOrgId}/my-permissions`);
-                if (mpRes.success) {
-                  const modules = mpRes.data.data.modules;
-                  setUserModules(modules);
-                  sessionStorage.setItem("userModules", JSON.stringify(modules));
-                  sessionStorage.removeItem("userModulesUnrestricted");
+                const cached = sessionStorage.getItem("userModules");
+                if (cached) {
+                  try {
+                    const modules = JSON.parse(cached) as string[];
+                    setUserModules(Array.isArray(modules) ? modules : []);
+                  } catch {
+                    setUserModules([]);
+                  }
+                } else {
+                  setUserModules([]);
                 }
+                sessionStorage.removeItem("userModulesUnrestricted");
+                setModulesResolved(true);
+              } else {
+                // No org scope => keep restricted links hidden.
+                setUserModules([]);
+                setModulesResolved(true);
               }
             }
           } catch {
-            // ignore — sidebar defaults to showing everything if fetch fails
+            // Fail closed: hide restricted links if permission fetch fails.
+            setUserModules([]);
+            setModulesResolved(true);
           }
+        } else {
+          setModulesResolved(true);
         }
       } catch {
         router.push("/auth/signin");
@@ -304,6 +346,8 @@ export default function Layout({ children }: LayoutProps) {
   const signOut = () => {
     localStorage.removeItem("accessToken");
     localStorage.removeItem("refreshToken");
+    sessionStorage.removeItem("userModules");
+    sessionStorage.removeItem("userModulesUnrestricted");
     router.push("/auth/signin");
   };
 
@@ -320,16 +364,32 @@ export default function Layout({ children }: LayoutProps) {
   const normalizedJwtRoles = jwtRoles.map((r) =>
     r.toLowerCase().replace(/-/g, "_"),
   );
+  const primaryJwtRole = (() => {
+    try {
+      const token = localStorage.getItem("accessToken");
+      if (!token) return null;
+      return extractPrimaryRoleFromToken(token)?.toLowerCase().replace(/-/g, "_") ?? null;
+    } catch {
+      return null;
+    }
+  })();
   const isSuperAdmin =
     isSuperAdminUserType(user?.user_type) ||
     isSuperAdminUserType(user?.role) ||
+    primaryJwtRole === "super_admin" ||
     normalizedJwtRoles.includes("super_admin");
-  const isOrgAdmin = hasOrgAdminRole(jwtRoles) || isSuperAdmin;
+  // Match backend guard: tenant admin/super admin only.
+  const isOrgAdmin = primaryJwtRole === "tenant_admin" || isSuperAdmin;
 
   // Returns true if the user has access to a given module.
   // null userModules means unrestricted (super_admin / org_admin).
-  const hasModule = (moduleId: string) =>
-    userModules === null || userModules.includes(moduleId);
+  // For regular users, fail closed until module permissions are resolved.
+  const hasModule = (moduleId: string) => {
+    if (!PERMISSION_MODULE_ENABLED) return true;
+    if (isSuperAdmin || isOrgAdmin) return true;
+    if (!modulesResolved) return false;
+    return userModules?.includes(moduleId) ?? false;
+  };
 
   // Determine breadcrumb based on pathname
   const getBreadcrumb = () => {

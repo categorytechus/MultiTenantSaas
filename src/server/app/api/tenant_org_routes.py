@@ -74,20 +74,24 @@ async def my_modules(
         session,
         role=ctx.role,
         org_id=organization_id,
+        user_id=ctx.user_id,
     )
     if "*" in perms:
         modules = ["ai_assistant", "documents", "web_urls"]
     else:
         modules_set: set[str] = set()
-        for p in perms:
-            if p.startswith("ai_assistant:"):
-                modules_set.add("ai_assistant")
-            elif p.startswith("agents:"):
-                modules_set.add("ai_assistant")
-            elif p.startswith("documents:"):
-                modules_set.add("documents")
-            elif p.startswith("web_urls:"):
-                modules_set.add("web_urls")
+
+        if any(p.startswith("ai_assistant:") or p.startswith("agents:") for p in perms):
+            modules_set.add("ai_assistant")
+
+        has_documents_view = ("documents:view" in perms) or ("documents:read" in perms)
+        if has_documents_view:
+            modules_set.add("documents")
+
+        has_web_urls_view = "web_urls:view" in perms
+        if has_web_urls_view:
+            modules_set.add("web_urls")
+
         modules = sorted(modules_set)
 
     return ModulesPayload(data={"modules": modules})
@@ -118,14 +122,14 @@ async def list_org_users(
     _ensure_org_context(ctx, organization_id)
 
     result = await session.execute(
-        select(User)
+        select(User, OrgMembership)
         .join(OrgMembership, OrgMembership.user_id == User.id)
         .where(OrgMembership.org_id == organization_id),
     )
-    users = result.scalars().all()
+    rows = result.all()
     roles_by_user: dict[str, list[dict[str, str | bool]]] = {}
     if await _table_exists(session, "user_roles"):
-        rows = await session.execute(
+        role_rows = await session.execute(
             text(
                 """
                 SELECT ur.user_id, r.id AS role_id, r.name AS role_name, r.is_system
@@ -136,24 +140,27 @@ async def list_org_users(
             ),
             {"org_id": organization_id},
         )
-        for row in rows:
+        for row in role_rows:
             uid = str(row.user_id)
             roles_by_user.setdefault(uid, []).append(
                 {"id": str(row.role_id), "name": row.role_name, "is_system": bool(row.is_system)}
             )
 
-    return OrgUsersResponse(
-        data=[
+    data: list[dict[str, object]] = []
+    for u, m in rows:
+        assigned_roles = roles_by_user.get(str(u.id), [])
+        if not assigned_roles and m.role not in {Role.USER.value, Role.TENANT_ADMIN.value, Role.SUPER_ADMIN.value}:
+            assigned_roles = [{"id": m.role, "name": m.role, "is_system": False}]
+        data.append(
             {
                 "id": str(u.id),
                 "email": u.email,
                 "full_name": u.name,
                 "status": "active",
-                "roles": roles_by_user.get(str(u.id), []),
+                "roles": assigned_roles,
             }
-            for u in users
-        ],
-    )
+        )
+    return OrgUsersResponse(data=data)
 
 
 @router.post("/users/invites")
@@ -176,14 +183,28 @@ async def create_org_user(
     existing = await session.execute(select(User).where(User.email == email))
     user = existing.scalars().first()
 
+    invite_role_value: str = Role.USER.value
     warnings: list[dict[str, str]] = []
     if body.role_id:
-        warnings.append(
-            {
-                "code": "role_assignment_skipped",
-                "message": "Role assignment from roleId is not implemented in current schema.",
-            }
-        )
+        try:
+            selected_role_id = UUID(body.role_id)
+            role = await session.get(RbacRole, selected_role_id)
+            if role and (role.is_system or role.organization_id == organization_id):
+                invite_role_value = f"role:{selected_role_id}"
+            else:
+                warnings.append(
+                    {
+                        "code": "invalid_role",
+                        "message": "Selected role is invalid for this organization.",
+                    }
+                )
+        except ValueError:
+            warnings.append(
+                {
+                    "code": "invalid_role",
+                    "message": "roleId must be a valid UUID.",
+                }
+            )
 
     if user:
         mem_result = await session.execute(
@@ -206,7 +227,7 @@ async def create_org_user(
         email=email,
         org_id=organization_id,
         invited_by=ctx.user_id,
-        role=Role.USER,
+        role=invite_role_value,
     )
     role_q = link_query_role(Role.USER)
     base = _public_app_base(request)

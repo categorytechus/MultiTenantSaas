@@ -3,6 +3,7 @@ from typing import Set
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, status
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -61,6 +62,7 @@ async def role_permissions_from_db(
     *,
     role: Role | str | None,
     org_id: UUID | None,
+    user_id: UUID | None = None,
 ) -> set[str]:
     """
     Resolve effective permission keys (`resource:action`) for a role.
@@ -89,13 +91,58 @@ async def role_permissions_from_db(
             )
         )
         role_row = rr.scalars().first()
-        if not role_row:
+        granted_perm_ids: set[UUID] = set()
+        role_ids_to_check: set[UUID] = set()
+
+        if role_row:
+            role_ids_to_check.add(role_row.id)
+
+        if user_id is not None and org_id is not None:
+            user_roles_exists = await session.execute(text("SELECT to_regclass('public.user_roles')"))
+            if user_roles_exists.scalar_one_or_none() is not None:
+                assigned = await session.execute(
+                    text(
+                        """
+                        SELECT role_id
+                        FROM user_roles
+                        WHERE user_id = :user_id
+                          AND organization_id = :org_id
+                        """
+                    ),
+                    {"user_id": user_id, "org_id": org_id},
+                )
+                for row in assigned:
+                    role_ids_to_check.add(row.role_id)
+
+            # Compatibility path: also honor org_memberships.role when set to a custom role name.
+            from app.models.org import OrgMembership
+
+            membership_result = await session.execute(
+                select(OrgMembership.role).where(
+                    OrgMembership.user_id == user_id,
+                    OrgMembership.org_id == org_id,
+                )
+            )
+            membership_role_name = membership_result.scalar_one_or_none()
+            if membership_role_name:
+                membership_role = await session.execute(
+                    select(RbacRole).where(
+                        RbacRole.name == membership_role_name,
+                        (
+                            (RbacRole.is_system == True)  # noqa: E712
+                            | (RbacRole.organization_id == org_id)
+                        ),
+                    )
+                )
+                membership_role_row = membership_role.scalars().first()
+                if membership_role_row:
+                    role_ids_to_check.add(membership_role_row.id)
+
+        if not role_ids_to_check:
             return set()
 
-        granted_perm_ids: set[UUID] = set()
-
         global_grants = await session.execute(
-            select(RolePermission.permission_id).where(RolePermission.role_id == role_row.id)
+            select(RolePermission.permission_id).where(RolePermission.role_id.in_(list(role_ids_to_check)))
         )
         granted_perm_ids.update(global_grants.scalars().all())
 
@@ -103,7 +150,7 @@ async def role_permissions_from_db(
         if org_id is not None:
             org_grants = await session.execute(
                 select(RoleOrgPermission.permission_id).where(
-                    RoleOrgPermission.role_id == role_row.id,
+                    RoleOrgPermission.role_id.in_(list(role_ids_to_check)),
                     RoleOrgPermission.org_id == org_id,
                 )
             )
@@ -129,6 +176,7 @@ async def has_permission_db(
     *,
     role: Role | str | None,
     org_id: UUID | None,
+    user_id: UUID | None,
     permission: str,
 ) -> bool:
     # Backward-compatible aliases while transitioning from static to DB-backed catalog.
@@ -137,7 +185,7 @@ async def has_permission_db(
     }
     requested = permission_aliases.get(permission, permission)
 
-    perms = await role_permissions_from_db(session, role=role, org_id=org_id)
+    perms = await role_permissions_from_db(session, role=role, org_id=org_id, user_id=user_id)
     if "*" in perms:
         return True
     return requested in perms
@@ -163,6 +211,7 @@ def authorize(permission: str) -> Depends:
             session,
             role=ctx.role,
             org_id=ctx.org_id,
+            user_id=ctx.user_id,
             permission=permission,
         ):
             raise HTTPException(

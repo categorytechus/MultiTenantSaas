@@ -24,7 +24,12 @@ from app.core.tenancy import (
 )
 from app.models.org import Org, OrgMembership
 from app.models.user import RefreshToken, User
-from app.services.auth import _make_access_token, jwt_effective_role, make_super_admin_reset_access_token
+from app.services.auth import (
+    _make_access_token,
+    jwt_effective_role,
+    make_super_admin_reset_access_token,
+    parse_membership_role,
+)
 
 router = APIRouter(prefix="/api/organizations", tags=["organizations"])
 
@@ -155,7 +160,7 @@ async def switch_organization(
         org_role = "super_admin"
     else:
         assert membership is not None
-        jwt_role = Role(membership.role)
+        jwt_role = parse_membership_role(membership.role)
         membership_role_display = jwt_role
         org_role = membership.role
 

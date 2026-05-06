@@ -92,15 +92,18 @@ export default function DocumentsPage() {
     const unrestricted = sessionStorage.getItem("userModulesUnrestricted");
     if (unrestricted) return; // super_admin / org_admin — always allowed
     const raw = sessionStorage.getItem("userModules");
-    if (raw) {
-      try {
-        const modules: string[] = JSON.parse(raw);
-        if (!modules.includes("documents")) {
-          router.replace("/dashboard");
-        }
-      } catch { /* ignore parse error */ }
+    if (!raw) {
+      router.replace("/dashboard");
+      return;
     }
-    // If sessionStorage not yet populated, Layout.tsx will handle redirect via sidebar
+    try {
+      const modules: string[] = JSON.parse(raw);
+      if (!modules.includes("documents")) {
+        router.replace("/dashboard");
+      }
+    } catch {
+      router.replace("/dashboard");
+    }
   }, [router]);
 
   const fetchCurrentUser = useCallback(async () => {

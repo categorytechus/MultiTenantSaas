@@ -51,6 +51,14 @@ def jwt_effective_role(user: User, membership_role: Role) -> Role:
     return membership_role
 
 
+def parse_membership_role(role_str: str) -> Role:
+    """Map DB membership role string to JWT/base role; unknown custom roles fallback to USER."""
+    try:
+        return Role(role_str)
+    except ValueError:
+        return Role.USER
+
+
 async def register_user(
     session: AsyncSession,
     email: str,
@@ -153,7 +161,7 @@ async def login_user(
             detail="Organization not found",
         )
 
-    role = Role(membership.role)
+    role = parse_membership_role(membership.role)
     access_token = _make_access_token(user, org_result, role)
     opaque_refresh, refresh_hash = create_refresh_token()
 
@@ -232,7 +240,7 @@ async def refresh_tokens(
         membership = mr.scalars().first()
         if not membership and not is_sa:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No membership")
-        jwt_role = Role.SUPER_ADMIN if is_sa else Role(membership.role)
+        jwt_role = Role.SUPER_ADMIN if is_sa else parse_membership_role(membership.role)
         new_access = _make_access_token(user, org, jwt_role)
         persist_org_id = stored.org_id
         persist_no_org = False
@@ -250,7 +258,7 @@ async def refresh_tokens(
         if not org:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Org not found")
 
-        role = Role(membership.role)
+        role = parse_membership_role(membership.role)
         new_access = _make_access_token(user, org, role)
         persist_org_id = org.id
         persist_no_org = False
