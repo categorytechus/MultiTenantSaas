@@ -17,6 +17,8 @@ interface User {
   id: string;
   email: string;
   full_name?: string;
+  name?: string;
+  role?: string;
   user_type?: "super_admin" | "user";
 }
 
@@ -50,6 +52,22 @@ function hasOrgAdminRole(roles: string[]) {
     normalized.includes("tenant_admin") ||
     normalized.includes("admin")
   );
+}
+
+function extractRolesFromToken(token: string): string[] {
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1])) as {
+      role?: string;
+      roles?: string[];
+    };
+    const merged = [
+      ...(Array.isArray(payload.roles) ? payload.roles : []),
+      ...(payload.role ? [payload.role] : []),
+    ];
+    return Array.from(new Set(merged));
+  } catch {
+    return [];
+  }
 }
 
 export default function Layout({ children }: LayoutProps) {
@@ -88,7 +106,12 @@ export default function Layout({ children }: LayoutProps) {
         const userData = uRes.data.data;
         setUser(userData);
 
-        if (isSuperAdminUserType(userData.user_type)) {
+        const loginTokenRoles = token ? extractRolesFromToken(token) : [];
+        const isSuperFromToken = loginTokenRoles
+          .map((r) => r.toLowerCase().replace(/-/g, "_"))
+          .includes("super_admin");
+
+        if (isSuperAdminUserType(userData.user_type) || isSuperFromToken) {
           // Super admins see all organizations
           const oRes = await apiFetch<{
             data: { id: string; name: string; slug: string }[];
@@ -125,23 +148,23 @@ export default function Layout({ children }: LayoutProps) {
               const fallbackOrg = oRes.data.data[0];
               const switchRes = await apiFetch<{
                 data: {
-                  accessToken: string;
-                  refreshToken: string;
+                  access_token: string;
+                  refresh_token: string;
                   organization: { role: string };
                 };
               }>("/organizations/switch", {
                 method: "POST",
-                body: JSON.stringify({ organizationId: fallbackOrg.id }),
+                body: JSON.stringify({ organization_id: fallbackOrg.id }),
               });
 
               if (switchRes.success) {
                 localStorage.setItem(
                   "accessToken",
-                  switchRes.data.data.accessToken,
+                  switchRes.data.data.access_token,
                 );
                 localStorage.setItem(
                   "refreshToken",
-                  switchRes.data.data.refreshToken,
+                  switchRes.data.data.refresh_token,
                 );
                 setCur({
                   ...fallbackOrg,
@@ -164,10 +187,16 @@ export default function Layout({ children }: LayoutProps) {
               sessionStorage.removeItem("userModules");
               sessionStorage.setItem("userModulesUnrestricted", "1");
             } else {
-              const jwtParsed = JSON.parse(atob(freshToken.split(".")[1]));
-              const freshRoles: string[] = jwtParsed.roles ?? [];
+              const jwtParsed = JSON.parse(atob(freshToken.split(".")[1])) as {
+                org_id?: string;
+              };
+              const freshRoles = extractRolesFromToken(freshToken);
               const freshOrgId: string | undefined = jwtParsed.org_id;
-              const isSA = isSuperAdminUserType(userData.user_type);
+              const isSA =
+                isSuperAdminUserType(userData.user_type) ||
+                freshRoles
+                  .map((r) => r.toLowerCase().replace(/-/g, "_"))
+                  .includes("super_admin");
               const isOA = hasOrgAdminRole(freshRoles);
 
               if (isSA || isOA) {
@@ -223,17 +252,17 @@ export default function Layout({ children }: LayoutProps) {
     try {
       const res = await apiFetch<{
         data: {
-          accessToken: string;
-          refreshToken: string;
+          access_token: string;
+          refresh_token: string;
           organization: { role: string };
         };
       }>("/organizations/switch", {
         method: "POST",
-        body: JSON.stringify({ organizationId: org.id }),
+        body: JSON.stringify({ organization_id: org.id }),
       });
       if (res.success) {
-        localStorage.setItem("accessToken", res.data.data.accessToken);
-        localStorage.setItem("refreshToken", res.data.data.refreshToken);
+        localStorage.setItem("accessToken", res.data.data.access_token);
+        localStorage.setItem("refreshToken", res.data.data.refresh_token);
         // Clear cached modules — they will be re-fetched on the next page load
         sessionStorage.removeItem("userModules");
         sessionStorage.removeItem("userModulesUnrestricted");
@@ -252,15 +281,15 @@ export default function Layout({ children }: LayoutProps) {
     try {
       const res = await apiFetch<{
         data: {
-          accessToken: string;
-          refreshToken: string;
+          access_token: string;
+          refresh_token: string;
         };
       }>("/organizations/reset", {
         method: "POST",
       });
       if (res.success) {
-        localStorage.setItem("accessToken", res.data.data.accessToken);
-        localStorage.setItem("refreshToken", res.data.data.refreshToken);
+        localStorage.setItem("accessToken", res.data.data.access_token);
+        localStorage.setItem("refreshToken", res.data.data.refresh_token);
         sessionStorage.removeItem("userModules");
         sessionStorage.removeItem("userModulesUnrestricted");
         setCur(null);
@@ -280,15 +309,21 @@ export default function Layout({ children }: LayoutProps) {
 
   const curIdx = orgs.findIndex((o) => o.id === cur?.id);
 
-  const isSuperAdmin = isSuperAdminUserType(user?.user_type);
   // Read roles from current JWT claim (scoped to active org)
   const jwtRoles: string[] = (() => {
     try {
       const token = localStorage.getItem("accessToken");
       if (!token) return [];
-      return JSON.parse(atob(token.split(".")[1])).roles ?? [];
+      return extractRolesFromToken(token);
     } catch { return []; }
   })();
+  const normalizedJwtRoles = jwtRoles.map((r) =>
+    r.toLowerCase().replace(/-/g, "_"),
+  );
+  const isSuperAdmin =
+    isSuperAdminUserType(user?.user_type) ||
+    isSuperAdminUserType(user?.role) ||
+    normalizedJwtRoles.includes("super_admin");
   const isOrgAdmin = hasOrgAdminRole(jwtRoles) || isSuperAdmin;
 
   // Returns true if the user has access to a given module.

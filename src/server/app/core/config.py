@@ -39,6 +39,15 @@ class Settings(BaseSettings):
     # Service name for logging (backend or agents)
     SERVICE_NAME: str = "backend"
 
+    # Comma-separated user UUIDs that receive super-admin JWT claims and /api/admin/** access.
+    SUPER_ADMIN_USER_IDS: str = ""
+
+    # Email invite links (Next.js URL the browser uses).
+    PUBLIC_APP_URL: str = "http://localhost:3000"
+
+    # Signup links from POST /api/admin/org-admins/invites expire after this many days.
+    INVITE_TOKEN_EXPIRE_DAYS: int = 7
+
 
 settings = Settings()
 

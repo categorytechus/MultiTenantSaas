@@ -1,13 +1,12 @@
 import type { NextConfig } from "next";
- 
-const authGatewayOrigin =
-  process.env.AUTH_GATEWAY_PROXY_ORIGIN || "http://127.0.0.1:3001";
- 
+
+const apiBackendOrigin =
+  process.env.API_BACKEND_ORIGIN || "http://127.0.0.1:8000";
+
 const nextConfig: NextConfig = {
   output: "standalone",
   /**
-   * Dev: same-origin /api so the browser only talks to Next; proxy to the gateway.
-   * Production Docker sets NEXT_PUBLIC_* to full URLs; rewrites are skipped (NODE_ENV=production).
+   * Same-origin `/api`: browser calls Next.js; dev rewrites forward to FastAPI.
    */
   async rewrites() {
     /*if (process.env.NODE_ENV !== "development") {
@@ -16,7 +15,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/api/:path*",
-        destination: `${authGatewayOrigin}/api/:path*`,
+        destination: `${apiBackendOrigin}/api/:path*`,
       },
     ];
   },

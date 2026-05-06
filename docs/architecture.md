@@ -20,7 +20,7 @@ MultiTenant AI SaaS is a three-service monorepo that provides AI-powered documen
 │                      :8000                                      │
 │                                                                 │
 │  /api/auth/*      /api/chat/*      /api/documents/*             │
-│  /api/users/*     /api/agents/*    /api/orgs/*                  │
+│  /api/users/*     /api/agents/*    /api/organizations/*       │
 │  /internal/*  ◄── agents only, protected by X-Internal-Secret  │
 └────────┬─────────────────────┬───────────────────────────────┬──┘
          │ SQL (async)         │ enqueue job                   │ pub/sub

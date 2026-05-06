@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from fastapi import HTTPException, status
+from sqlalchemy import asc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -18,6 +19,7 @@ from app.models.org import Org, OrgMembership
 from app.models.user import RefreshToken, User
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.core.identity import jwt_roles_claim, jwt_user_type_claim, normalize_email, is_super_admin_user
 
 logger = get_logger(__name__)
 
@@ -42,18 +44,27 @@ async def _ensure_unique_slug(session: AsyncSession, base_slug: str) -> str:
         counter += 1
 
 
+def jwt_effective_role(user: User, membership_role: Role) -> Role:
+    """Elevate configured super admins to SUPER_ADMIN regardless of membership row."""
+    if is_super_admin_user(user.id):
+        return Role.SUPER_ADMIN
+    return membership_role
+
+
 async def register_user(
     session: AsyncSession,
     email: str,
     password: str,
     name: str,
+    organization_name: str | None = None,
 ) -> tuple[User, str, str]:
     """
     Register a new user, create their org, and return (user, access_token, refresh_token).
     One user -> one org for MVP.
     """
     # Check if email already exists
-    existing = await session.execute(select(User).where(User.email == email))
+    email_norm = normalize_email(email)
+    existing = await session.execute(select(User).where(User.email == email_norm))
     if existing.scalars().first():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -62,7 +73,7 @@ async def register_user(
 
     # Create user
     user = User(
-        email=email,
+        email=email_norm,
         hashed_password=hash_password(password),
         name=name,
     )
@@ -70,7 +81,7 @@ async def register_user(
     await session.flush()  # Get user.id
 
     # Create org from user's name/email
-    org_name = name or email.split("@")[0]
+    org_name = (organization_name or "").strip() or name or email_norm.split("@")[0]
     base_slug = _slugify(org_name)
     slug = await _ensure_unique_slug(session, base_slug)
 
@@ -95,6 +106,8 @@ async def register_user(
         user_id=user.id,
         token_hash=refresh_hash,
         expires_at=datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+        org_id=org.id,
+        no_org_scope=False,
     )
     session.add(refresh_token_obj)
 
@@ -111,7 +124,7 @@ async def login_user(
     Authenticate a user and return (user, access_token, refresh_token).
     Raises 401 on invalid credentials.
     """
-    result = await session.execute(select(User).where(User.email == email))
+    result = await session.execute(select(User).where(User.email == normalize_email(email)))
     user = result.scalars().first()
 
     if not user or not user.hashed_password or not verify_password(password, user.hashed_password):
@@ -120,9 +133,11 @@ async def login_user(
             detail="Invalid email or password",
         )
 
-    # Get membership
+    # Get membership (deterministic: oldest membership first by created_at)
     membership_result = await session.execute(
-        select(OrgMembership).where(OrgMembership.user_id == user.id)
+        select(OrgMembership)
+        .where(OrgMembership.user_id == user.id)
+        .order_by(asc(OrgMembership.created_at))
     )
     membership = membership_result.scalars().first()
     if not membership:
@@ -146,6 +161,8 @@ async def login_user(
         user_id=user.id,
         token_hash=refresh_hash,
         expires_at=datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+        org_id=org_result.id,
+        no_org_scope=False,
     )
     session.add(refresh_token_obj)
 
@@ -185,34 +202,81 @@ async def refresh_tokens(
     stored.revoked = True
     session.add(stored)
 
-    # Get user and membership for new token
     user = await session.get(User, stored.user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
-    membership_result = await session.execute(
-        select(OrgMembership).where(OrgMembership.user_id == user.id)
-    )
-    membership = membership_result.scalars().first()
-    if not membership:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No membership")
+    persist_org_id: UUID | None = None
+    persist_no_org = False
 
-    org = await session.get(Org, membership.org_id)
-    if not org:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Org not found")
+    if stored.no_org_scope:
+        if not is_super_admin_user(user.id):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid refresh token",
+            )
+        new_access = make_super_admin_reset_access_token(user)
+        persist_org_id = None
+        persist_no_org = True
+    elif stored.org_id is not None:
+        org = await session.get(Org, stored.org_id)
+        if not org:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Org not found")
+        is_sa = is_super_admin_user(user.id)
+        mr = await session.execute(
+            select(OrgMembership).where(
+                OrgMembership.user_id == user.id,
+                OrgMembership.org_id == stored.org_id,
+            ),
+        )
+        membership = mr.scalars().first()
+        if not membership and not is_sa:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No membership")
+        jwt_role = Role.SUPER_ADMIN if is_sa else Role(membership.role)
+        new_access = _make_access_token(user, org, jwt_role)
+        persist_org_id = stored.org_id
+        persist_no_org = False
+    else:
+        membership_result = await session.execute(
+            select(OrgMembership)
+            .where(OrgMembership.user_id == user.id)
+            .order_by(asc(OrgMembership.created_at))
+        )
+        membership = membership_result.scalars().first()
+        if not membership:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No membership")
 
-    role = Role(membership.role)
-    new_access = _make_access_token(user, org, role)
+        org = await session.get(Org, membership.org_id)
+        if not org:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Org not found")
+
+        role = Role(membership.role)
+        new_access = _make_access_token(user, org, role)
+        persist_org_id = org.id
+        persist_no_org = False
+
     opaque, new_hash = create_refresh_token()
 
     new_refresh_obj = RefreshToken(
         user_id=user.id,
         token_hash=new_hash,
         expires_at=datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+        org_id=persist_org_id,
+        no_org_scope=persist_no_org,
     )
     session.add(new_refresh_obj)
 
     return new_access, opaque
+
+
+async def revoke_all_refresh_tokens(session: AsyncSession, user_id: UUID) -> None:
+    """Revoke every refresh token belonging to ``user_id``."""
+    result = await session.execute(
+        select(RefreshToken).where(RefreshToken.user_id == user_id, RefreshToken.revoked == False)  # noqa: E712
+    )
+    for row in result.scalars().all():
+        row.revoked = True
+        session.add(row)
 
 
 async def logout_user(session: AsyncSession, refresh_token: str) -> None:
@@ -235,12 +299,27 @@ async def get_me(session: AsyncSession, user_id: UUID) -> User:
     return user
 
 
-def _make_access_token(user: User, org: Org, role: Role) -> str:
-    """Build the JWT access token payload and sign it."""
+def _make_access_token(user: User, org: Org, membership_role: Role) -> str:
+    """Build access JWT including auxiliary claims for authenticated UIs."""
+    eff = jwt_effective_role(user, membership_role)
     return create_access_token({
         "sub": str(user.id),
         "email": user.email,
         "org_id": str(org.id),
         "tenant_slug": org.slug,
-        "role": role.value,
+        "role": eff.value,
+        "roles": jwt_roles_claim(eff),
+        "user_type": jwt_user_type_claim(user.id),
+    })
+
+
+def make_super_admin_reset_access_token(user: User) -> str:
+    """JWT without ``org_id`` for super admins clearing tenant scope."""
+    eff = Role.SUPER_ADMIN
+    return create_access_token({
+        "sub": str(user.id),
+        "email": user.email,
+        "role": eff.value,
+        "roles": jwt_roles_claim(eff),
+        "user_type": jwt_user_type_claim(user.id),
     })

@@ -27,8 +27,8 @@ export default function SignInPage() {
         refresh_token?: string;
         must_change_password?: boolean;
         data?: {
-          accessToken?: string;
-          refreshToken?: string;
+          access_token?: string;
+          refresh_token?: string;
           must_change_password?: boolean;
         };
       }>('/auth/login', {
@@ -36,9 +36,10 @@ export default function SignInPage() {
         body: JSON.stringify({ email, password }),
       });
       if (!res.success) throw new Error(res.error);
-      const accessToken = res.data.access_token ?? res.data.data?.accessToken;
-      const refreshToken = res.data.refresh_token ?? res.data.data?.refreshToken;
-      const mustChangePassword = res.data.must_change_password ?? res.data.data?.must_change_password;
+      const accessToken = res.data.access_token ?? res.data.data?.access_token;
+      const refreshToken = res.data.refresh_token ?? res.data.data?.refresh_token;
+      const mustChangePassword =
+        res.data.must_change_password ?? res.data.data?.must_change_password;
 
       if (!accessToken || !refreshToken) {
         throw new Error('Login response missing tokens');

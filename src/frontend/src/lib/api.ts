@@ -60,9 +60,7 @@ export async function apiFetch<T = unknown>(
       throw new Error(errorMessage);
     }
 
-    // Compatibility: many pages expect response as either:
-    // 1) data.<field>            (raw backend payload)
-    // 2) data.data.<field>       (gateway-style envelope)
+    // Normalize envelopes: unwrap either a top-level `{ data: ... }` or reuse the payload as `data`.
     let normalized = data;
     if (normalized && typeof normalized === 'object' && !Array.isArray(normalized)) {
       const obj = normalized as Record<string, unknown>;

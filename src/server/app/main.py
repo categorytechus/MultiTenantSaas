@@ -5,7 +5,6 @@ from typing import Any
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 from app.core.logging import bind_request_context, clear_request_context, get_logger, setup_logging
@@ -20,7 +19,6 @@ async def lifespan(app: FastAPI):
     setup_logging()
     logger.info("Starting application", environment=settings.ENVIRONMENT)
 
-    # Initialize Redis connection
     try:
         redis = await get_redis()
         await redis.ping()
@@ -28,22 +26,35 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Redis not available at startup", error=str(e))
 
-    # Run migrations in development
     if settings.ENVIRONMENT == "development":
         try:
             await _run_migrations()
         except Exception as e:
             logger.warning("Migration failed (non-fatal in dev)", error=str(e))
 
+    # Load DB-backed super admin allowlist.
+    try:
+        from sqlmodel import select
+
+        from app.core.db import async_session_factory
+        from app.core.identity import set_db_super_admin_user_ids
+        from app.models.super_admin import SuperAdminAllowlist
+
+        async with async_session_factory() as session:
+            result = await session.execute(select(SuperAdminAllowlist.user_id))
+            ids = frozenset(result.scalars().all())
+            set_db_super_admin_user_ids(ids)
+            logger.info("Loaded super admin allowlist", count=len(ids))
+    except Exception as e:
+        logger.warning("Failed to load super admin allowlist", error=str(e))
+
     yield
 
-    # Shutdown
     logger.info("Shutting down application")
     await close_redis()
 
 
 async def _run_migrations() -> None:
-    """Run Alembic migrations programmatically."""
     import asyncio
     from alembic.config import Config
     from alembic import command
@@ -61,11 +72,10 @@ async def _run_migrations() -> None:
 app = FastAPI(
     title="Multi-Tenant AI SaaS API",
     version="0.1.0",
-    description="FastAPI backend for Multi-Tenant AI SaaS platform",
+    description="FastAPI backend for the Multi-Tenant AI SaaS platform.",
     lifespan=lifespan,
 )
 
-# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -77,13 +87,6 @@ app.add_middleware(
 
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next) -> Response:
-    """
-    Middleware that:
-    1. Assigns a unique request_id to every request
-    2. Binds it (plus org/user if available) to structlog context
-    3. Adds X-Request-ID to response headers
-    4. Clears context after request
-    """
     request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
     start_time = time.perf_counter()
 
@@ -115,27 +118,29 @@ async def request_id_middleware(request: Request, call_next) -> Response:
         clear_request_context()
 
 
-# Health check
 @app.get("/health", tags=["health"])
 async def health_check() -> dict[str, Any]:
-    """Health check endpoint."""
+    """Liveness/readiness probe."""
     return {"status": "ok", "environment": settings.ENVIRONMENT}
 
 
-# Include all routers
-from app.api.auth import router as auth_router
-from app.api.orgs import router as orgs_router
-from app.api.users import router as users_router
-from app.api.documents import router as documents_router
-from app.api.chat import router as chat_router
-from app.api.agents import router as agents_router
 from app.api.admin import router as admin_router
+from app.api.agents import router as agents_router
+from app.api.auth import router as auth_router
+from app.api.chat import router as chat_router
+from app.api.documents import router as documents_router
 from app.api.internal import router as internal_router
+from app.api.organizations import router as organizations_router
+from app.api.tenant_org_routes import router as tenant_org_router
+from app.api.users import router as users_router
+from app.api.web_urls import router as web_urls_router
 
 app.include_router(auth_router)
-app.include_router(orgs_router)
+app.include_router(organizations_router)
+app.include_router(tenant_org_router)
 app.include_router(users_router)
 app.include_router(documents_router)
+app.include_router(web_urls_router)
 app.include_router(chat_router)
 app.include_router(agents_router)
 app.include_router(admin_router)

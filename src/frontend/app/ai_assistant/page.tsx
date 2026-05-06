@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Layout from '../../components/Layout';
 import { apiFetch, getWebSocketUrl } from '../../src/lib/api';
@@ -15,24 +15,41 @@ interface Message {
   timestamp: Date;
 }
 
+interface ChatSessionLite {
+  id: string;
+  title: string;
+  createdAt: Date;
+}
+
 export default function AIAssistantPage() {
   const router = useRouter();
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      role: 'assistant',
-      content: 'Hello! I\'m your AI Assistant. I can help you with documents, answer questions, and guide you through the platform. How can I assist you today?',
-      timestamp: new Date()
-    }
+  const welcomeMessage: Message = {
+    id: 'welcome',
+    role: 'assistant',
+    content: "Hello! I'm your AI Assistant. Ask anything about your documents and workspace.",
+    timestamp: new Date(),
+  };
+  const [messages, setMessages] = useState<Message[]>([welcomeMessage]);
+  const [sessions, setSessions] = useState<ChatSessionLite[]>([
+    { id: 'current', title: 'New chat', createdAt: new Date() },
   ]);
+  const [activeSessionId, setActiveSessionId] = useState('current');
   const [input, setInput] = useState('');
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const updateTitleFromInput = (text: string) => {
+    const title = text.trim().replace(/\s+/g, ' ').slice(0, 44) || 'New chat';
+    setSessions((prev) =>
+      prev.map((s) => (s.id === activeSessionId && s.title === 'New chat' ? { ...s, title } : s)),
+    );
   };
 
   // Permission guard: check if user has access to the ai_assistant module
@@ -127,7 +144,9 @@ export default function AIAssistantPage() {
     };
 
     setMessages(prev => [...prev, userMessage]);
+    updateTitleFromInput(textToSend);
     if (!overrideInput) setInput('');
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
 
     try {
       const res = await apiFetch<{ task_id: string; session_id?: string }>('/chat', {
@@ -180,80 +199,122 @@ export default function AIAssistantPage() {
     return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
   };
 
+  const activeSession = useMemo(
+    () => sessions.find((s) => s.id === activeSessionId) || sessions[0],
+    [sessions, activeSessionId],
+  );
+
+  const handleNewChat = () => {
+    const newId = `local-${Date.now()}`;
+    setSessions((prev) => [{ id: newId, title: 'New chat', createdAt: new Date() }, ...prev]);
+    setActiveSessionId(newId);
+    setSessionId(null);
+    setMessages([welcomeMessage]);
+    setInput('');
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
+  };
+
   return (
     <Layout>
-      
-
-      <div className="chat-container">
-        <div className="chat-header">
-          <div className="chat-title">
-            <div className="chat-title-icon">
-              <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"/>
-              </svg>
-            </div>
-            AI Assistant
+      <div className="ai-layout">
+        <aside className="ai-sidebar">
+          <div className="ai-sidebar-header">
+            <div className="ai-sidebar-label">Chat History</div>
+            <button className="ai-new-btn" onClick={handleNewChat}>
+              + New Chat
+            </button>
           </div>
-          <div className="ws-status">
-             <div className="status-dot" style={{ background: wsConnected ? '#10b981' : '#ef4444' }}></div>
-             {wsConnected ? 'System Online' : 'Connecting to AI...'}
+          <div className="ai-session-list">
+            {sessions.map((session) => (
+              <button
+                key={session.id}
+                className={`ai-session-item ${session.id === activeSessionId ? 'active' : ''}`}
+                onClick={() => setActiveSessionId(session.id)}
+              >
+                <span className="title">{session.title}</span>
+                <span className="time">{formatTime(session.createdAt)}</span>
+              </button>
+            ))}
           </div>
-        </div>
+        </aside>
 
-        <div className="messages-container">
-          {messages.map((message) => (
-            <div key={message.id} className={`message ${message.role}`}>
-              <div className="message-avatar">
-                {message.role === 'assistant' ? '✨' : 'U'}
+        <div className="chat-container">
+          <div className="chat-header">
+            <div className="chat-title">
+              <div className="chat-title-icon">
+                <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"/>
+                </svg>
               </div>
-              <div className="message-content">
-                <div className="message-bubble">
+              {activeSession?.title || 'AI Assistant'}
+            </div>
+            <div className="ws-status">
+              <div className="status-dot" style={{ background: wsConnected ? '#10b981' : '#ef4444' }}></div>
+              {wsConnected ? 'System Online' : 'Connecting to AI...'}
+            </div>
+          </div>
+
+          <div className="messages-container">
+            {messages.map((message) => (
+              <div key={message.id} className={`message ${message.role}`}>
+                <div className="message-avatar">
+                  {message.role === 'assistant' ? '✨' : 'U'}
+                </div>
+                <div className="message-content">
+                  <div className="message-bubble">
                     {message.content}
                     {message.status === 'pending' && <span className="loading-dots">...</span>}
-                </div>
-                <div className="message-time">
-                    {formatTime(message.timestamp)}
-                    {message.status && message.status !== 'completed' && ` • ${message.status}`}
+                  </div>
+                  <div className="message-time">
+                      {formatTime(message.timestamp)}
+                      {message.status && message.status !== 'completed' && ` • ${message.status}`}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-          <div ref={messagesEndRef} />
-        </div>
-
-        <div className="input-container">
-          <div className="input-wrapper">
-            <div className="input-box">
-              <textarea
-                className="input-textarea"
-                placeholder="Ask me anything..."
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyPress={handleKeyPress}
-                rows={1}
-              />
-            </div>
-            <button
-              className="send-button"
-              onClick={() => handleSend()}
-              disabled={!input.trim()}
-            >
-              <svg fill="currentColor" viewBox="0 0 24 24">
-                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-              </svg>
-            </button>
+            ))}
+            <div ref={messagesEndRef} />
           </div>
 
-          <div className="quick-actions">
-            <button className="quick-action" onClick={() => handleSend('What are my recent documents?')}>
-              📄 Recent documents
-            </button>
-            <button className="quick-action" onClick={() => handleSend('Summarize the platform features')}>
-              📝 Summarize features
-            </button>
-            <button className="quick-action" onClick={() => handleSend('Help me find something')}>
-              💡 Get help
-            </button>
+          <div className="input-container">
+            <div className="input-wrapper">
+              <div className="input-box">
+                <textarea
+                  ref={textareaRef}
+                  className="input-textarea"
+                  placeholder="Ask me anything..."
+                  value={input}
+                  onChange={(e) => {
+                    setInput(e.target.value);
+                    e.target.style.height = 'auto';
+                    e.target.style.height = `${Math.min(e.target.scrollHeight, 150)}px`;
+                  }}
+                  onKeyDown={handleKeyPress}
+                  rows={1}
+                />
+                <button
+                  className="send-button"
+                  onClick={() => handleSend()}
+                  disabled={!input.trim()}
+                  aria-label="Send message"
+                >
+                  <svg fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div className="quick-actions">
+              <button className="quick-action" onClick={() => handleSend('What are my recent documents?')}>
+                📄 Recent documents
+              </button>
+              <button className="quick-action" onClick={() => handleSend('Summarize the platform features')}>
+                📝 Summarize features
+              </button>
+              <button className="quick-action" onClick={() => handleSend('Help me find something')}>
+                💡 Get help
+              </button>
+            </div>
           </div>
         </div>
       </div>

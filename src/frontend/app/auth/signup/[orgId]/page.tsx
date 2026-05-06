@@ -92,8 +92,8 @@ export default function OrgSignupPage() {
         setJoinState('error');
         return;
       }
-      localStorage.setItem('accessToken', data.data.accessToken);
-      localStorage.setItem('refreshToken', data.data.refreshToken);
+      localStorage.setItem('accessToken', data.data.access_token);
+      localStorage.setItem('refreshToken', data.data.refresh_token);
       setJoinState('done');
       router.push('/dashboard');
     } catch {
@@ -130,9 +130,9 @@ export default function OrgSignupPage() {
         return;
       }
       // Store tokens and redirect
-      if (data.data?.accessToken) {
-        localStorage.setItem('accessToken', data.data.accessToken);
-        localStorage.setItem('refreshToken', data.data.refreshToken);
+      if (data.data?.access_token) {
+        localStorage.setItem('accessToken', data.data.access_token);
+        localStorage.setItem('refreshToken', data.data.refresh_token);
         router.push('/dashboard');
         return;
       }
