@@ -112,3 +112,4 @@ EOF
 
 
 src/web/.vite/
+*.mjs

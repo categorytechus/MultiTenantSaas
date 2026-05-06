@@ -1,9 +1,13 @@
 import json
 from typing import Any
+from urllib.parse import urlparse
 from uuid import UUID
 
+import httpx
+from bs4 import BeautifulSoup
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel
+from sqlalchemy import text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import db_session, get_db
@@ -15,6 +19,7 @@ from app.models.document import Document, DocumentChunk, DocumentStatus
 from app.services.audit import log_action
 from app.services.documents import (
     create_document,
+    create_url_document,
     delete_document,
     get_document,
     list_documents,
@@ -35,7 +40,9 @@ class DocumentResponse(BaseModel):
     mime_type: str | None
     size_bytes: int | None
     status: str
-    s3_key: str
+    s3_key: str | None
+    source_url: str | None = None
+    document_type: str = "file"
     created_at: str
     download_url: str | None = None
     extracted_title: str | None = None
@@ -57,6 +64,8 @@ def _doc_to_response(doc, download_url: str | None = None) -> dict:
         "size_bytes": doc.size_bytes,
         "status": doc.status,
         "s3_key": doc.s3_key,
+        "source_url": doc.source_url,
+        "document_type": doc.document_type,
         "created_at": doc.created_at.isoformat(),
         "download_url": download_url,
         "extracted_title": doc.extracted_title,
@@ -68,16 +77,16 @@ def _doc_to_response(doc, download_url: str | None = None) -> dict:
 async def _ingest_document_bg(
     document_id: UUID,
     org_id: UUID,
-    body: bytes,
+    body: bytes | None,
     mime_type: str | None,
     filename: str = "document",
+    source_url: str | None = None,
 ) -> None:
     """
     Background ingestion: parse → chunk → embed → generate metadata → insert chunks → mark ready.
+    Supports both file bytes (body) and web URLs (source_url).
     Runs after the upload transaction has committed, so all DB writes are fresh sessions.
     """
-    from sqlalchemy import text as sa_text
-
     async def _set_status(s: str) -> None:
         try:
             async with db_session(org_id) as sess:
@@ -89,7 +98,22 @@ async def _ingest_document_bg(
             pass
 
     try:
-        text = parse_document(body, mime_type)
+        scraped_size = None
+        # ── Resolve text from either a web URL or raw file bytes ───────────────
+        if source_url:
+            logger.info("Fetching URL for ingestion", doc_id=str(document_id), url=source_url)
+            async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
+                response = await client.get(source_url, headers={"User-Agent": "Mozilla/5.0"})
+                response.raise_for_status()
+            soup = BeautifulSoup(response.text, "lxml")
+            # Remove script / style noise
+            for tag in soup(["script", "style", "nav", "footer", "header"]):
+                tag.decompose()
+            text = soup.get_text(separator="\n", strip=True)
+            scraped_size = len(text.encode("utf-8"))
+        else:
+            text = parse_document(body or b"", mime_type)
+
         if not text.strip():
             logger.warning("Document produced no text", doc_id=str(document_id))
             await _set_status(DocumentStatus.FAILED.value)
@@ -113,20 +137,24 @@ async def _ingest_document_bg(
                     embedding=embedding,
                 ))
             await sess.flush()
-            await sess.execute(
-                sa_text(
-                    "UPDATE documents SET status = :s, extracted_title = :title, "
-                    "summary = :summary, keywords = CAST(:keywords AS json) "
-                    "WHERE id = CAST(:id AS uuid)"
-                ),
-                {
-                    "s": DocumentStatus.READY.value,
-                    "id": str(document_id),
-                    "title": metadata.get("title") or None,
-                    "summary": metadata.get("summary") or None,
-                    "keywords": json.dumps(metadata.get("keywords") or []),
-                },
+            update_query = (
+                "UPDATE documents SET status = :s, extracted_title = :title, "
+                "summary = :summary, keywords = CAST(:keywords AS json) "
             )
+            update_params = {
+                "s": DocumentStatus.READY.value,
+                "id": str(document_id),
+                "title": metadata.get("title") or None,
+                "summary": metadata.get("summary") or None,
+                "keywords": json.dumps(metadata.get("keywords") or []),
+            }
+            if scraped_size is not None:
+                update_query += ", size_bytes = :size "
+                update_params["size"] = scraped_size
+            
+            update_query += "WHERE id = CAST(:id AS uuid)"
+
+            await sess.execute(sa_text(update_query), update_params)
 
         logger.info("Ingestion complete", doc_id=str(document_id), chunks=len(chunks))
 
@@ -195,6 +223,55 @@ async def upload_document(
     await upload(s3_key, body, tags={"org_id": str(ctx.org_id), "document_id": str(doc_id)})
 
     background_tasks.add_task(_ingest_document_bg, doc_id, ctx.org_id, body, mime_type, filename)
+
+    return {"task_id": None, "document": doc_snapshot}
+
+
+class IngestUrlRequest(BaseModel):
+    url: str
+
+
+@router.post("/url", status_code=202)
+async def ingest_url(
+    payload: IngestUrlRequest,
+    background_tasks: BackgroundTasks,
+    ctx: RequestContext = authorize("documents:upload"),
+) -> Any:
+    """
+    Submit a public web URL for ingestion.
+    The server fetches the page, strips HTML, chunks and embeds the text,
+    then stores the result as searchable document chunks.
+    """
+    parsed = urlparse(payload.url)
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Only http:// and https:// URLs are supported.",
+        )
+
+    async with db_session(ctx.org_id) as session:
+        doc = await create_url_document(
+            session,
+            org_id=ctx.org_id,
+            user_id=ctx.user_id,
+            source_url=payload.url,
+        )
+        doc_id = doc.id
+        doc_snapshot = _doc_to_response(doc)
+        await log_action(
+            session, ctx, "document.url_ingest", "document", str(doc_id), {"url": payload.url}
+        )
+    # Transaction committed — document record is now visible to the background task
+
+    background_tasks.add_task(
+        _ingest_document_bg,
+        doc_id,
+        ctx.org_id,
+        None,          # no file bytes
+        None,          # no mime_type
+        doc_snapshot["filename"],
+        payload.url,   # source_url → triggers URL fetch branch
+    )
 
     return {"task_id": None, "document": doc_snapshot}
 

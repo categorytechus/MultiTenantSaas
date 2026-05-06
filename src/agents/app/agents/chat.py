@@ -42,12 +42,6 @@ async def _run_bedrock(
     """Primary path: ChatBedrock via langchain-aws."""
     from langchain_aws import ChatBedrock
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-    from langchain_core.callbacks import AsyncCallbackHandler
-
-    class RedisStreamHandler(AsyncCallbackHandler):
-        async def on_llm_new_token(self, token, **kwargs):
-            if token:
-                await redis.publish(channel, json.dumps({"type": "token", "data": token}))
 
     bedrock_client = _get_bedrock_client()
 
@@ -56,8 +50,6 @@ async def _run_bedrock(
         model_id=settings.BEDROCK_MODEL_ARN,
         region_name=settings.AWS_BEDROCK_REGION,
         provider=settings.BEDROCK_MODEL_PROVIDER,
-        streaming=True,
-        callbacks=[RedisStreamHandler()],
     )
 
     messages = [SystemMessage(content=system_prompt)]
@@ -67,8 +59,14 @@ async def _run_bedrock(
         else:
             messages.append(AIMessage(content=m["content"]))
 
-    response = await llm.ainvoke(messages)
-    return response.content if isinstance(response.content, str) else str(response.content)
+    full_response = []
+    async for chunk in llm.astream(messages):
+        content = chunk.content
+        if isinstance(content, str) and content:
+            full_response.append(content)
+            await redis.publish(channel, json.dumps({"type": "token", "data": content}))
+
+    return "".join(full_response)
 
 
 async def _run_gemini(

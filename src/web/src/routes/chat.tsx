@@ -445,7 +445,7 @@ export default function ChatPage() {
 
   const handleShare = useCallback((sessionId: string) => {
     const url = `${window.location.origin}/ai_assistant?session=${sessionId}`
-    navigator.clipboard.writeText(url).catch(() => {})
+    navigator.clipboard.writeText(url).catch(() => { })
     setShareToast(true)
     setTimeout(() => setShareToast(false), 2500)
   }, [])

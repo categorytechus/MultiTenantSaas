@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback } from 'react'
-import { Upload, Search, Trash2, Eye, FileText, Image, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react'
-import { useDocuments, useUploadDocument, useDeleteDocument } from '../hooks/useDocuments'
+import { Upload, Search, Trash2, Eye, FileText, Image, Link, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react'
+import { useDocuments, useUploadDocument, useDeleteDocument, useIngestUrl } from '../hooks/useDocuments'
 import { Document } from '../types'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
@@ -177,6 +177,97 @@ function UploadModal({ open, onClose }: { open: boolean; onClose: () => void }) 
   )
 }
 
+// ── URL Ingest Modal ──────────────────────────────────────────────────────────
+function UrlIngestModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [url, setUrl] = useState('')
+  const [urlError, setUrlError] = useState<string | null>(null)
+  const [submitSuccess, setSubmitSuccess] = useState(false)
+  const { mutateAsync: ingestUrl, isPending } = useIngestUrl()
+
+  const validateUrl = (val: string): string | null => {
+    try {
+      const p = new URL(val)
+      if (!['http:', 'https:'].includes(p.protocol)) return 'Only http:// and https:// URLs are supported.'
+      return null
+    } catch {
+      return 'Please enter a valid URL.'
+    }
+  }
+
+  const handleSubmit = async () => {
+    const err = validateUrl(url)
+    if (err) { setUrlError(err); return }
+    setUrlError(null)
+    try {
+      await ingestUrl(url)
+      setSubmitSuccess(true)
+      setUrl('')
+      setTimeout(() => { setSubmitSuccess(false); onClose() }, 1500)
+    } catch (e: unknown) {
+      setUrlError(e instanceof Error ? e.message : 'Failed to submit URL.')
+    }
+  }
+
+  const handleClose = () => {
+    setUrl('')
+    setUrlError(null)
+    setSubmitSuccess(false)
+    onClose()
+  }
+
+  return (
+    <Modal open={open} onClose={handleClose} title="Ingest from URL" size="md">
+      {submitSuccess ? (
+        <div style={{ textAlign: 'center', padding: '20px 0' }}>
+          <div style={{ fontSize: 32, marginBottom: 10 }}>✓</div>
+          <p style={{ fontSize: 13.5, color: '#16a34a', fontWeight: 500 }}>
+            URL submitted! Fetching and processing...
+          </p>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <p style={{ fontSize: 13, color: '#666', margin: 0 }}>
+            Paste any public web page URL. The page content will be fetched, cleaned, and added to your knowledge base.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <label style={{ fontSize: 12.5, fontWeight: 600, color: '#555' }}>URL</label>
+            <input
+              id="url-ingest-input"
+              type="url"
+              placeholder="https://example.com/article"
+              value={url}
+              onChange={(e) => { setUrl(e.target.value); setUrlError(null) }}
+              onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
+              style={{
+                padding: '9px 12px',
+                border: `1px solid ${urlError ? '#e53e3e' : '#e5e5e5'}`,
+                borderRadius: 8,
+                fontSize: 13.5,
+                outline: 'none',
+                fontFamily: "'DM Sans', sans-serif",
+                width: '100%',
+                boxSizing: 'border-box',
+              }}
+            />
+          </div>
+          {urlError && (
+            <p style={{ fontSize: 12.5, color: '#e53e3e', backgroundColor: '#fff5f5', border: '1px solid #fed7d7', borderRadius: 6, padding: '8px 12px', margin: 0 }}>
+              {urlError}
+            </p>
+          )}
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <Button variant="secondary" size="sm" onClick={handleClose}>Cancel</Button>
+            <Button size="sm" onClick={handleSubmit} disabled={!url.trim()} loading={isPending}>
+              <Link size={13} />
+              Ingest URL
+            </Button>
+          </div>
+        </div>
+      )}
+    </Modal>
+  )
+}
+
 // ── Delete confirm ────────────────────────────────────────────────────────────
 function DeleteConfirm({
   open,
@@ -221,6 +312,7 @@ export default function DocumentsPage() {
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
   const [uploadOpen, setUploadOpen] = useState(false)
+  const [urlOpen, setUrlOpen] = useState(false)
   const [deleteDoc, setDeleteDoc] = useState<Document | null>(null)
 
   const { data, isLoading, error, refetch, isFetching } = useDocuments({
@@ -263,6 +355,10 @@ export default function DocumentsPage() {
           >
             <RefreshCw size={14} style={{ animation: isFetching ? 'spin 1s linear infinite' : 'none' }} />
             Refresh
+          </Button>
+          <Button variant="secondary" onClick={() => setUrlOpen(true)}>
+            <Link size={14} />
+            Add URL
           </Button>
           <Button onClick={() => setUploadOpen(true)}>
             <Upload size={14} />
@@ -391,16 +487,28 @@ export default function DocumentsPage() {
                   {/* Filename */}
                   <td style={{ padding: '11px 14px' }}>
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                      <FileText size={14} style={{ color: '#aaa', flexShrink: 0, marginTop: 2 }} />
+                      {doc.document_type === 'url'
+                        ? <Link size={14} style={{ color: '#6366f1', flexShrink: 0, marginTop: 2 }} />
+                        : <FileText size={14} style={{ color: '#aaa', flexShrink: 0, marginTop: 2 }} />
+                      }
                       <div>
                         <span style={{ fontSize: 13, color: '#1a1a1a', fontWeight: 500, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
                           {doc.extracted_title || doc.filename}
                         </span>
-                        {doc.extracted_title && (
+                        {doc.document_type === 'url' && doc.source_url ? (
+                          <a
+                            href={doc.source_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ fontSize: 11, color: '#6366f1', display: 'block', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: 'none' }}
+                          >
+                            {doc.source_url}
+                          </a>
+                        ) : doc.extracted_title ? (
                           <span style={{ fontSize: 11, color: '#aaa', display: 'block', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {doc.filename}
                           </span>
-                        )}
+                        ) : null}
                         {doc.keywords && doc.keywords.length > 0 && (
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 4, maxWidth: 240 }}>
                             {doc.keywords.slice(0, 4).map((kw) => (
@@ -415,7 +523,12 @@ export default function DocumentsPage() {
                   </td>
                   {/* Category */}
                   <td style={{ padding: '11px 14px' }}>
-                    {doc.category === 'image' ? (
+                    {doc.document_type === 'url' ? (
+                      <Badge variant="purple">
+                        <Link size={10} style={{ marginRight: 3 }} />
+                        Web
+                      </Badge>
+                    ) : doc.category === 'image' ? (
                       <Badge variant="purple">
                         <Image size={10} style={{ marginRight: 3 }} />
                         Image
@@ -561,6 +674,7 @@ export default function DocumentsPage() {
 
       {/* Modals */}
       <UploadModal open={uploadOpen} onClose={() => setUploadOpen(false)} />
+      <UrlIngestModal open={urlOpen} onClose={() => setUrlOpen(false)} />
       <DeleteConfirm
         open={!!deleteDoc}
         doc={deleteDoc}
