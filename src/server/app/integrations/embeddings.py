@@ -5,11 +5,13 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from typing import Any
 
+from app.core.config import settings
 from app.core.logging import get_logger
+from fastembed import TextEmbedding
 
 logger = get_logger(__name__)
 
-EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
+EMBEDDING_MODEL = settings.EMBEDDING_MODEL
 EMBEDDING_DIMS = 384
 BATCH_SIZE = 64
 
@@ -18,7 +20,6 @@ _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="embeddings")
 
 @lru_cache(maxsize=1)
 def _get_model() -> Any:
-    from fastembed import TextEmbedding
     logger.info("Loading embedding model", model=EMBEDDING_MODEL)
     return TextEmbedding(EMBEDDING_MODEL)
 

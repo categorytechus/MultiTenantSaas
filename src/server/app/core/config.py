@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     BEDROCK_MODEL_PROVIDER: str = "anthropic"
     AWS_BEDROCK_REGION: str = "us-east-1"
     OPENAI_API_KEY: str = ""
+    GEMINI_API_KEY: str = ""
+    CHAT_MODEL: str = "bedrock"
+    EMBEDDING_MODEL: str = "BAAI/bge-small-en-v1.5"
 
     ENVIRONMENT: str = "development"
     # Comma-separated string so pydantic-settings doesn't attempt JSON parsing.

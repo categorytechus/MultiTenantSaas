@@ -2,8 +2,9 @@
 import asyncio
 
 from fastembed import TextEmbedding
+from app.config import settings
 
-MODEL_NAME = "BAAI/bge-small-en-v1.5"
+MODEL_NAME = settings.EMBEDDING_MODEL
 DIMS = 384
 
 _model: TextEmbedding | None = None
