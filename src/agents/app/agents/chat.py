@@ -3,6 +3,12 @@ import json
 
 import redis.asyncio as aioredis
 from app.config import settings
+import openai
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_aws import ChatBedrock
+import boto3
+from google import genai
+from google.genai import types
 
 _SYSTEM_WITH_CONTEXT = """\
 You are a helpful AI assistant. Answer the user's question using the context below, \
@@ -12,8 +18,6 @@ If the answer cannot be found in the context, say so clearly rather than guessin
 ## Retrieved context
 {context}
 """
-
-import boto3
 
 _SYSTEM_NO_CONTEXT = "You are a helpful AI assistant."
 
@@ -40,9 +44,6 @@ async def _run_bedrock(
     channel: str,
 ) -> str:
     """Primary path: ChatBedrock via langchain-aws."""
-    from langchain_aws import ChatBedrock
-    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-
     bedrock_client = _get_bedrock_client()
 
     llm = ChatBedrock(
@@ -77,8 +78,6 @@ async def _run_gemini(
     channel: str,
 ) -> str:
     """Fallback path: existing Gemini code, unchanged."""
-    from google import genai
-    from google.genai import types
 
     client = genai.Client(api_key=api_key)
 
@@ -99,6 +98,37 @@ async def _run_gemini(
         if chunk.text:
             full_response.append(chunk.text)
             await redis.publish(channel, json.dumps({"type": "token", "data": chunk.text}))
+
+    return "".join(full_response)
+
+
+async def _run_openai(
+    api_key: str,
+    conversation: list[dict],
+    system_prompt: str,
+    redis: aioredis.Redis,
+    channel: str,
+) -> str:
+    """Fallback path: OpenAI via raw openai sdk."""
+
+    client = openai.AsyncOpenAI(api_key=api_key)
+
+    oai_messages = [{"role": "system", "content": system_prompt}]
+    for m in conversation:
+        oai_messages.append({"role": m.get("role"), "content": m["content"]})
+
+    full_response = []
+    stream = await client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=oai_messages,
+        stream=True,
+    )
+    
+    async for chunk in stream:
+        content = chunk.choices[0].delta.content
+        if content:
+            full_response.append(content)
+            await redis.publish(channel, json.dumps({"type": "token", "data": content}))
 
     return "".join(full_response)
 
@@ -124,11 +154,13 @@ async def run_agent(
     else:
         system_prompt = _SYSTEM_NO_CONTEXT
 
-    if settings.BEDROCK_MODEL_ARN:
+    if settings.CHAT_MODEL == "bedrock":
         return await _run_bedrock(conversation, system_prompt, redis, channel)
-    elif settings.GEMINI_API_KEY:
+    elif settings.CHAT_MODEL == "gemini":
         return await _run_gemini(settings.GEMINI_API_KEY, conversation, system_prompt, redis, channel)
+    elif settings.CHAT_MODEL == "openai":
+        return await _run_openai(settings.OPENAI_API_KEY, conversation, system_prompt, redis, channel)
     else:
-        mock = "[Mock response — neither BEDROCK_MODEL_ARN nor GEMINI_API_KEY set]"
+        mock = f"[Mock response — unknown CHAT_MODEL {settings.CHAT_MODEL}]"
         await redis.publish(channel, json.dumps({"type": "token", "data": mock}))
         return mock

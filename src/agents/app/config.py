@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     AWS_BEDROCK_REGION: str = "us-east-1"
     OPENAI_API_KEY: str = ""
     ENVIRONMENT: str = "development"
+    CHAT_MODEL: str = "bedrock"
+    EMBEDDING_MODEL: str = "BAAI/bge-small-en-v1.5"
 
     # S3 / local file storage (mirrors server config)
     S3_BUCKET: str = ""
