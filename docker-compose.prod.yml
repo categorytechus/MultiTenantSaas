@@ -47,11 +47,13 @@ services:
       server:
         condition: service_healthy
 
-  web:
+  frontend:
     image: ${ECR_REGISTRY}/multitenant-saas-web:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    environment:
+      AUTH_GATEWAY_PROXY_ORIGIN: http://server:8000
     ports:
-      - "80:80"
+      - "3000:3000"
     depends_on:
       server:
         condition: service_healthy

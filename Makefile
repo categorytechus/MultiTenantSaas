@@ -1,10 +1,10 @@
-.PHONY: help dev server agents web migrate migrate-docker install lint clean db-up ecr-login redeploy-ecr
+.PHONY: help dev server agents frontend migrate migrate-docker install lint clean db-up ecr-login redeploy-ecr
 
 PYTHON := python3
 UV := uv
 SERVER_DIR := src/server
 AGENTS_DIR := src/agents
-WEB_DIR := src/web
+FRONTEND_DIR := src/frontend
 
 AWS_REGION   ?= us-east-1
 AWS_ACCOUNT  ?= $(shell aws sts get-caller-identity --query Account --output text 2>/dev/null)
@@ -15,7 +15,7 @@ help:
 	@echo "Multi-Tenant AI SaaS — available targets:"
 	@echo ""
 	@echo "Docker Compose (recommended):"
-	@echo "  make dev             Start all 4 services (server, agents, web, db)"
+	@echo "  make dev             Start all 4 services (server, agents, frontend, db)"
 	@echo "  make dev-detach      Same, detached"
 	@echo "  make db-up           Start only Postgres + Redis"
 	@echo "  make clean           Remove containers and volumes (fixes PG data dir / version mismatch)"
@@ -24,7 +24,7 @@ help:
 	@echo "  make install         Install all dependencies (uv sync + npm install)"
 	@echo "  make server          FastAPI server on :8000"
 	@echo "  make agents          Arq worker — document ingest + AI chat agents (src/agents)"
-	@echo "  make web             Vite dev server on :3000"
+	@echo "  make frontend        Next.js dev server on :3000"
 	@echo ""
 	@echo "Database:"
 	@echo "  make migrate              alembic upgrade head (default chain, host → localhost:5432)"
@@ -34,7 +34,7 @@ help:
 	@echo "Logs (Docker):"
 	@echo "  make logs-server     FastAPI server logs"
 	@echo "  make logs-agents     Agents worker logs (ingest + chat)"
-	@echo "  make logs-web        Web dev server logs"
+	@echo "  make logs-frontend   Next.js frontend logs"
 	@echo ""
 	@echo "Deploy:"
 	@echo "  make redeploy-ecr    Build + push 3 images to ECR, SSH deploy to EC2"
@@ -60,7 +60,7 @@ migrate-docker:
 install:
 	cd $(SERVER_DIR) && $(UV) sync --python 3.12
 	cd $(AGENTS_DIR) && $(UV) sync --python 3.12
-	cd $(WEB_DIR) && npm install
+	cd $(FRONTEND_DIR) && npm install --legacy-peer-deps
 
 server:
 	cd $(SERVER_DIR) && $(UV) run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
@@ -68,8 +68,8 @@ server:
 agents:
 	cd $(AGENTS_DIR) && $(UV) run arq app.jobs.WorkerSettings
 
-web:
-	cd $(WEB_DIR) && npm run dev
+frontend:
+	cd $(FRONTEND_DIR) && AUTH_GATEWAY_PROXY_ORIGIN=http://localhost:8000 npm run dev
 
 migrate:
 	@if ! nc -z 127.0.0.1 5432 2>/dev/null; then \
@@ -113,8 +113,8 @@ logs-server:
 logs-agents:
 	docker compose logs -f agents
 
-logs-web:
-	docker compose logs -f web
+logs-frontend:
+	docker compose logs -f frontend
 
 # ── ECR / prod deploy ─────────────────────────────────────────────────────────
 
@@ -141,7 +141,7 @@ redeploy-ecr: ecr-login
 	docker push $(ECR_REGISTRY)/multitenant-saas-agents:latest
 	docker build -t $(ECR_REGISTRY)/multitenant-saas-web:$(IMAGE_TAG) \
 	             -t $(ECR_REGISTRY)/multitenant-saas-web:latest \
-	             src/web
+	             src/frontend
 	docker push $(ECR_REGISTRY)/multitenant-saas-web:$(IMAGE_TAG)
 	docker push $(ECR_REGISTRY)/multitenant-saas-web:latest
 	@echo "Deploying to EC2 ($(EC2_IP))..."

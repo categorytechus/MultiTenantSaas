@@ -6,7 +6,7 @@ A multi-tenant SaaS platform with AI chat agents. Each tenant gets full data iso
 
 | Layer | Tech |
 |---|---|
-| Frontend | Vite + React 18 + TypeScript |
+| Frontend | Next.js 16 + React 19 + TypeScript |
 | Server | FastAPI + SQLModel + Alembic (Python 3.12+) |
 | Agents | Arq + LangChain + Anthropic Claude |
 | Database | Postgres 16 + pgvector |
@@ -36,12 +36,10 @@ src/
 │       ├── s3.py          # S3 download helper
 │       ├── embeddings.py  # OpenAI embed_batch
 │       └── http.py        # httpx calls to server internal API
-└── web/           # Vite + React 18 frontend
-    └── src/
-        ├── routes/        # React Router v6 pages
-        ├── components/    # Shared UI components
-        ├── hooks/         # TanStack Query data hooks
-        └── lib/           # API client, SSE helpers
+└── frontend/      # Next.js 16 frontend
+    ├── app/               # Next.js App Router pages & layouts
+    ├── components/        # Shared UI components
+    └── src/lib/           # API client, config
 infra/             # Terraform (VPC, EC2, RDS, ElastiCache, S3, ECR)
 docker-compose.yml
 docker-compose.prod.yml
@@ -64,7 +62,7 @@ make dev
 
 | Service | URL |
 |---|---|
-| Web | http://localhost:5173 |
+| Frontend | http://localhost:3000 |
 | API | http://localhost:8000 |
 | API docs | http://localhost:8000/docs |
 
@@ -73,13 +71,12 @@ make dev
 ```bash
 make db-up      # Postgres + Redis in Docker
 make install    # uv sync (server + agents) + npm install
-make migrate         # Alembic migration (default chain, needs Postgres on localhost:5432)
-make migrate-docker  # Same migrations inside Docker (only needs Compose Postgres; skips host :5432)
+make migrate    # Run Alembic migrations (use make migrate-docker if localhost:5432 is unreachable)
 
 # In separate terminals:
 make server     # FastAPI on :8000
 make agents     # Arq worker — document ingest + AI chat agents
-make web        # Vite on :3000
+make frontend   # Next.js on :3000
 ```
 
 **Optional: activate the venv (macOS / Linux)** — `make install` runs `uv sync` in `src/server` and `src/agents`, each with its own `.venv`. To use `python` or tools without `uv run`, `cd` into that folder and activate:
@@ -94,6 +91,17 @@ Do the same under `src/agents` for the worker. The `make server` / `make agents`
 If `make migrate` prints **nothing on 127.0.0.1:5432**, either Postgres is not running (`make db-up` and wait until it is healthy) or your Docker setup does not publish **5432 to the host** (some contexts never bind `localhost:5432`). In that case run **`make migrate-docker`**, which starts the `postgres` service and runs Alembic in a one-off container on the Compose network (`DATABASE_URL` uses host `postgres`, not `localhost`). Use **`make migrate` without `sudo`** on macOS so `uv` uses your project `.venv`.
 
 **Windows (Command Prompt)** — from the directory that contains `.venv`: `call .venv\Scripts\activate.bat`
+
+## Seed Credentials
+
+After `make migrate`, the following dev users are available (all share password `Admin@123`):
+
+| Email | Role | Org |
+|---|---|---|
+| `superadmin@multitenant.com` | super admin | Acme Corporation |
+| `alice@acme.com` | tenant admin | Acme Corporation |
+| `bob@acme.com` | user | Acme Corporation |
+| `charlie@techstartup.io` | tenant admin | Tech Startup Inc |
 
 ## Environment Variables
 
@@ -146,6 +154,7 @@ make migrate-docker                 # Apply migrations when host :5432 is unavai
 make clean                          # Remove Docker containers + volumes (wipes local DB)
 make logs-server                    # Tail server logs
 make logs-agents                    # Tail agents worker logs
+make logs-frontend                  # Tail Next.js frontend logs
 make redeploy-ecr                   # Build + push to ECR, deploy to EC2
 ```
 
@@ -161,20 +170,18 @@ make db-up
 make migrate-docker                      # or: make migrate
 ```
 
-## Troubleshooting (Vite / `make web`)
+## Troubleshooting (Next.js / `make frontend`)
 
-**`EACCES: permission denied, mkdir '.../node_modules/.vite/...'`** — `node_modules` was probably created **as root** when the **`web` Docker service** ran `npm install` on the bind-mounted `src/web` directory. The Vite dev server is configured to use **`src/web/.vite`** as its cache directory (user-writable) so pre-bundling does not write under `node_modules/.vite`.
-
-You should still fix ownership of `node_modules` and `package-lock.json` so installs and upgrades work without sudo:
+**`EACCES: permission denied`** in `node_modules` or `.next` — these directories were probably created **as root** when the **`frontend` Docker service** ran `npm install` on the bind-mounted `src/frontend` directory. Fix ownership:
 
 ```bash
 cd MultiTenantSaas
-sudo chown -R "$(id -un):$(id -gn)" src/web/node_modules src/web/package-lock.json
+sudo chown -R "$(id -un):$(id -gn)" src/frontend/node_modules src/frontend/.next src/frontend/package-lock.json
 ```
 
-Alternatively: `sudo rm -rf src/web/node_modules src/web/package-lock.json && cd src/web && npm install`.
+Alternatively: `sudo rm -rf src/frontend/node_modules src/frontend/.next && cd src/frontend && npm install --legacy-peer-deps`.
 
-Compose mounts an **anonymous volume** on `/app/node_modules` for the `web` service so future **`make dev` / Docker web** installs do not leave root-owned `node_modules` on your Mac.
+Compose mounts anonymous volumes on `/app/node_modules` and `/app/.next` for the `frontend` service so Docker installs do not leave root-owned directories on the host.
 
 ## Infrastructure
 

@@ -111,18 +111,19 @@ services:
         condition: service_healthy
     working_dir: /app
 
-  web:
+  frontend:
     image: node:20-alpine
     working_dir: /app
-    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    command: sh -c "npm install --legacy-peer-deps && npm run dev"
     ports:
-      - "5173:5173"
+      - "3000:3000"
     environment:
-      VITE_API_URL: http://server:8000
+      AUTH_GATEWAY_PROXY_ORIGIN: http://server:8000
     volumes:
-      - ./src/web:/app
+      - ./src/frontend:/app
       # Keep container npm install off the bind mount so files are not root-owned on the host.
       - /app/node_modules
+      - /app/.next
     depends_on:
       - server
 
