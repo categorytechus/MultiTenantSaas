@@ -1,3 +1,4 @@
+from urllib.parse import urlparse
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -35,7 +36,7 @@ async def create_document(
     mime_type: str | None,
     size_bytes: int | None,
 ) -> Document:
-    """Create a new document record."""
+    """Create a new document record (file upload)."""
     doc = Document(
         org_id=org_id,
         uploaded_by=user_id,
@@ -43,11 +44,39 @@ async def create_document(
         s3_key=s3_key,
         mime_type=mime_type,
         size_bytes=size_bytes,
+        document_type="file",
         status=DocumentStatus.PROCESSING.value,
     )
     session.add(doc)
     await session.flush()
     logger.info("Document created", doc_id=str(doc.id), org_id=str(org_id))
+    return doc
+
+
+async def create_url_document(
+    session: AsyncSession,
+    org_id: UUID,
+    user_id: UUID,
+    source_url: str,
+) -> Document:
+    """Create a new document record for a web URL (no file, no S3 key)."""
+    # Use the URL hostname + path as a human-readable filename
+    parsed = urlparse(source_url)
+    filename = (parsed.netloc + parsed.path).strip("/") or source_url
+
+    doc = Document(
+        org_id=org_id,
+        uploaded_by=user_id,
+        filename=filename,
+        s3_key=None,
+        source_url=source_url,
+        document_type="url",
+        mime_type="web",
+        status=DocumentStatus.PROCESSING.value,
+    )
+    session.add(doc)
+    await session.flush()
+    logger.info("URL document created", doc_id=str(doc.id), org_id=str(org_id), url=source_url)
     return doc
 
 

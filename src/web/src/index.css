@@ -25,27 +25,45 @@ body,
   width: 6px;
   height: 6px;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
   background: #ddd;
   border-radius: 3px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background: #bbb;
 }
 
 /* Spin animation for inline use */
 @keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Chat bubble animation */
 @keyframes thinking {
-  0%, 60%, 100% { opacity: 0.2; transform: translateY(0); }
-  30% { opacity: 1; transform: translateY(-4px); }
+
+  0%,
+  60%,
+  100% {
+    opacity: 0.2;
+    transform: translateY(0);
+  }
+
+  30% {
+    opacity: 1;
+    transform: translateY(-4px);
+  }
 }
 
 .thinking-dot {
@@ -56,8 +74,14 @@ body,
   background: #aaa;
   animation: thinking 1.4s infinite;
 }
-.thinking-dot:nth-child(2) { animation-delay: 0.2s; }
-.thinking-dot:nth-child(3) { animation-delay: 0.4s; }
+
+.thinking-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.thinking-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
 
 /* ── Layout ─────────────────────────────────────────────────────────────────── */
 .layout {
@@ -369,7 +393,7 @@ body,
   max-width: 200px;
 }
 
-.ts-btn > span {
+.ts-btn>span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -400,7 +424,7 @@ body,
   background: white;
   border: 1px solid #e5e5e5;
   border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
   min-width: 200px;
   z-index: 50;
   overflow: hidden;
@@ -425,7 +449,7 @@ body,
 .overlay {
   position: fixed;
   inset: 0;
-  background: rgba(255,255,255,0.85);
+  background: rgba(255, 255, 255, 0.85);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -441,7 +465,7 @@ body,
   border: 1px solid #ebebeb;
   border-radius: 10px;
   padding: 16px 22px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
 }
 
 .mini-spin {
@@ -457,7 +481,7 @@ body,
   display: none;
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.4);
+  background: rgba(0, 0, 0, 0.4);
   z-index: 40;
 }
 
@@ -476,7 +500,7 @@ body,
 
   .sidebar-wrap.open {
     transform: translateX(0);
-    box-shadow: 4px 0 20px rgba(0,0,0,0.12);
+    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.12);
   }
 
   .mobile-sidebar-backdrop {
@@ -526,7 +550,7 @@ body,
   border: 1px solid #ebebeb;
   border-radius: 10px;
   padding: 22px 24px;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
   margin-bottom: 16px;
   max-width: 560px;
 }
@@ -697,7 +721,7 @@ body,
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  border: 2px solid rgba(255,255,255,0.4);
+  border: 2px solid rgba(255, 255, 255, 0.4);
   border-top-color: white;
   animation: spin 0.7s linear infinite;
   display: inline-block;
@@ -739,7 +763,7 @@ body,
   border: 1px solid #ebebeb;
   border-radius: 10px;
   overflow: hidden;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
 }
 
 .table-wrap table {
@@ -842,7 +866,7 @@ body,
   background: white;
   border: 1px solid #e5e5e5;
   border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
   min-width: 140px;
   z-index: 20;
   overflow: hidden;
@@ -885,10 +909,37 @@ body,
   font-weight: 500;
 }
 
-.badge-active { background: #f0fdf4; color: #16a34a; }
-.badge-inactive { background: #f5f5f5; color: #888; }
-.badge-suspended { background: #fff5f5; color: #e53e3e; }
-.badge-free { background: #f5f5f5; color: #888; }
-.badge-starter { background: #eff6ff; color: #2563eb; }
-.badge-pro { background: #f5f3ff; color: #7c3aed; }
-.badge-enterprise { background: #1a1a1a; color: white; }
+.badge-active {
+  background: #f0fdf4;
+  color: #16a34a;
+}
+
+.badge-inactive {
+  background: #f5f5f5;
+  color: #888;
+}
+
+.badge-suspended {
+  background: #fff5f5;
+  color: #e53e3e;
+}
+
+.badge-free {
+  background: #f5f5f5;
+  color: #888;
+}
+
+.badge-starter {
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.badge-pro {
+  background: #f5f3ff;
+  color: #7c3aed;
+}
+
+.badge-enterprise {
+  background: #1a1a1a;
+  color: white;
+}

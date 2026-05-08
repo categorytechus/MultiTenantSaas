@@ -58,8 +58,8 @@ migrate-docker:
 # ── Local (no Docker for app) ──────────────────────────────────────────────
 
 install:
-	cd $(SERVER_DIR) && $(UV) sync
-	cd $(AGENTS_DIR) && $(UV) sync
+	cd $(SERVER_DIR) && $(UV) sync --python 3.12
+	cd $(AGENTS_DIR) && $(UV) sync --python 3.12
 	cd $(WEB_DIR) && npm install
 
 server:

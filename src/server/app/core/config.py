@@ -1,10 +1,15 @@
-from typing import List
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Resolves to the project root regardless of the working directory the server is
+# launched from (src/server/ via Makefile).
+_ENV_FILE = Path(__file__).parents[4] / ".env"
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_ENV_FILE,
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore",
@@ -21,17 +26,21 @@ class Settings(BaseSettings):
     S3_REGION: str = "us-east-1"
     AWS_ACCESS_KEY_ID: str = ""
     AWS_SECRET_ACCESS_KEY: str = ""
+    AWS_SESSION_TOKEN: str = ""
 
-    ANTHROPIC_API_KEY: str = ""
+    BEDROCK_MODEL_ARN: str = ""
+    BEDROCK_MODEL_PROVIDER: str = "anthropic"
+    AWS_BEDROCK_REGION: str = "us-east-1"
     OPENAI_API_KEY: str = ""
 
     ENVIRONMENT: str = "development"
-    CORS_ORIGINS: List[str] = [
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ]
+    # Comma-separated string so pydantic-settings doesn't attempt JSON parsing.
+    # Parsed into a list by cors_origins_list below.
+    CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
 
     # Used for local dev when S3 is not configured
     LOCAL_UPLOAD_DIR: str = "/tmp/uploads"
@@ -41,7 +50,3 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
-
-# Support comma-separated CORS_ORIGINS from environment files.
-if isinstance(settings.CORS_ORIGINS, str):
-    settings.CORS_ORIGINS = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]

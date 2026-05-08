@@ -44,7 +44,9 @@ export interface Document {
   mime_type: string
   size_bytes: number
   status: DocumentStatus
-  s3_key?: string
+  s3_key?: string | null
+  source_url?: string | null
+  document_type?: 'file' | 'url'
   created_at: string
   download_url?: string | null
   org_id?: string

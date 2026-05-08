@@ -1,31 +1,134 @@
-"""Simple LangChain chat agent (dummy — no tools, no RAG yet)."""
-from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+"""Bedrock RAG chat agent with Gemini fallback — streams tokens directly to Redis."""
+import json
 
-SYSTEM_PROMPT = "You are a helpful AI assistant."
+import redis.asyncio as aioredis
+from app.config import settings
+
+_SYSTEM_WITH_CONTEXT = """\
+You are a helpful AI assistant. Answer the user's question using the context below, \
+which was retrieved from their uploaded documents. \
+If the answer cannot be found in the context, say so clearly rather than guessing.
+
+## Retrieved context
+{context}
+"""
+
+import boto3
+
+_SYSTEM_NO_CONTEXT = "You are a helpful AI assistant."
+
+_bedrock_client = None
+
+def _get_bedrock_client():
+    global _bedrock_client
+    if _bedrock_client is None:
+        client_kwargs = {"region_name": settings.AWS_BEDROCK_REGION}
+        if settings.AWS_ACCESS_KEY_ID:
+            client_kwargs["aws_access_key_id"] = settings.AWS_ACCESS_KEY_ID
+        if settings.AWS_SECRET_ACCESS_KEY:
+            client_kwargs["aws_secret_access_key"] = settings.AWS_SECRET_ACCESS_KEY
+        if settings.AWS_SESSION_TOKEN:
+            client_kwargs["aws_session_token"] = settings.AWS_SESSION_TOKEN
+        _bedrock_client = boto3.client("bedrock-runtime", **client_kwargs)
+    return _bedrock_client
 
 
-def build_llm(api_key: str, callbacks: list) -> ChatAnthropic:
-    return ChatAnthropic(
-        model="claude-haiku-4-5-20251001",
-        api_key=api_key,
-        streaming=True,
-        callbacks=callbacks,
+async def _run_bedrock(
+    conversation: list[dict],
+    system_prompt: str,
+    redis: aioredis.Redis,
+    channel: str,
+) -> str:
+    """Primary path: ChatBedrock via langchain-aws."""
+    from langchain_aws import ChatBedrock
+    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+
+    bedrock_client = _get_bedrock_client()
+
+    llm = ChatBedrock(
+        client=bedrock_client,
+        model_id=settings.BEDROCK_MODEL_ARN,
+        region_name=settings.AWS_BEDROCK_REGION,
+        provider=settings.BEDROCK_MODEL_PROVIDER,
     )
 
-
-async def run_agent(
-    llm: ChatAnthropic,
-    history: list[dict],
-    user_message: str,
-) -> str:
-    messages = [SystemMessage(content=SYSTEM_PROMPT)]
-    for m in history[-10:]:
+    messages = [SystemMessage(content=system_prompt)]
+    for m in conversation:
         if m["role"] == "user":
             messages.append(HumanMessage(content=m["content"]))
         else:
             messages.append(AIMessage(content=m["content"]))
-    messages.append(HumanMessage(content=user_message))
 
-    response = await llm.ainvoke(messages)
-    return response.content if isinstance(response.content, str) else str(response.content)
+    full_response = []
+    async for chunk in llm.astream(messages):
+        content = chunk.content
+        if isinstance(content, str) and content:
+            full_response.append(content)
+            await redis.publish(channel, json.dumps({"type": "token", "data": content}))
+
+    return "".join(full_response)
+
+
+async def _run_gemini(
+    api_key: str,
+    conversation: list[dict],
+    system_prompt: str,
+    redis: aioredis.Redis,
+    channel: str,
+) -> str:
+    """Fallback path: existing Gemini code, unchanged."""
+    from google import genai
+    from google.genai import types
+
+    client = genai.Client(api_key=api_key)
+
+    contents = [
+        {
+            "role": "model" if m["role"] == "assistant" else "user",
+            "parts": [{"text": m["content"]}],
+        }
+        for m in conversation
+    ]
+
+    full_response: list[str] = []
+    async for chunk in await client.aio.models.generate_content_stream(
+        model="gemini-2.5-flash",
+        contents=contents,
+        config=types.GenerateContentConfig(system_instruction=system_prompt),
+    ):
+        if chunk.text:
+            full_response.append(chunk.text)
+            await redis.publish(channel, json.dumps({"type": "token", "data": chunk.text}))
+
+    return "".join(full_response)
+
+
+async def run_agent(
+    *,
+    conversation: list[dict],
+    context_chunks: list[dict],
+    redis: aioredis.Redis,
+    channel: str,
+) -> str:
+    """Stream a Bedrock (or Gemini) response for the full conversation to Redis.
+
+    Args:
+        conversation: All chat_messages in the session ordered by created_at.
+        context_chunks: Chunks returned by rag.retrieve_chunks.
+    """
+    if context_chunks:
+        context = "\n\n---\n\n".join(
+            f"[{c['filename']}]\n{c['content']}" for c in context_chunks
+        )
+        system_prompt = _SYSTEM_WITH_CONTEXT.format(context=context)
+    else:
+        system_prompt = _SYSTEM_NO_CONTEXT
+
+    if settings.BEDROCK_MODEL_ARN:
+        return await _run_bedrock(conversation, system_prompt, redis, channel)
+    elif settings.GEMINI_API_KEY:
+        return await _run_gemini(settings.GEMINI_API_KEY, conversation, system_prompt, redis, channel)
+    else:
+        mock = "[Mock response — neither BEDROCK_MODEL_ARN nor GEMINI_API_KEY set]"
+        await redis.publish(channel, json.dumps({"type": "token", "data": mock}))
+        return mock

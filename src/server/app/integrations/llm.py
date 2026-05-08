@@ -2,86 +2,121 @@ import json
 import re
 from collections import Counter
 from typing import AsyncIterator
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
-import anthropic
+import boto3
 
 from app.core.config import settings
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-MOCK_RESPONSE = "I am a mock AI assistant. Please set ANTHROPIC_API_KEY."
+MOCK_RESPONSE = "I am a mock AI assistant. Please set BEDROCK_MODEL_ARN."
 
 
 class LLMClient:
-    """Anthropic Claude LLM client with streaming support."""
+    """AWS Bedrock Claude LLM client with streaming support."""
 
     def __init__(self) -> None:
-        self._client: anthropic.AsyncAnthropic | None = None
-        self.model = "claude-3-5-sonnet-20241022"
+        self._client = None
+        self._executor = ThreadPoolExecutor(max_workers=10)
 
-    def _get_client(self) -> anthropic.AsyncAnthropic | None:
-        if not settings.ANTHROPIC_API_KEY:
+    def _get_client(self):
+        if not settings.BEDROCK_MODEL_ARN:
             return None
         if self._client is None:
-            self._client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+            kwargs = {"region_name": settings.AWS_BEDROCK_REGION}
+            if settings.AWS_ACCESS_KEY_ID:
+                kwargs["aws_access_key_id"] = settings.AWS_ACCESS_KEY_ID
+            if settings.AWS_SECRET_ACCESS_KEY:
+                kwargs["aws_secret_access_key"] = settings.AWS_SECRET_ACCESS_KEY
+            if settings.AWS_SESSION_TOKEN:
+                kwargs["aws_session_token"] = settings.AWS_SESSION_TOKEN
+                
+            # Note: Bedrock Runtime doesn't have a native async boto3 client by default
+            # unless using aioboto3. We'll use synchronous boto3 and run in threadpool
+            self._client = boto3.client("bedrock-runtime", **kwargs)
         return self._client
 
     async def stream(self, messages: list[dict]) -> AsyncIterator[str]:
-        """Stream tokens from Claude."""
+        """Stream tokens from Bedrock."""
         client = self._get_client()
         if client is None:
-            logger.warning("ANTHROPIC_API_KEY not set, returning mock response")
+            logger.warning("BEDROCK_MODEL_ARN not set, returning mock response")
             for word in MOCK_RESPONSE.split(" "):
                 yield word + " "
+                await asyncio.sleep(0.05)
             return
 
-        # Separate system message from conversation messages
         system_msg = None
-        conversation = []
+        formatted_messages = []
         for msg in messages:
             if msg.get("role") == "system":
                 system_msg = msg["content"]
             else:
-                conversation.append(msg)
+                formatted_messages.append({
+                    "role": msg["role"],
+                    "content": [{"text": msg["content"]}]
+                })
 
-        kwargs: dict = {
-            "model": self.model,
-            "max_tokens": 4096,
-            "messages": conversation,
+        kwargs = {
+            "modelId": settings.BEDROCK_MODEL_ARN,
+            "messages": formatted_messages,
         }
         if system_msg:
-            kwargs["system"] = system_msg
+            kwargs["system"] = [{"text": system_msg}]
 
-        async with client.messages.stream(**kwargs) as stream:
-            async for text in stream.text_stream:
-                yield text
+        def _invoke_stream():
+            return client.converse_stream(**kwargs)
+
+        try:
+            response = await asyncio.get_running_loop().run_in_executor(
+                self._executor, _invoke_stream
+            )
+            for event in response.get("stream"):
+                if "contentBlockDelta" in event:
+                    yield event["contentBlockDelta"]["delta"]["text"]
+        except Exception as e:
+            logger.error(f"Error streaming from Bedrock: {e}")
+            yield f"[Error: {e}]"
 
     async def complete(self, messages: list[dict]) -> str:
-        """Single (non-streaming) completion from Claude."""
+        """Single (non-streaming) completion from Bedrock."""
         client = self._get_client()
         if client is None:
-            logger.warning("ANTHROPIC_API_KEY not set, returning mock response")
+            logger.warning("BEDROCK_MODEL_ARN not set, returning mock response")
             return MOCK_RESPONSE
 
         system_msg = None
-        conversation = []
+        formatted_messages = []
         for msg in messages:
             if msg.get("role") == "system":
                 system_msg = msg["content"]
             else:
-                conversation.append(msg)
+                formatted_messages.append({
+                    "role": msg["role"],
+                    "content": [{"text": msg["content"]}]
+                })
 
-        kwargs: dict = {
-            "model": self.model,
-            "max_tokens": 4096,
-            "messages": conversation,
+        kwargs = {
+            "modelId": settings.BEDROCK_MODEL_ARN,
+            "messages": formatted_messages,
         }
         if system_msg:
-            kwargs["system"] = system_msg
+            kwargs["system"] = [{"text": system_msg}]
 
-        response = await client.messages.create(**kwargs)
-        return response.content[0].text
+        def _invoke():
+            return client.converse(**kwargs)
+
+        try:
+            response = await asyncio.get_running_loop().run_in_executor(
+                self._executor, _invoke
+            )
+            return response["output"]["message"]["content"][0]["text"]
+        except Exception as e:
+            logger.error(f"Error invoking Bedrock: {e}")
+            return f"[Error: {e}]"
 
 
 # Module-level singleton
@@ -132,14 +167,10 @@ def _fallback_metadata(text: str, filename: str) -> dict:
 async def generate_document_metadata(text: str, filename: str) -> dict:
     """
     Generate title, summary, and keywords for a document.
-    Uses Claude when ANTHROPIC_API_KEY is set; falls back to heuristics otherwise.
+    Uses Bedrock when BEDROCK_MODEL_ARN is set; falls back to heuristics otherwise.
     Returns {"title": str, "summary": str, "keywords": list[str]}.
     """
-    if not settings.ANTHROPIC_API_KEY:
-        return _fallback_metadata(text, filename)
-
-    client = llm._get_client()
-    if client is None:
+    if not settings.BEDROCK_MODEL_ARN:
         return _fallback_metadata(text, filename)
 
     snippet = text[:3000]
@@ -150,12 +181,8 @@ async def generate_document_metadata(text: str, filename: str) -> dict:
     )
 
     try:
-        response = await client.messages.create(
-            model=llm.model,
-            max_tokens=512,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw = response.content[0].text.strip()
+        raw_response = await llm.complete([{"role": "user", "content": prompt}])
+        raw = raw_response.strip()
         # Strip optional markdown code fences
         if raw.startswith("```"):
             raw = re.sub(r"^```[a-z]*\n?", "", raw)
@@ -166,6 +193,6 @@ async def generate_document_metadata(text: str, filename: str) -> dict:
             "summary": str(parsed.get("summary", "") or ""),
             "keywords": [str(k) for k in (parsed.get("keywords") or [])[:10]],
         }
-    except Exception:
-        logger.warning("LLM metadata generation failed, using fallback", filename=filename)
+    except Exception as e:
+        logger.warning(f"LLM metadata generation failed ({e}), using fallback", filename=filename)
         return _fallback_metadata(text, filename)

@@ -7,7 +7,9 @@ import io
 import uuid
 from typing import Any
 
+import httpx
 import psycopg
+from bs4 import BeautifulSoup
 from pgvector.psycopg import register_vector_async
 
 from app.config import settings
@@ -66,7 +68,7 @@ async def _set_rls(conn: psycopg.AsyncConnection, org_id: str) -> None:
 
 async def _get_doc(conn: psycopg.AsyncConnection, document_id: str) -> tuple | None:
     cur = await conn.execute(
-        "SELECT id, s3_key, mime_type FROM documents WHERE id = %s",
+        "SELECT id, s3_key, mime_type, source_url, document_type FROM documents WHERE id = %s",
         [document_id],
     )
     return cur.fetchone()
@@ -119,10 +121,24 @@ async def ingest_document(
                 if not doc:
                     raise ValueError(f"Document {document_id} not found")
 
-                _, s3_key, mime_type = doc
+                _, s3_key, mime_type, source_url, document_type = doc
 
-                body = await s3_download(s3_key)
-                text = parse_document(body, mime_type)
+                # ── Fetch content: URL or S3 file ────────────────────────────
+                if document_type == "url" and source_url:
+                    async with httpx.AsyncClient(
+                        follow_redirects=True, timeout=30.0
+                    ) as client:
+                        response = await client.get(
+                            source_url, headers={"User-Agent": "Mozilla/5.0"}
+                        )
+                        response.raise_for_status()
+                    soup = BeautifulSoup(response.text, "lxml")
+                    for tag in soup(["script", "style", "nav", "footer", "header"]):
+                        tag.decompose()
+                    text = soup.get_text(separator="\n", strip=True)
+                else:
+                    body = await s3_download(s3_key)
+                    text = parse_document(body, mime_type)
 
                 if not text.strip():
                     await _set_status(conn, document_id, "failed")

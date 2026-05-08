@@ -5,6 +5,11 @@ from arq.connections import RedisSettings
 from app.config import settings
 from app.jobs.chat import run_chat
 from app.jobs.ingest import ingest_document
+import asyncio
+import sys
+
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
 async def startup(ctx: dict) -> None:

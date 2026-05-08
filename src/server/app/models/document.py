@@ -21,7 +21,9 @@ class Document(SQLModel, table=True):
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     org_id: UUID = Field(foreign_key="orgs.id", nullable=False)
-    s3_key: str = Field(nullable=False)
+    s3_key: str | None = Field(default=None, nullable=True)
+    source_url: str | None = Field(default=None, sa_column=Column(sa.Text, nullable=True))
+    document_type: str = Field(default="file")  # 'file' | 'url'
     filename: str = Field(nullable=False)
     mime_type: str | None = Field(default=None)
     size_bytes: int | None = Field(default=None)

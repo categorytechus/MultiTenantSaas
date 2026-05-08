@@ -66,6 +66,25 @@ export function useUploadDocument() {
   })
 }
 
+export function useIngestUrl() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (url: string) => {
+      const { data, error } = await apiFetch<{ document: Document }>('/documents/url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      })
+      if (error) throw new Error(error)
+      return data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['documents'] })
+    },
+  })
+}
+
 export function useDeleteDocument() {
   const queryClient = useQueryClient()
 
