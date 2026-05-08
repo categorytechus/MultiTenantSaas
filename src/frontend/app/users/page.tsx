@@ -105,7 +105,8 @@ export default function UsersPage() {
 
   const getRoleTags = (u: OrgUser) => {
     if (u.roles?.length) return u.roles.map((r) => r.name);
-    if (u.org_role) return [u.org_role];
+    if (u.org_role === "tenant_admin") return ["org_admin"];
+    if (u.org_role === "super_admin") return ["super_admin"];
     return [];
   };
 

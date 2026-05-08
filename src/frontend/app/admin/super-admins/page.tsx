@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Layout from "../../../components/Layout";
 import { apiFetch } from "../../../src/lib/api";
+import { Pencil, Trash2 } from "lucide-react";
 
 interface SuperAdmin {
   id: string;
@@ -177,17 +178,20 @@ export default function SuperAdminsPage() {
                               color: "#1a1a1a",
                               border: "none",
                             }}
+                            title="Edit admin"
                             onClick={() =>
                               router.push(`/admin/super-admins/${a.id}/edit`)
                             }
                           >
+                            <Pencil size={13} />
                             Edit
                           </button>
                           <button
                             className="btn btn-sm btn-danger"
+                            title="Delete admin"
                             onClick={() => setDeleteTarget(a)}
                           >
-                            Delete
+                            <Trash2 size={13} />
                           </button>
                         </div>
                       </td>

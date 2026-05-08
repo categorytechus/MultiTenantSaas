@@ -30,8 +30,8 @@ export default function EditUserPage() {
   const [status, setStatus] = useState("active");
   const [email, setEmail] = useState("");
   const [currentRoles, setCurrentRoles] = useState<Role[]>([]);
+  const [selectedRoleId, setSelectedRoleId] = useState("");
   const [availableRoles, setAvailableRoles] = useState<Role[]>([]);
-  const [addRoleId, setAddRoleId] = useState("");
   const [orgId, setOrgId] = useState("");
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [error, setError] = useState("");
@@ -60,9 +60,12 @@ export default function EditUserPage() {
         setOrgId(oid);
 
         const [usersRes, rolesRes] = await Promise.all([
-          apiFetch<{ data: OrgUserListItem[] }>(`/organizations/${oid}/users`),
+          apiFetch<{ data: (OrgUserListItem & { org_role?: string })[] }>(`/organizations/${oid}/users`),
           apiFetch<{ data: Role[] }>(`/organizations/${oid}/roles`),
         ]);
+
+        const assignable = rolesRes.success ? assignableMemberRoles(rolesRes.data.data) : [];
+        setAvailableRoles(assignable);
 
         if (usersRes.success) {
           const u = usersRes.data.data.find((x) => x.id === id);
@@ -70,13 +73,22 @@ export default function EditUserPage() {
             setName(u.full_name || "");
             setEmail(u.email);
             setStatus(u.status);
-            setCurrentRoles(u.roles || []);
+
+            const rbacRoles = u.roles || [];
+            if (rbacRoles.length > 0) {
+              setCurrentRoles(rbacRoles);
+              setSelectedRoleId(rbacRoles[0].id);
+            } else if (u.org_role === "tenant_admin") {
+              // membership.role fallback: tenant_admin maps to the org_admin system role
+              const orgAdminRole = assignable.find((r) => r.name === "org_admin");
+              if (orgAdminRole) {
+                setCurrentRoles([orgAdminRole]);
+                setSelectedRoleId(orgAdminRole.id);
+              }
+            }
           } else {
             setError("User not found");
           }
-        }
-        if (rolesRes.success) {
-          setAvailableRoles(assignableMemberRoles(rolesRes.data.data));
         }
       } catch {
         setError("Failed to load data");
@@ -86,41 +98,44 @@ export default function EditUserPage() {
     })();
   }, [router, id]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(""); setSuccess(""); setLoading(true);
     try {
-      const res = await apiFetch(`/organizations/${orgId}/users/${id}`, {
+      const profileRes = await apiFetch(`/organizations/${orgId}/users/${id}`, {
         method: "PUT",
         body: JSON.stringify({ name, status }),
       });
-      if (res.success) setSuccess("User updated successfully");
-      else setError(res.error || "Update failed");
-    } catch { setError("Update failed"); }
-    finally { setLoading(false); }
-  };
+      if (!profileRes.success) {
+        setError(profileRes.error || "Update failed");
+        return;
+      }
 
-  const handleAssignRole = async () => {
-    if (!addRoleId) return;
-    try {
-      const res = await apiFetch(`/organizations/${orgId}/users/${id}/roles`, {
-        method: "POST",
-        body: JSON.stringify({ roleId: addRoleId }),
-      });
-      if (res.success) {
-        const role = availableRoles.find((r) => r.id === addRoleId);
-        if (role) setCurrentRoles((prev) => [...prev, role]);
-        setAddRoleId("");
-      } else { setError(res.error || "Failed to assign role"); }
-    } catch { setError("Failed to assign role"); }
-  };
+      const previousRoleId = currentRoles[0]?.id ?? "";
+      if (selectedRoleId !== previousRoleId) {
+        for (const r of currentRoles) {
+          await apiFetch(`/organizations/${orgId}/users/${id}/roles/${r.id}`, { method: "DELETE" });
+        }
+        if (selectedRoleId) {
+          const assignRes = await apiFetch(`/organizations/${orgId}/users/${id}/roles`, {
+            method: "POST",
+            body: JSON.stringify({ roleId: selectedRoleId }),
+          });
+          if (!assignRes.success) {
+            setError(assignRes.error || "Profile saved but role assignment failed");
+            return;
+          }
+        }
+        const newRole = availableRoles.find((r) => r.id === selectedRoleId) ?? null;
+        setCurrentRoles(newRole ? [newRole] : []);
+      }
 
-  const handleRemoveRole = async (roleId: string) => {
-    try {
-      const res = await apiFetch(`/organizations/${orgId}/users/${id}/roles/${roleId}`, { method: "DELETE" });
-      if (res.success) setCurrentRoles((prev) => prev.filter((r) => r.id !== roleId));
-      else setError(res.error || "Failed to remove role");
-    } catch { setError("Failed to remove role"); }
+      setSuccess("User updated successfully");
+    } catch {
+      setError("Update failed");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleResetPassword = async () => {
@@ -135,8 +150,6 @@ export default function EditUserPage() {
     } catch { setError("Password reset failed"); }
     finally { setResettingPwd(false); }
   };
-
-  const unassignedRoles = availableRoles.filter((r) => !currentRoles.find((c) => c.id === r.id));
 
   return (
     <Layout>
@@ -168,7 +181,6 @@ export default function EditUserPage() {
           </div>
         ) : (
           <>
-            {/* Profile card */}
             <div className="form-card">
               <div className="form-card-title">Profile</div>
               <form onSubmit={handleSubmit}>
@@ -184,6 +196,19 @@ export default function EditUserPage() {
                     <option value="suspended">Suspended</option>
                   </select>
                 </div>
+                {availableRoles.length > 0 && (
+                  <div className="field">
+                    <label className="field-lbl">
+                      Role <span style={{ color: "#bbb", fontWeight: 400 }}>(optional)</span>
+                    </label>
+                    <select className="fi" value={selectedRoleId} onChange={(e) => setSelectedRoleId(e.target.value)}>
+                      <option value="">No role assigned</option>
+                      {availableRoles.map((r) => (
+                        <option key={r.id} value={r.id}>{r.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div className="flex gap-3 justify-end mt-6">
                   <button className="btn btn-ghost" type="button" onClick={() => router.push("/users")}>Cancel</button>
                   <button className="btn btn-primary" type="submit" disabled={loading}>
@@ -194,52 +219,6 @@ export default function EditUserPage() {
               </form>
             </div>
 
-            {/* Roles card */}
-            {availableRoles.length > 0 && (
-              <div className="form-card">
-                <div className="form-card-title">Assigned Roles</div>
-                <div className="flex flex-wrap gap-2 mb-4 min-h-[28px]">
-                  {currentRoles.length === 0 && (
-                    <span className="text-[13px] text-[#bbb]">No roles assigned</span>
-                  )}
-                  {currentRoles.map((r) => (
-                    <span key={r.id} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#f3f4f6] text-[12px] font-medium text-[#374151]">
-                      {r.name}
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveRole(r.id)}
-                        className="text-[#9ca3af] hover:text-[#374151] transition-colors"
-                        aria-label={`Remove ${r.name}`}
-                      >
-                        <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-                        </svg>
-                      </button>
-                    </span>
-                  ))}
-                </div>
-                {unassignedRoles.length > 0 && (
-                  <div className="flex gap-2 items-center">
-                    <select
-                      className="fi"
-                      style={{ flex: 1 }}
-                      value={addRoleId}
-                      onChange={(e) => setAddRoleId(e.target.value)}
-                    >
-                      <option value="">Add a role…</option>
-                      {unassignedRoles.map((r) => (
-                        <option key={r.id} value={r.id}>{r.name}</option>
-                      ))}
-                    </select>
-                    <button className="btn btn-sm" type="button" onClick={handleAssignRole} disabled={!addRoleId}>
-                      Assign
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Password reset card — super admin only */}
             {isSuperAdmin && (
               <div className="form-card">
                 <div className="form-card-title">Password Reset</div>

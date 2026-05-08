@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Layout from '../../../components/Layout';
 import { apiFetch } from '../../../src/lib/api';
+import { Pencil, Trash2, Settings } from 'lucide-react';
 
 interface Org {
   id: string;
@@ -21,17 +22,6 @@ export default function OrganizationsPage() {
   const [orgs, setOrgs] = useState<Org[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
-  const [openMenuFor, setOpenMenuFor] = useState<string | null>(null);
-  const openMenuRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const onDocMouseDown = (e: MouseEvent) => {
-      if (!openMenuRef.current) return;
-      if (!openMenuRef.current.contains(e.target as Node)) setOpenMenuFor(null);
-    };
-    document.addEventListener('mousedown', onDocMouseDown);
-    return () => document.removeEventListener('mousedown', onDocMouseDown);
-  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -142,29 +132,31 @@ export default function OrganizationsPage() {
                         {new Date(org.created_at).toLocaleDateString()}
                       </td>
                       <td>
-                        <div className="row-menu">
+                        <div className="actions">
                           <button
-                            className="kebab-btn"
-                            onClick={() => setOpenMenuFor(openMenuFor === org.id ? null : org.id)}
-                            aria-label="Actions"
+                            className="btn btn-sm"
+                            style={{ background: '#f5f4f1', color: '#1a1a1a', border: 'none' }}
+                            title="Edit organization"
+                            onClick={() => router.push(`/admin/organizations/${org.id}/edit`)}
                           >
-                            <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
-                              <circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>
-                            </svg>
+                            <Pencil size={13} />
+                            Edit
                           </button>
-                          {openMenuFor === org.id && (
-                            <div className="kebab-dropdown" ref={openMenuRef} onClick={e => e.stopPropagation()}>
-                              <button className="kebab-item" onClick={() => { setOpenMenuFor(null); router.push(`/admin/organizations/${org.id}/edit`); }}>
-                                Edit
-                              </button>
-                              <button className="kebab-item" onClick={() => { setOpenMenuFor(null); router.push(`/admin/org-permissions/${org.id}`); }}>
-                                Permissions
-                              </button>
-                              <button className="kebab-item danger" onClick={() => { setOpenMenuFor(null); handleDelete(org.id, org.name); }}>
-                                Delete
-                              </button>
-                            </div>
-                          )}
+                          <button
+                            className="btn btn-sm"
+                            style={{ background: '#f5f4f1', color: '#1a1a1a', border: 'none' }}
+                            title="Permissions"
+                            onClick={() => router.push(`/admin/org-permissions/${org.id}`)}
+                          >
+                            <Settings size={13} />
+                          </button>
+                          <button
+                            className="btn btn-sm btn-danger"
+                            title="Delete organization"
+                            onClick={() => handleDelete(org.id, org.name)}
+                          >
+                            <Trash2 size={13} />
+                          </button>
                         </div>
                       </td>
                     </tr>

@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Layout from "../../../components/Layout";
 import { apiFetch } from "../../../src/lib/api";
+import { Pencil, Trash2, KeyRound } from "lucide-react";
 
 interface OrgRef {
   id: string;
@@ -39,20 +40,6 @@ export default function OrgAdminsPage() {
     null,
   );
   const [resetCopied, setResetCopied] = useState(false);
-
-  const [openMenuFor, setOpenMenuFor] = useState<string | null>(null);
-  const openMenuRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const onDocMouseDown = (e: MouseEvent) => {
-      if (!openMenuRef.current) return;
-      if (!openMenuRef.current.contains(e.target as Node)) {
-        setOpenMenuFor(null);
-      }
-    };
-    document.addEventListener("mousedown", onDocMouseDown);
-    return () => document.removeEventListener("mousedown", onDocMouseDown);
-  }, []);
 
   const guardAndFetch = useCallback(async () => {
     const token = localStorage.getItem("accessToken");
@@ -253,16 +240,6 @@ export default function OrgAdminsPage() {
                           >
                             {a.orgs.map((o) => (
                               <span key={o.id} className="org-pill">
-                                <svg
-                                  width="10"
-                                  height="10"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  viewBox="0 0 24 24"
-                                >
-                                  <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
-                                </svg>
                                 {o.name}
                               </span>
                             ))}
@@ -283,91 +260,36 @@ export default function OrgAdminsPage() {
                         {formatDate(a.last_login_at)}
                       </td>
                       <td>
-                        <div className="row-menu">
+                        <div className="actions">
                           <button
-                            type="button"
-                            className="kebab-btn"
-                            aria-label="More actions"
-                            aria-haspopup="menu"
-                            aria-expanded={openMenuFor === a.id}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setOpenMenuFor((prev) =>
-                                prev === a.id ? null : a.id,
-                              );
+                            className="btn btn-sm"
+                            style={{ background: "#f5f4f1", color: "#1a1a1a", border: "none" }}
+                            title="Edit admin"
+                            onClick={() => router.push(`/admin/org-admins/${a.id}/edit`)}
+                          >
+                            <Pencil size={13} />
+                            Edit
+                          </button>
+                          {a.orgs.length > 0 && (
+                            <button
+                              className="btn btn-sm"
+                              style={{ background: "#f5f4f1", color: "#1a1a1a", border: "none" }}
+                              title="Reset password"
+                              onClick={() => setPasswordTarget(a)}
+                            >
+                              <KeyRound size={13} />
+                            </button>
+                          )}
+                          <button
+                            className="btn btn-sm btn-danger"
+                            title="Delete admin"
+                            onClick={() => {
+                              setDeleteTarget(a);
+                              setDeleteOrgId(a.orgs.length === 1 ? a.orgs[0].id : "");
                             }}
                           >
-                            <svg
-                              width="18"
-                              height="18"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                            >
-                              <circle
-                                cx="8.5"
-                                cy="12"
-                                r="1.6"
-                                fill="currentColor"
-                              />
-                              <circle
-                                cx="12"
-                                cy="12"
-                                r="1.6"
-                                fill="currentColor"
-                              />
-                              <circle
-                                cx="15.5"
-                                cy="12"
-                                r="1.6"
-                                fill="currentColor"
-                              />
-                            </svg>
+                            <Trash2 size={13} />
                           </button>
-
-                          {openMenuFor === a.id && (
-                            <div
-                              className="kebab-dropdown"
-                              ref={openMenuRef}
-                              onClick={(e) => e.stopPropagation()}
-                              role="menu"
-                            >
-                              <button
-                                type="button"
-                                className="kebab-item"
-                                onClick={() => {
-                                  setOpenMenuFor(null);
-                                  router.push(`/admin/org-admins/${a.id}/edit`);
-                                }}
-                              >
-                                Edit
-                              </button>
-                              {a.orgs.length > 0 && (
-                                <button
-                                  type="button"
-                                  className="kebab-item"
-                                  onClick={() => {
-                                    setOpenMenuFor(null);
-                                    setPasswordTarget(a);
-                                  }}
-                                >
-                                  Reset Password
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                className="kebab-item kebab-danger"
-                                onClick={() => {
-                                  setOpenMenuFor(null);
-                                  setDeleteTarget(a);
-                                  setDeleteOrgId(
-                                    a.orgs.length === 1 ? a.orgs[0].id : "",
-                                  );
-                                }}
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          )}
                         </div>
                       </td>
                     </tr>

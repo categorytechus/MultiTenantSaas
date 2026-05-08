@@ -79,35 +79,49 @@ export default function EditSuperAdminPage() {
 
   return (
     <Layout>
-<div className="page">
-        <button className="back-link" onClick={() => router.push('/admin/super-admins')}>
-          <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+      <div className="page">
+        <button
+          className="flex items-center gap-1.5 text-[13px] text-[#9a9a9a] hover:text-[#1a1a1a] mb-5 transition-colors"
+          onClick={() => router.push('/admin/super-admins')}
+        >
+          <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
           Back to Super Admins
         </button>
-        <div className="page-title">Edit Super Admin</div>
-        <div className="page-subtitle" style={{ color: '#777' }}>{email}</div>
+
+        <div className="page-header">
+          <div>
+            <div className="page-title">Edit Super Admin</div>
+            <div className="page-subtitle">{email}</div>
+          </div>
+        </div>
 
         {error && <div className="err-bar">{error}</div>}
         {success && <div className="ok-bar">{success}</div>}
 
         {fetchingData ? (
-          <div style={{ color: '#9a9a9a', fontSize: '13.5px' }}>Loading…</div>
+          <div className="flex items-center gap-2 text-[13px] text-[#9a9a9a] py-8">
+            <span className="w-4 h-4 border-2 border-[#e5e5e5] border-t-[#1a1a1a] rounded-full animate-spin" />
+            Loading…
+          </div>
         ) : (
           <div className="form-card">
+            <div className="form-card-title">Profile</div>
             <form onSubmit={handleSubmit}>
               <div className="field">
-                <label>Full name</label>
+                <label className="field-lbl">Full name</label>
                 <input className="fi" type="text" placeholder="Full name" value={name} onChange={e => setName(e.target.value)} required />
               </div>
               <div className="field">
-                <label>Status</label>
-                <select className="fi select" value={status} onChange={e => setStatus(e.target.value)}>
+                <label className="field-lbl">Status</label>
+                <select className="fi" value={status} onChange={e => setStatus(e.target.value)}>
                   <option value="active">Active</option>
                   <option value="inactive">Inactive</option>
                   <option value="suspended">Suspended</option>
                 </select>
               </div>
-              <div className="form-actions">
+              <div className="flex gap-3 justify-end mt-6">
                 <button className="btn btn-ghost" type="button" onClick={() => router.push('/admin/super-admins')}>Cancel</button>
                 <button className="btn btn-primary" type="submit" disabled={loading}>
                   {loading && <span className="spin" />}

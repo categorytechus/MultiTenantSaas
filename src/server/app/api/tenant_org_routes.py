@@ -17,7 +17,7 @@ from sqlmodel import select
 
 from app.core.config import settings
 from app.core.db import get_db
-from app.core.identity import normalize_email
+from app.core.identity import is_super_admin_user, normalize_email
 from app.core.rbac import Role, role_permissions_from_db
 from app.core.tenancy import RequestContext, get_required_context
 from app.models.org import OrgMembership
@@ -101,6 +101,12 @@ class OrgUserRow(BaseModel):
     id: str
     email: str
     full_name: str | None = None
+    status: str = "active"
+    user_type: str = "user"
+    org_role: str = "user"
+    created_at: str | None = None
+    last_login_at: str | None = None
+    roles: list[dict] = []
 
 
 class OrgUsersResponse(BaseModel):
@@ -151,12 +157,17 @@ async def list_org_users(
         assigned_roles = roles_by_user.get(str(u.id), [])
         if not assigned_roles and m.role not in {Role.USER.value, Role.TENANT_ADMIN.value, Role.SUPER_ADMIN.value}:
             assigned_roles = [{"id": m.role, "name": m.role, "is_system": False}]
+        user_type = "super_admin" if is_super_admin_user(u.id) else "user"
         data.append(
             {
                 "id": str(u.id),
                 "email": u.email,
                 "full_name": u.name,
                 "status": "active",
+                "user_type": user_type,
+                "org_role": m.role,
+                "created_at": u.created_at.isoformat(),
+                "last_login_at": None,
                 "roles": assigned_roles,
             }
         )
@@ -255,14 +266,61 @@ async def create_org_user(
     return {"success": True, "data": {"set_password_link": set_password_link}, "warnings": warnings}
 
 
-@router.delete("/users/{user_id}")
-async def delete_org_user_stub(user_id: UUID):
-    _not_implemented()
+@router.delete("/users/{user_id}", status_code=200)
+async def delete_org_user(
+    organization_id: UUID,
+    user_id: UUID,
+    ctx: RequestContext = Depends(get_required_context),
+    session: AsyncSession = Depends(get_db),
+):
+    _require_tenant_admin(ctx)
+    _ensure_org_context(ctx, organization_id)
+
+    if user_id == ctx.user_id:
+        raise HTTPException(status_code=400, detail="Cannot remove yourself from the organization")
+
+    membership_result = await session.execute(
+        select(OrgMembership).where(OrgMembership.org_id == organization_id, OrgMembership.user_id == user_id)
+    )
+    membership = membership_result.scalars().first()
+    if not membership:
+        raise HTTPException(status_code=404, detail="User not found in this organization")
+
+    await session.delete(membership)
+    await session.flush()
+    return {"success": True}
 
 
 @router.post("/users/{user_id}/reset-password")
-async def reset_user_password_stub(user_id: UUID):
-    _not_implemented()
+async def reset_user_password(
+    organization_id: UUID,
+    user_id: UUID,
+    ctx: RequestContext = Depends(get_required_context),
+    session: AsyncSession = Depends(get_db),
+):
+    _require_tenant_admin(ctx)
+    _ensure_org_context(ctx, organization_id)
+
+    if ctx.role != Role.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super admin privileges required to reset passwords")
+
+    membership_result = await session.execute(
+        select(OrgMembership).where(OrgMembership.org_id == organization_id, OrgMembership.user_id == user_id)
+    )
+    if not membership_result.scalars().first():
+        raise HTTPException(status_code=404, detail="User not found in this organization")
+
+    user = await session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    import secrets
+    from app.core.security import hash_password as _hash_password
+    temp_password = secrets.token_urlsafe(12)
+    user.hashed_password = _hash_password(temp_password)
+    session.add(user)
+    await session.flush()
+    return {"success": True, "data": {"temp_password": temp_password}}
 
 
 class RolesResponse(BaseModel):
