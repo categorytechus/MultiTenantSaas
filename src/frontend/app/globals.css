@@ -129,6 +129,38 @@ body {
   min-width: 720px;
 }
 
+/* Shared data-listing table behavior across all pages */
+.table-wrap,
+.table-responsive-wrap,
+.card:has(table) {
+  width: 100%;
+  max-width: 100%;
+}
+
+.table-wrap,
+.table-responsive-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.table-wrap > table,
+.table-wrap .table,
+.table-responsive-wrap > table,
+.table-responsive-wrap .table,
+.card table {
+  width: 100%;
+}
+
+@media (max-width: 900px) {
+  .table-wrap > table,
+  .table-wrap .table,
+  .table-responsive-wrap > table,
+  .table-responsive-wrap .table,
+  .card table {
+    min-width: 720px;
+  }
+}
+
 .app-page-title {
   font-size: 20px;
   line-height: 1.2;

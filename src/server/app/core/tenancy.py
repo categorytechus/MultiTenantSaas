@@ -30,13 +30,10 @@ def _resolve_org_from_host(host: str | None) -> str | None:
     """
     if not host:
         return None
-    # Strip port
     hostname = host.split(":")[0]
-    # Skip localhost / bare IP
     if hostname in ("localhost", "127.0.0.1", "0.0.0.0") or hostname.replace(".", "").isdigit():
         return None
     parts = hostname.split(".")
-    # Need at least subdomain.domain.tld
     if len(parts) >= 3:
         return parts[0]
     return None
@@ -46,7 +43,6 @@ async def get_request_context(
     request: Request,
     token: str | None = Depends(optional_oauth2_scheme),
 ) -> RequestContext:
-    # SSE endpoints send the JWT via ?token= (EventSource can't set headers)
     if not token:
         token = request.query_params.get("token") or None
     request_id = str(uuid.uuid4())
@@ -60,7 +56,6 @@ async def get_request_context(
     except HTTPException:
         return ctx
 
-    # Extract fields from JWT
     user_id_str: str | None = payload.get("sub")
     org_id_str: str | None = payload.get("org_id")
     role_str: str | None = payload.get("role")
@@ -88,12 +83,10 @@ async def get_request_context(
     ctx.email = email
     ctx.tenant_slug = tenant_slug
 
-    # Host-based subdomain resolution (only for non-localhost)
     host = request.headers.get("host")
     slug_from_host = _resolve_org_from_host(host)
 
     if slug_from_host and tenant_slug and slug_from_host != tenant_slug:
-        # Mismatch between host subdomain and JWT tenant
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Tenant mismatch: host subdomain does not match JWT tenant",
@@ -105,13 +98,41 @@ async def get_request_context(
 async def get_required_context(
     ctx: RequestContext = Depends(get_request_context),
 ) -> RequestContext:
-    """
-    Same as get_request_context but raises 401 if not authenticated.
-    """
     if ctx.user_id is None or ctx.org_id is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required",
             headers={"WWW-Authenticate": "Bearer"},
+        )
+    return ctx
+
+
+async def get_optional_tenant_context(
+    ctx: RequestContext = Depends(get_request_context),
+) -> RequestContext:
+    """Valid JWT subject required; tenant (`org_id`) may be omitted (super-admin bootstrap tokens)."""
+    if ctx.user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return ctx
+
+
+async def require_super_admin_user(
+    ctx: RequestContext = Depends(get_request_context),
+) -> RequestContext:
+    """Super-admin role; tenant context optional."""
+    if ctx.user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if ctx.role != Role.SUPER_ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Super admin access required",
         )
     return ctx

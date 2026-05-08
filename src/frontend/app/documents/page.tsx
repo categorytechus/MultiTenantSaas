@@ -92,15 +92,18 @@ export default function DocumentsPage() {
     const unrestricted = sessionStorage.getItem("userModulesUnrestricted");
     if (unrestricted) return; // super_admin / org_admin — always allowed
     const raw = sessionStorage.getItem("userModules");
-    if (raw) {
-      try {
-        const modules: string[] = JSON.parse(raw);
-        if (!modules.includes("documents")) {
-          router.replace("/dashboard");
-        }
-      } catch { /* ignore parse error */ }
+    if (!raw) {
+      router.replace("/dashboard");
+      return;
     }
-    // If sessionStorage not yet populated, Layout.tsx will handle redirect via sidebar
+    try {
+      const modules: string[] = JSON.parse(raw);
+      if (!modules.includes("documents")) {
+        router.replace("/dashboard");
+      }
+    } catch {
+      router.replace("/dashboard");
+    }
   }, [router]);
 
   const fetchCurrentUser = useCallback(async () => {
@@ -138,7 +141,13 @@ export default function DocumentsPage() {
     try {
       const res = await apiFetch<{ data: Document[] }>("/documents");
       if (res.success) {
-        setDocuments(res.data.data);
+        const payload = (res.data as { data?: Document[] } | Document[] | undefined);
+        const nextDocs = Array.isArray(payload)
+          ? payload
+          : Array.isArray(payload?.data)
+            ? payload.data
+            : [];
+        setDocuments(nextDocs);
       }
     } catch (error) {
       console.error("Error fetching documents:", error);

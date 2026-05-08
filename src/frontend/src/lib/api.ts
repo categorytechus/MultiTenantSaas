@@ -13,6 +13,16 @@ export type ApiResponse<T = unknown> =
   | { success: true; data: T; status: number; error?: never }
   | { success: false; error: string; status: number; data?: never };
 
+class ApiFetchError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiFetchError';
+    this.status = status;
+  }
+}
+
 export async function apiFetch<T = unknown>(
   endpoint: string, 
   options: FetchOptions = {}
@@ -56,13 +66,15 @@ export async function apiFetch<T = unknown>(
     }
 
     if (!response.ok) {
-      const errorMessage = data?.message || data?.error || `HTTP error! status: ${response.status}`;
-      throw new Error(errorMessage);
+      const errorMessage =
+        data?.detail ||
+        data?.message ||
+        data?.error ||
+        `Request failed (${response.status})`;
+      throw new ApiFetchError(errorMessage, response.status);
     }
 
-    // Compatibility: many pages expect response as either:
-    // 1) data.<field>            (raw backend payload)
-    // 2) data.data.<field>       (gateway-style envelope)
+    // Normalize envelopes: unwrap either a top-level `{ data: ... }` or reuse the payload as `data`.
     let normalized = data;
     if (normalized && typeof normalized === 'object' && !Array.isArray(normalized)) {
       const obj = normalized as Record<string, unknown>;
@@ -75,6 +87,9 @@ export async function apiFetch<T = unknown>(
   } catch (error: unknown) {
     const e = error as Error;
     console.error(`API Fetch Error [${url}]:`, e);
+    if (e instanceof ApiFetchError) {
+      return { success: false, error: e.message || 'Request failed', status: e.status };
+    }
     return { success: false, error: e.message || 'Network error occurred', status: 500 };
   }
 }

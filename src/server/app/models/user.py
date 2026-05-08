@@ -31,3 +31,5 @@ class RefreshToken(SQLModel, table=True):
     token_hash: str = Field(nullable=False)
     expires_at: datetime = Field(nullable=False)
     revoked: bool = Field(default=False)
+    org_id: UUID | None = Field(default=None, foreign_key="orgs.id")
+    no_org_scope: bool = Field(default=False)

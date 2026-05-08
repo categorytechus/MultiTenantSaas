@@ -2,9 +2,8 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 /**
- * Opening /api/auth/signup in the browser hits the Next app, not the gateway.
- * Only HTML navigation (GET) is redirected to the real pages. POST is unchanged
- * and handled by next.config rewrites → auth gateway.
+ * GET /api/auth/signup | /api/auth/signin are redirected to the Next.js pages.
+ * Other methods pass through and are rewritten to the FastAPI backend (next.config).
  */
 const getRedirects: Record<string, string> = {
   "/api/auth/signup": "/auth/signup",

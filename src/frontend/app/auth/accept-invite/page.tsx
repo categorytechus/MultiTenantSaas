@@ -66,8 +66,8 @@ export default function AcceptInvitePage() {
           setPageState('error');
           return;
         }
-        localStorage.setItem('accessToken', joinData.data.accessToken);
-        localStorage.setItem('refreshToken', joinData.data.refreshToken);
+        localStorage.setItem('accessToken', joinData.data.access_token);
+        localStorage.setItem('refreshToken', joinData.data.refresh_token);
         setPageState('done');
         setTimeout(() => router.push('/dashboard'), 1200);
       } catch {

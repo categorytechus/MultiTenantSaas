@@ -82,13 +82,17 @@ export default function WebUrlPage() {
     const unrestricted = sessionStorage.getItem("userModulesUnrestricted");
     if (unrestricted) return;
     const raw = sessionStorage.getItem("userModules");
-    if (raw) {
-      try {
-        const modules: string[] = JSON.parse(raw);
-        if (!modules.includes("web_urls")) {
-          router.replace("/dashboard");
-        }
-      } catch { /* ignore parse error */ }
+    if (!raw) {
+      router.replace("/dashboard");
+      return;
+    }
+    try {
+      const modules: string[] = JSON.parse(raw);
+      if (!modules.includes("web_urls")) {
+        router.replace("/dashboard");
+      }
+    } catch {
+      router.replace("/dashboard");
     }
   }, [router]);
 
