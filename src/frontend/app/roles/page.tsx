@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Layout from "../../components/Layout";
 import { apiFetch } from "../../src/lib/api";
-import "./roles.css";
 
 // Org custom roles: title + description only (no permission matrix in UI for now)
 

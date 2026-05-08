@@ -4,7 +4,6 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Layout from '../../../components/Layout';
 import { apiFetch } from '../../../src/lib/api';
-import './admin-organizations.css';
 
 interface Org {
   id: string;
@@ -80,7 +79,7 @@ export default function OrganizationsPage() {
 
   return (
     <Layout>
-            <div className="page">
+      <div className="page">
         <div className="page-header">
           <div>
             <div className="page-title">Organizations</div>
@@ -94,91 +93,85 @@ export default function OrganizationsPage() {
           </button>
         </div>
 
-        <div className="search-bar">
+        <div className="mb-5">
           <input
-            className="search-input"
+            className="w-full max-w-sm px-3 py-2 text-[13px] border border-[#ebe9e6] rounded-lg bg-white outline-none focus:border-[#1a1a1a] transition-colors placeholder-[#9a9a9a]"
             placeholder="Search organizations…"
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
         </div>
 
-        <div className="table-wrap">
+        <div className="card">
           {loading ? (
-            <div className="loading">Loading…</div>
+            <div className="flex items-center justify-center py-16 gap-2 text-[#9a9a9a] text-[13px]">
+              <span className="w-5 h-5 border-2 border-[#e5e5e5] border-t-[#1a1a1a] rounded-full animate-spin" />
+              Loading…
+            </div>
           ) : filtered.length === 0 ? (
             <div className="empty">No organizations found</div>
           ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Slug</th>
-                  <th>Domain</th>
-                  <th>Status</th>
-                  <th>Plan</th>
-                  <th>Members</th>
-                  <th>Created</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map(org => (
-                  <tr key={org.id}>
-                    <td style={{ fontWeight: 500 }}>{org.name}</td>
-                    <td style={{ color: '#9a9a9a', fontFamily: 'monospace', fontSize: 12 }}>{org.slug}</td>
-                    <td style={{ color: '#9a9a9a' }}>{org.domain || '—'}</td>
-                    <td>
-                      <span className={`badge badge-${org.status}`}>{org.status}</span>
-                    </td>
-                    <td>
-                      <span className={`badge badge-${org.subscription_tier}`}>{org.subscription_tier}</span>
-                    </td>
-                    <td>{org.member_count}</td>
-                    <td style={{ color: '#9a9a9a', fontSize: 12 }}>
-                      {new Date(org.created_at).toLocaleDateString()}
-                    </td>
-                    <td>
-                      <div className="row-menu">
-                        <button
-                          className="kebab-btn"
-                          onClick={() => setOpenMenuFor(openMenuFor === org.id ? null : org.id)}
-                          aria-label="Actions"
-                        >
-                          <span className="kebab-ellipsis">&#8943;</span>
-                        </button>
-                        {openMenuFor === org.id && (
-                          <div
-                            className="kebab-dropdown"
-                            ref={openMenuRef}
-                            onClick={e => e.stopPropagation()}
-                          >
-                            <button
-                              className="kebab-item"
-                              onClick={() => { setOpenMenuFor(null); router.push(`/admin/organizations/${org.id}/edit`); }}
-                            >
-                              Edit
-                            </button>
-                            <button
-                              className="kebab-item"
-                              onClick={() => { setOpenMenuFor(null); router.push(`/admin/org-permissions/${org.id}`); }}
-                            >
-                              Permissions
-                            </button>
-                            <button
-                              className="kebab-item kebab-danger"
-                              onClick={() => { setOpenMenuFor(null); handleDelete(org.id, org.name); }}
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </td>
+            <div className="table-responsive-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Slug</th>
+                    <th>Domain</th>
+                    <th>Status</th>
+                    <th>Plan</th>
+                    <th>Members</th>
+                    <th>Created</th>
+                    <th></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {filtered.map(org => (
+                    <tr key={org.id}>
+                      <td style={{ fontWeight: 500 }}>{org.name}</td>
+                      <td style={{ color: '#9a9a9a', fontFamily: 'monospace', fontSize: 12 }}>{org.slug}</td>
+                      <td style={{ color: '#9a9a9a' }}>{org.domain || '—'}</td>
+                      <td>
+                        <span className={`badge badge-${org.status}`}>{org.status}</span>
+                      </td>
+                      <td>
+                        <span className="badge badge-active">{org.subscription_tier}</span>
+                      </td>
+                      <td>{org.member_count}</td>
+                      <td style={{ color: '#9a9a9a', fontSize: 12 }}>
+                        {new Date(org.created_at).toLocaleDateString()}
+                      </td>
+                      <td>
+                        <div className="row-menu">
+                          <button
+                            className="kebab-btn"
+                            onClick={() => setOpenMenuFor(openMenuFor === org.id ? null : org.id)}
+                            aria-label="Actions"
+                          >
+                            <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
+                              <circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>
+                            </svg>
+                          </button>
+                          {openMenuFor === org.id && (
+                            <div className="kebab-dropdown" ref={openMenuRef} onClick={e => e.stopPropagation()}>
+                              <button className="kebab-item" onClick={() => { setOpenMenuFor(null); router.push(`/admin/organizations/${org.id}/edit`); }}>
+                                Edit
+                              </button>
+                              <button className="kebab-item" onClick={() => { setOpenMenuFor(null); router.push(`/admin/org-permissions/${org.id}`); }}>
+                                Permissions
+                              </button>
+                              <button className="kebab-item danger" onClick={() => { setOpenMenuFor(null); handleDelete(org.id, org.name); }}>
+                                Delete
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       </div>

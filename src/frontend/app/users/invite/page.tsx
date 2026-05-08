@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import Layout from "../../../components/Layout";
 import { apiFetch } from "../../../src/lib/api";
 import { assignableMemberRoles } from "../../../src/lib/org-member-roles";
-import '../create/users-create.css';
 
 interface Role {
   id: string;
@@ -82,9 +81,13 @@ export default function InviteUserPage() {
     }
   };
 
+  const normalizedSignupLink = signupLink
+    ? signupLink.replace(/^https?:\/\/[^/]+/, window.location.origin)
+    : null;
+
   const handleCopy = () => {
-    if (signupLink) {
-      navigator.clipboard.writeText(signupLink);
+    if (normalizedSignupLink) {
+      navigator.clipboard.writeText(normalizedSignupLink);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -113,7 +116,7 @@ export default function InviteUserPage() {
     );
   }
 
-  if (signupLink) {
+  if (normalizedSignupLink) {
     return (
       <Layout>
         <div className="page">
@@ -144,7 +147,7 @@ export default function InviteUserPage() {
                   fontFamily: 'monospace', fontSize: 12.5, color: '#374151',
                   background: '#f9f9f8', wordBreak: 'break-all', lineHeight: 1.5,
                 }}>
-                  {signupLink}
+                  {normalizedSignupLink}
                 </div>
                 <button
                   onClick={handleCopy}
@@ -190,15 +193,22 @@ export default function InviteUserPage() {
   return (
     <Layout>
       <div className="page">
-        <button className="back-link" onClick={() => router.push("/users")}>
+        <button
+          className="flex items-center gap-1.5 text-[13px] text-[#9a9a9a] hover:text-[#1a1a1a] mb-5 transition-colors"
+          onClick={() => router.push("/users")}
+        >
           <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
             <polyline points="15 18 9 12 15 6" />
           </svg>
           Back to Users
         </button>
-        <div className="page-title">Invite User</div>
-        <div className="page-subtitle">
-          Enter the user&apos;s email. A unique signup link will be generated — they complete registration themselves by setting their name and password.
+        <div className="page-header">
+          <div>
+            <div className="page-title">Invite User</div>
+            <div className="page-subtitle">
+              Enter the user&apos;s email. A unique signup link will be generated — they complete registration themselves by setting their name and password.
+            </div>
+          </div>
         </div>
 
         {error && <div className="err-bar">{error}</div>}
@@ -206,7 +216,7 @@ export default function InviteUserPage() {
         <div className="form-card">
           <form onSubmit={handleSubmit}>
             <div className="field">
-              <label>Email address <span style={{ color: '#e53e3e' }}>*</span></label>
+              <label className="field-lbl">Email address <span style={{ color: '#e53e3e' }}>*</span></label>
               <input
                 className="fi"
                 type="email"
@@ -220,12 +230,11 @@ export default function InviteUserPage() {
             </div>
             {roles.length > 0 && (
               <div className="field">
-                <label>
-                  Role{" "}
-                  <span style={{ color: "#bbb", fontWeight: 400 }}>(optional)</span>
+                <label className="field-lbl">
+                  Role <span style={{ color: "#bbb", fontWeight: 400 }}>(optional)</span>
                 </label>
                 <select
-                  className="fi select"
+                  className="fi"
                   value={roleId}
                   onChange={(e) => setRoleId(e.target.value)}
                 >
@@ -237,7 +246,7 @@ export default function InviteUserPage() {
                 <p className="hint">Custom roles define what the user can do within your org.</p>
               </div>
             )}
-            <div className="form-actions">
+            <div className="flex gap-3 justify-end mt-6">
               <button className="btn btn-ghost" type="button" onClick={() => router.push("/users")}>
                 Cancel
               </button>

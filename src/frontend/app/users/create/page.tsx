@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import Layout from "../../../components/Layout";
 import { apiFetch } from "../../../src/lib/api";
 import { assignableMemberRoles } from "../../../src/lib/org-member-roles";
-import './users-create.css';
 
 interface Role {
   id: string;
@@ -65,7 +64,7 @@ export default function CreateUserPage() {
     setError("");
     setLoading(true);
     try {
-      const res = await apiFetch<{ data: { set_password_link?: string }; warnings?: { code: string }[] }>(`/organizations/${orgId}/users`, {
+      const res = await apiFetch<{ data: { set_password_link?: string; signup_link?: string }; warnings?: { code: string }[] }>(`/organizations/${orgId}/users`, {
         method: "POST",
         body: JSON.stringify({ name, email, roleId: roleId || undefined }),
       });
@@ -78,7 +77,7 @@ export default function CreateUserPage() {
         setError("Account may have been created but the setup email could not be sent. Check server logs or try again.");
         return;
       }
-      const link = res.data.data.set_password_link;
+      const link = res.data.data.set_password_link || res.data.data.signup_link;
       if (link) {
         setSetPasswordLink(link);
       } else if (res.status === 200) {
@@ -93,9 +92,24 @@ export default function CreateUserPage() {
     }
   };
 
+  const normalizedLink = (() => {
+    if (!setPasswordLink) return null;
+    try {
+      const parsed = new URL(setPasswordLink);
+      const token = parsed.searchParams.get("token");
+      const em = parsed.searchParams.get("email");
+      const sp = new URLSearchParams();
+      if (token) sp.set("token", token);
+      if (em) sp.set("email", em);
+      return `${window.location.origin}/auth/set-password?${sp.toString()}`;
+    } catch {
+      return setPasswordLink.replace(/^https?:\/\/[^/]+/, window.location.origin);
+    }
+  })();
+
   const handleCopy = () => {
-    if (setPasswordLink) {
-      navigator.clipboard.writeText(setPasswordLink);
+    if (normalizedLink) {
+      navigator.clipboard.writeText(normalizedLink);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -186,7 +200,7 @@ export default function CreateUserPage() {
     );
   }
 
-  if (setPasswordLink) {
+  if (normalizedLink) {
     return (
       <Layout>
         <div className="page">
@@ -217,7 +231,7 @@ export default function CreateUserPage() {
                   fontFamily: 'monospace', fontSize: 12.5, color: '#374151',
                   background: '#f9f9f8', wordBreak: 'break-all', lineHeight: 1.5,
                 }}>
-                  {setPasswordLink}
+                  {normalizedLink}
                 </div>
                 <button
                   onClick={handleCopy}
@@ -263,15 +277,22 @@ export default function CreateUserPage() {
   return (
     <Layout>
       <div className="page">
-        <button className="back-link" onClick={() => router.push("/users")}>
+        <button
+          className="flex items-center gap-1.5 text-[13px] text-[#9a9a9a] hover:text-[#1a1a1a] mb-5 transition-colors"
+          onClick={() => router.push("/users")}
+        >
           <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
             <polyline points="15 18 9 12 15 6" />
           </svg>
           Back to Users
         </button>
-        <div className="page-title">Create User</div>
-        <div className="page-subtitle">
-          Create a new user account. A password setup link will be generated — share it with them securely.
+        <div className="page-header">
+          <div>
+            <div className="page-title">Create User</div>
+            <div className="page-subtitle">
+              Create a new user account. A password setup link will be generated — share it with them securely.
+            </div>
+          </div>
         </div>
 
         {error && <div className="err-bar">{error}</div>}
@@ -279,7 +300,7 @@ export default function CreateUserPage() {
         <div className="form-card">
           <form onSubmit={handleSubmit}>
             <div className="field">
-              <label>Full name <span style={{ color: '#e53e3e' }}>*</span></label>
+              <label className="field-lbl">Full name <span style={{ color: '#e53e3e' }}>*</span></label>
               <input
                 className="fi"
                 type="text"
@@ -291,7 +312,7 @@ export default function CreateUserPage() {
               />
             </div>
             <div className="field">
-              <label>Email address <span style={{ color: '#e53e3e' }}>*</span></label>
+              <label className="field-lbl">Email address <span style={{ color: '#e53e3e' }}>*</span></label>
               <input
                 className="fi"
                 type="email"
@@ -303,12 +324,11 @@ export default function CreateUserPage() {
             </div>
             {roles.length > 0 && (
               <div className="field">
-                <label>
-                  Role{" "}
-                  <span style={{ color: "#bbb", fontWeight: 400 }}>(optional)</span>
+                <label className="field-lbl">
+                  Role <span style={{ color: "#bbb", fontWeight: 400 }}>(optional)</span>
                 </label>
                 <select
-                  className="fi select"
+                  className="fi"
                   value={roleId}
                   onChange={(e) => setRoleId(e.target.value)}
                 >
@@ -320,7 +340,7 @@ export default function CreateUserPage() {
                 <p className="hint">Custom roles define what the user can do within your org.</p>
               </div>
             )}
-            <div className="form-actions">
+            <div className="flex gap-3 justify-end mt-6">
               <button className="btn btn-ghost" type="button" onClick={() => router.push("/users")}>
                 Cancel
               </button>

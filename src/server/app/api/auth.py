@@ -235,6 +235,54 @@ async def update_profile(
     }
 
 
+class SetPasswordRequest(BaseModel):
+    token: str
+    email: str
+    password: str
+
+
+@router.post("/set-password")
+async def set_password_via_token(
+    body: SetPasswordRequest,
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    from datetime import datetime, timezone
+
+    from sqlmodel import select
+
+    from app.core.identity import normalize_email
+    from app.models.invite import InviteToken
+    from app.models.user import User as UserModel
+
+    email = normalize_email(body.email)
+    result = await session.execute(
+        select(InviteToken).where(InviteToken.token == body.token, InviteToken.email == email)
+    )
+    invite = result.scalars().first()
+    if not invite:
+        return {"success": False, "message": "Invalid or expired link."}
+
+    now = datetime.now(timezone.utc)
+    if invite.expires_at.replace(tzinfo=timezone.utc) < now:
+        return {"success": False, "message": "This link has expired."}
+    if invite.used_at:
+        return {"success": False, "message": "This link has already been used."}
+    if len(body.password) < 8:
+        return {"success": False, "message": "Password must be at least 8 characters."}
+
+    user_result = await session.execute(select(UserModel).where(UserModel.email == email))
+    user = user_result.scalars().first()
+    if not user:
+        return {"success": False, "message": "Account not found. Please contact your administrator."}
+
+    user.hashed_password = hash_password(body.password)
+    session.add(user)
+    invite.used_at = now
+    session.add(invite)
+    await session.flush()
+    return {"success": True}
+
+
 @router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
 async def change_password(
     body: ChangePasswordRequest,

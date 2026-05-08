@@ -4,7 +4,6 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { apiFetch } from "../../../src/lib/api";
-import "../signin/auth-signin.css";
 
 type ForgotPasswordResponse = {
   message?: string;

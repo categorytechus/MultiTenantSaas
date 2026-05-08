@@ -23,7 +23,7 @@ from app.core.tenancy import RequestContext, get_required_context
 from app.models.org import OrgMembership
 from app.models.user import User
 from app.models.rbac import RbacPermission, RbacRole, RoleOrgPermission, RolePermission
-from app.services.invite_service import create_invite_record, link_query_role
+from app.services.invite_service import _assign_custom_role_if_any, create_invite_record, link_query_role
 
 router = APIRouter(
     prefix="/api/organizations/{organization_id}",
@@ -222,6 +222,22 @@ async def create_org_user(
     if ctx.user_id is None:
         raise HTTPException(status_code=401, detail="Authentication required")
 
+    # Create the user immediately (no password yet) so they appear in the users list.
+    new_user = User(
+        email=email,
+        name=body.name.strip() if body.name else None,
+        hashed_password=None,
+    )
+    session.add(new_user)
+    await session.flush()
+
+    session.add(OrgMembership(user_id=new_user.id, org_id=organization_id, role=Role.USER.value))
+    await session.flush()
+    await _assign_custom_role_if_any(
+        session, user_id=new_user.id, org_id=organization_id, invite_role=invite_role_value
+    )
+
+    # Issue a one-time set-password token (reuses invite_tokens table).
     _, plain_token = await create_invite_record(
         session,
         email=email,
@@ -229,13 +245,11 @@ async def create_org_user(
         invited_by=ctx.user_id,
         role=invite_role_value,
     )
-    role_q = link_query_role(Role.USER)
     base = _public_app_base(request)
     set_password_link = (
-        f"{base}/auth/signup/{organization_id}"
+        f"{base}/auth/set-password"
         f"?token={quote(plain_token, safe='')}"
         f"&email={quote(email, safe='')}"
-        f"&role={role_q}"
     )
     await session.flush()
     return {"success": True, "data": {"set_password_link": set_password_link}, "warnings": warnings}

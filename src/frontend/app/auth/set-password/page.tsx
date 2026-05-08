@@ -3,7 +3,6 @@
 import { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import './set-password.css';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
 

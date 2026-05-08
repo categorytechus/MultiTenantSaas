@@ -4,7 +4,6 @@ import { FormEvent, Suspense, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { apiFetch } from "../../../../src/lib/api";
-import "../../signin/auth-signin.css";
 
 function NewPasswordContent() {
   const router = useRouter();

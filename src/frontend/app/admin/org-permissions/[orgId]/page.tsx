@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Layout from '../../../../components/Layout';
 import { apiFetch } from '../../../../src/lib/api';
-import './admin-org-permissions-detail.css';
 
 interface PermissionItem {
   id: string;

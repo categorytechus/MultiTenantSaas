@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Layout from '../../../../components/Layout';
 import { apiFetch } from '../../../../src/lib/api';
-import './admin-super-admins-create.css';
 
 export default function CreateSuperAdminPage() {
   const router = useRouter();

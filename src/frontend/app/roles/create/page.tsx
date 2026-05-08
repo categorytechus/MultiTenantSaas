@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Layout from "../../../components/Layout";
 import { apiFetch } from "../../../src/lib/api";
-import './roles-create.css';
 
 // Custom roles: name + description only (no /permissions pickers; catalog kept for future use)
 

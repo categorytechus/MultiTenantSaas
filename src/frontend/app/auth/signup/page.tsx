@@ -1,7 +1,6 @@
 'use client';
 
 import Link from 'next/link';
-import './auth-signup.css';
 
 export default function SignUpPage() {
   return (

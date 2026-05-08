@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Layout from "../../components/Layout";
-import KnowledgeBaseSync from "../../components/KnowledgeBaseSync";
 import { apiFetch } from "../../src/lib/api";
 import { PERMISSION_MODULE_ENABLED } from "../../src/lib/permissions";
 
@@ -245,128 +244,6 @@ function DeleteModal({
 }
 
 // ── URL Ingest Modal ──────────────────────────────────────────────────────────
-
-function UrlIngestModal({
-  open,
-  onClose,
-  orgRoles,
-  currentUserId,
-  onSuccess,
-}: {
-  open: boolean;
-  onClose: () => void;
-  orgRoles: OrgRole[];
-  currentUserId: string;
-  onSuccess: () => void;
-}) {
-  const [url, setUrl] = useState("");
-  const [metadata, setMetadata] = useState<UploadMetadata>({
-    docType: "",
-    isConfidential: false,
-    role: "",
-    description: "",
-  });
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
-
-  const reset = () => {
-    setUrl("");
-    setMetadata({ docType: "", isConfidential: false, role: "", description: "" });
-    setError(null);
-    setSuccess(false);
-  };
-
-  const handleClose = () => {
-    if (!submitting) { reset(); onClose(); }
-  };
-
-  const handleSubmit = async () => {
-    if (!url.trim()) { setError("Please enter a URL"); return; }
-    try { new URL(url); } catch { setError("Please enter a valid URL (include https://)"); return; }
-    if (!metadata.docType.trim()) { setError("Document Type is required"); return; }
-    if (!metadata.role) { setError("Please select a Role"); return; }
-
-    setError(null);
-    setSubmitting(true);
-    try {
-      const tags: Record<string, string> = {
-        "doc-type": metadata.docType.trim(),
-        confidential: metadata.isConfidential ? "true" : "false",
-        role: metadata.role,
-      };
-      if (currentUserId) tags["user-id"] = currentUserId;
-
-      const res = await apiFetch("/web-urls", {
-        method: "POST",
-        body: JSON.stringify({ url: url.trim(), tags, description: metadata.description }),
-      });
-      if (!res.success) throw new Error(res.error || "Failed to submit URL");
-
-      setSuccess(true);
-      setTimeout(() => { reset(); onClose(); onSuccess(); }, 1500);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to submit URL");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  if (!open) return null;
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[2000]" onClick={handleClose}>
-      <div className="bg-white rounded-xl p-7 w-[90%] max-w-[550px] max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <h2 className="text-[17px] font-semibold text-gray-900 mb-1">Add Web URL</h2>
-
-        {success ? (
-          <div className="text-center py-8">
-            <div className="text-4xl mb-3">✓</div>
-            <p className="text-[13.5px] text-green-700 font-medium">URL submitted! Fetching and processing...</p>
-          </div>
-        ) : (
-          <>
-            <p className="text-[13px] text-gray-500 mb-5">
-              Paste any public web page URL to add it to your knowledge base.
-            </p>
-
-            <div className="mb-4">
-              <label className="block text-[13px] font-medium text-gray-800 mb-1.5">
-                URL <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="url"
-                className="w-full px-3 py-2.5 border border-gray-300 rounded-md text-[13px] text-gray-900 outline-none focus:border-violet-500 transition-colors"
-                value={url}
-                onChange={(e) => { setUrl(e.target.value); setError(null); }}
-                placeholder="https://example.com/article"
-                onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-                autoFocus
-              />
-            </div>
-
-            <MetadataFields metadata={metadata} onChange={setMetadata} orgRoles={orgRoles} disabled={submitting} />
-
-            {error && (
-              <div className="mt-3 text-[12.5px] text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">
-                {error}
-              </div>
-            )}
-
-            <div className="flex gap-3 justify-end mt-6">
-              <button className="px-4 py-2 bg-gray-100 text-gray-800 text-[13.5px] font-medium rounded-md hover:bg-gray-200 transition-colors disabled:opacity-50" onClick={handleClose} disabled={submitting}>
-                Cancel
-              </button>
-              <button className="px-4 py-2 bg-violet-600 text-white text-[13.5px] font-medium rounded-md hover:bg-violet-700 transition-colors disabled:opacity-50" onClick={handleSubmit} disabled={submitting}>
-                {submitting ? "Submitting..." : "Add URL"}
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
 
 // ── Upload Modal ──────────────────────────────────────────────────────────────
 
@@ -615,7 +492,6 @@ export default function DocumentsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
-  const [showUrlModal, setShowUrlModal] = useState(false);
   const [deleteDoc, setDeleteDoc] = useState<Document | null>(null);
   const [currentUserId, setCurrentUserId] = useState("");
   const [orgRoles, setOrgRoles] = useState<OrgRole[]>([]);
@@ -623,6 +499,7 @@ export default function DocumentsPage() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  const [reembedding, setReembedding] = useState<Set<string>>(new Set());
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const itemsPerPage = 10;
 
@@ -720,6 +597,17 @@ export default function DocumentsPage() {
     }
   };
 
+  const handleReembed = async (docId: string) => {
+    setReembedding((prev) => new Set(prev).add(docId));
+    try {
+      await apiFetch(`/documents/${docId}/re-embed`, { method: "POST" });
+      const docs = await fetchDocuments(true);
+      startPollingIfNeeded(docs);
+    } finally {
+      setReembedding((prev) => { const n = new Set(prev); n.delete(docId); return n; });
+    }
+  };
+
   const handleView = async (doc: Document) => {
     try {
       const res = await apiFetch<{ data: { downloadUrl: string | null } }>(`/documents/${doc.id}`);
@@ -774,16 +662,6 @@ export default function DocumentsPage() {
               </svg>
               Refresh
             </button>
-            {/* Add URL */}
-            <button
-              className="flex items-center gap-1.5 px-3 py-2 bg-white text-gray-800 text-[13px] font-medium rounded-md border border-gray-200 hover:bg-gray-50 transition-colors"
-              onClick={() => setShowUrlModal(true)}
-            >
-              <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-              </svg>
-              Add URL
-            </button>
             {/* Upload */}
             <button
               className="flex items-center gap-1.5 px-4 py-2 bg-[#2f3640] text-white text-[13px] font-medium rounded-md hover:bg-[#1a1f28] transition-colors"
@@ -796,8 +674,6 @@ export default function DocumentsPage() {
             </button>
           </div>
         </div>
-
-        <KnowledgeBaseSync />
 
         {/* Filters */}
         <div className="flex gap-3 items-center mb-5 flex-wrap">
@@ -906,7 +782,7 @@ export default function DocumentsPage() {
 
                           {/* Actions */}
                           <td className="px-4 py-3">
-                            <div className="flex gap-1.5">
+                            <div className="flex gap-1.5 items-center">
                               <button
                                 className="p-1.5 rounded-md border border-gray-200 bg-white text-gray-400 hover:text-gray-700 hover:border-gray-300 transition-colors"
                                 title="View"
@@ -915,6 +791,21 @@ export default function DocumentsPage() {
                                 <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24">
                                   <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
                                 </svg>
+                              </button>
+                              <button
+                                className="flex items-center gap-1 px-2 py-1.5 rounded-md border border-gray-200 bg-white text-[11px] font-medium text-gray-500 hover:text-violet-600 hover:border-violet-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                title="Re-embed"
+                                disabled={reembedding.has(doc.id)}
+                                onClick={() => handleReembed(doc.id)}
+                              >
+                                {reembedding.has(doc.id) ? (
+                                  <span className="w-3 h-3 rounded-full border border-current border-t-transparent animate-spin" />
+                                ) : (
+                                  <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                                    <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/>
+                                  </svg>
+                                )}
+                                Re-embed
                               </button>
                               <button
                                 className="p-1.5 rounded-md border border-gray-200 bg-white text-gray-400 hover:text-red-500 hover:border-red-200 transition-colors"
@@ -965,7 +856,6 @@ export default function DocumentsPage() {
       </div>
 
       <UploadModal open={showUploadModal} onClose={() => setShowUploadModal(false)} orgRoles={orgRoles} currentUserId={currentUserId} onSuccess={handleUploadSuccess} />
-      <UrlIngestModal open={showUrlModal} onClose={() => setShowUrlModal(false)} orgRoles={orgRoles} currentUserId={currentUserId} onSuccess={handleUploadSuccess} />
       <DeleteModal doc={deleteDoc} onClose={() => setDeleteDoc(null)} onConfirm={handleDelete} />
     </Layout>
   );

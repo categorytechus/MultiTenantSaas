@@ -5,7 +5,6 @@ import { useRouter, useParams } from "next/navigation";
 import Layout from "../../../../components/Layout";
 import { apiFetch } from "../../../../src/lib/api";
 import { assignableMemberRoles } from "../../../../src/lib/org-member-roles";
-import './users-id-edit.css';
 
 interface Role {
   id: string;
@@ -18,6 +17,7 @@ interface OrgUserListItem {
   email: string;
   full_name: string | null;
   status: string;
+  user_type?: string;
   roles?: Role[];
 }
 
@@ -33,34 +33,30 @@ export default function EditUserPage() {
   const [availableRoles, setAvailableRoles] = useState<Role[]>([]);
   const [addRoleId, setAddRoleId] = useState("");
   const [orgId, setOrgId] = useState("");
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
   const [fetchingData, setFetchingData] = useState(true);
+  const [resettingPwd, setResettingPwd] = useState(false);
+  const [tempPassword, setTempPassword] = useState<string | null>(null);
+  const [pwdCopied, setPwdCopied] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("accessToken");
-    if (!token) {
-      router.push("/auth/signin");
-      return;
-    }
+    if (!token) { router.push("/auth/signin"); return; }
     (async () => {
       try {
-        const meRes = await apiFetch<{ data: { user_type: string } }>(
-          "/auth/me",
-        );
+        const meRes = await apiFetch<{ data: { user_type: string } }>("/auth/me");
         const payload = JSON.parse(atob(token.split(".")[1]));
         const jwtRoles: string[] = payload.roles ?? [];
-        if (!meRes.success || (meRes.data.data.user_type !== "super_admin" && !jwtRoles.includes("org_admin"))) {
-          router.push("/dashboard");
-          return;
+        const ut = meRes.data?.data?.user_type;
+        if (!meRes.success || (ut !== "super_admin" && !jwtRoles.includes("org_admin"))) {
+          router.push("/dashboard"); return;
         }
+        setIsSuperAdmin(ut === "super_admin");
         const oid = payload.org_id;
-        if (!oid) {
-          setError("No org context");
-          setFetchingData(false);
-          return;
-        }
+        if (!oid) { setError("No org context"); setFetchingData(false); return; }
         setOrgId(oid);
 
         const [usersRes, rolesRes] = await Promise.all([
@@ -92,9 +88,7 @@ export default function EditUserPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError("");
-    setSuccess("");
-    setLoading(true);
+    setError(""); setSuccess(""); setLoading(true);
     try {
       const res = await apiFetch(`/organizations/${orgId}/users/${id}`, {
         method: "PUT",
@@ -102,11 +96,8 @@ export default function EditUserPage() {
       });
       if (res.success) setSuccess("User updated successfully");
       else setError(res.error || "Update failed");
-    } catch {
-      setError("Update failed");
-    } finally {
-      setLoading(false);
-    }
+    } catch { setError("Update failed"); }
+    finally { setLoading(false); }
   };
 
   const handleAssignRole = async () => {
@@ -120,98 +111,82 @@ export default function EditUserPage() {
         const role = availableRoles.find((r) => r.id === addRoleId);
         if (role) setCurrentRoles((prev) => [...prev, role]);
         setAddRoleId("");
-      } else {
-        setError(res.error || "Failed to assign role");
-      }
-    } catch {
-      setError("Failed to assign role");
-    }
+      } else { setError(res.error || "Failed to assign role"); }
+    } catch { setError("Failed to assign role"); }
   };
 
   const handleRemoveRole = async (roleId: string) => {
     try {
-      const res = await apiFetch(
-        `/organizations/${orgId}/users/${id}/roles/${roleId}`,
-        { method: "DELETE" },
-      );
-      if (res.success)
-        setCurrentRoles((prev) => prev.filter((r) => r.id !== roleId));
+      const res = await apiFetch(`/organizations/${orgId}/users/${id}/roles/${roleId}`, { method: "DELETE" });
+      if (res.success) setCurrentRoles((prev) => prev.filter((r) => r.id !== roleId));
       else setError(res.error || "Failed to remove role");
-    } catch {
-      setError("Failed to remove role");
-    }
+    } catch { setError("Failed to remove role"); }
   };
 
-  const unassignedRoles = availableRoles.filter(
-    (r) => !currentRoles.find((c) => c.id === r.id),
-  );
+  const handleResetPassword = async () => {
+    setResettingPwd(true); setError("");
+    try {
+      const res = await apiFetch<{ data?: { temp_password?: string } }>(
+        `/organizations/${orgId}/users/${id}/reset-password`, { method: "POST" }
+      );
+      if (res.success && res.data?.data?.temp_password) {
+        setTempPassword(res.data.data.temp_password);
+      } else { setError(res.error || "Password reset failed"); }
+    } catch { setError("Password reset failed"); }
+    finally { setResettingPwd(false); }
+  };
+
+  const unassignedRoles = availableRoles.filter((r) => !currentRoles.find((c) => c.id === r.id));
 
   return (
     <Layout>
-<div className="page">
-        <button className="back-link" onClick={() => router.push("/users")}>
-          <svg
-            width="14"
-            height="14"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            viewBox="0 0 24 24"
-          >
+      <div className="page">
+        <button
+          className="flex items-center gap-1.5 text-[13px] text-[#9a9a9a] hover:text-[#1a1a1a] mb-5 transition-colors"
+          onClick={() => router.push("/users")}
+        >
+          <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
             <polyline points="15 18 9 12 15 6" />
           </svg>
           Back to Users
         </button>
-        <div className="page-title">Edit User</div>
-        <div className="page-subtitle" style={{ color: "#777" }}>
-          {email}
+
+        <div className="page-header">
+          <div>
+            <div className="page-title">Edit User</div>
+            <div className="page-subtitle">{email}</div>
+          </div>
         </div>
 
         {error && <div className="err-bar">{error}</div>}
         {success && <div className="ok-bar">{success}</div>}
 
         {fetchingData ? (
-          <div style={{ color: "#9a9a9a", fontSize: "13.5px" }}>Loading…</div>
+          <div className="flex items-center gap-2 text-[13px] text-[#9a9a9a] py-8">
+            <span className="w-4 h-4 border-2 border-[#e5e5e5] border-t-[#1a1a1a] rounded-full animate-spin" />
+            Loading…
+          </div>
         ) : (
           <>
+            {/* Profile card */}
             <div className="form-card">
-              <div className="section-title">Profile</div>
+              <div className="form-card-title">Profile</div>
               <form onSubmit={handleSubmit}>
                 <div className="field">
-                  <label>Full name</label>
-                  <input
-                    className="fi"
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    required
-                  />
+                  <label className="field-lbl">Full name</label>
+                  <input className="fi" type="text" value={name} onChange={(e) => setName(e.target.value)} required />
                 </div>
                 <div className="field">
-                  <label>Status</label>
-                  <select
-                    className="fi select"
-                    value={status}
-                    onChange={(e) => setStatus(e.target.value)}
-                  >
+                  <label className="field-lbl">Status</label>
+                  <select className="fi" value={status} onChange={(e) => setStatus(e.target.value)}>
                     <option value="active">Active</option>
                     <option value="inactive">Inactive</option>
                     <option value="suspended">Suspended</option>
                   </select>
                 </div>
-                <div className="form-actions">
-                  <button
-                    className="btn btn-ghost"
-                    type="button"
-                    onClick={() => router.push("/users")}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    className="btn btn-primary"
-                    type="submit"
-                    disabled={loading}
-                  >
+                <div className="flex gap-3 justify-end mt-6">
+                  <button className="btn btn-ghost" type="button" onClick={() => router.push("/users")}>Cancel</button>
+                  <button className="btn btn-primary" type="submit" disabled={loading}>
                     {loading && <span className="spin" />}
                     {loading ? "Saving…" : "Save Changes"}
                   </button>
@@ -219,64 +194,77 @@ export default function EditUserPage() {
               </form>
             </div>
 
+            {/* Roles card */}
             {availableRoles.length > 0 && (
               <div className="form-card">
-                <div className="section-title">Assigned Roles</div>
-                <div style={{ marginBottom: "14px", minHeight: "28px" }}>
+                <div className="form-card-title">Assigned Roles</div>
+                <div className="flex flex-wrap gap-2 mb-4 min-h-[28px]">
                   {currentRoles.length === 0 && (
-                    <span style={{ color: "#bbb", fontSize: "13px" }}>
-                      No roles assigned
-                    </span>
+                    <span className="text-[13px] text-[#bbb]">No roles assigned</span>
                   )}
                   {currentRoles.map((r) => (
-                    <span key={r.id} className="role-tag">
+                    <span key={r.id} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#f3f4f6] text-[12px] font-medium text-[#374151]">
                       {r.name}
-                      <button onClick={() => handleRemoveRole(r.id)}>
-                        <svg
-                          width="12"
-                          height="12"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2.5"
-                          viewBox="0 0 24 24"
-                        >
-                          <line x1="18" y1="6" x2="6" y2="18" />
-                          <line x1="6" y1="6" x2="18" y2="18" />
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveRole(r.id)}
+                        className="text-[#9ca3af] hover:text-[#374151] transition-colors"
+                        aria-label={`Remove ${r.name}`}
+                      >
+                        <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
                         </svg>
                       </button>
                     </span>
                   ))}
                 </div>
                 {unassignedRoles.length > 0 && (
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: "8px",
-                      alignItems: "center",
-                    }}
-                  >
+                  <div className="flex gap-2 items-center">
                     <select
-                      className="fi select"
+                      className="fi"
                       style={{ flex: 1 }}
                       value={addRoleId}
                       onChange={(e) => setAddRoleId(e.target.value)}
                     >
                       <option value="">Add a role…</option>
                       {unassignedRoles.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {r.name}
-                        </option>
+                        <option key={r.id} value={r.id}>{r.name}</option>
                       ))}
                     </select>
-                    <button
-                      className="btn btn-sm btn-ghost"
-                      type="button"
-                      onClick={handleAssignRole}
-                      disabled={!addRoleId}
-                    >
+                    <button className="btn btn-sm" type="button" onClick={handleAssignRole} disabled={!addRoleId}>
                       Assign
                     </button>
                   </div>
+                )}
+              </div>
+            )}
+
+            {/* Password reset card — super admin only */}
+            {isSuperAdmin && (
+              <div className="form-card">
+                <div className="form-card-title">Password Reset</div>
+                <div className="form-card-subtitle">Generate a temporary password for this user. Share it securely — they should change it after signing in.</div>
+                {tempPassword ? (
+                  <>
+                    <div className="flex items-center border border-[#e5e5e5] rounded-lg overflow-hidden mb-3">
+                      <div className="flex-1 px-3 py-2.5 font-mono text-[13px] text-[#1a1a1a] bg-[#f9f9f8] break-all">
+                        {tempPassword}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => { navigator.clipboard.writeText(tempPassword); setPwdCopied(true); setTimeout(() => setPwdCopied(false), 2000); }}
+                        className="px-4 py-2.5 border-l border-[#e5e5e5] text-[13px] font-medium text-[#555] hover:bg-[#f5f4f1] transition-colors whitespace-nowrap"
+                      >
+                        {pwdCopied ? "✓ Copied" : "Copy"}
+                      </button>
+                    </div>
+                    <button className="btn btn-ghost btn-sm" onClick={() => setTempPassword(null)}>Done</button>
+                  </>
+                ) : (
+                  <button className="btn" type="button" onClick={handleResetPassword} disabled={resettingPwd}>
+                    {resettingPwd && <span className="spin" />}
+                    {resettingPwd ? "Resetting…" : "Generate Temporary Password"}
+                  </button>
                 )}
               </div>
             )}

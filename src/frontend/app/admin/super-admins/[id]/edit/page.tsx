@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Layout from '../../../../../components/Layout';
 import { apiFetch } from '../../../../../src/lib/api';
-import './admin-super-admins-id-edit.css';
 
 interface SuperAdminListItem {
   id: string;

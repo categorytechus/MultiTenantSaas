@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Layout from '../../../../../components/Layout';
 import { apiFetch } from '../../../../../src/lib/api';
-import './admin-organizations-id-edit.css';
 
 interface OrganizationListItem {
   id: string;

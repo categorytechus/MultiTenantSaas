@@ -6,7 +6,6 @@ import Link from 'next/link';
 import { apiFetch } from '../../../src/lib/api';
 import { PERMISSION_MODULE_ENABLED } from '../../../src/lib/permissions';
 import CONFIG from '../../../src/lib/config';
-import './auth-signin.css';
 
 export default function SignInPage() {
   const router = useRouter();
