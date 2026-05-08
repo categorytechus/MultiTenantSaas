@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import Layout from "../../components/Layout";
 import { apiFetch } from "../../src/lib/api";
 import { PERMISSION_MODULE_ENABLED } from "../../src/lib/permissions";
-import './web-urls.css';
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface WebUrl {
   id: string;
@@ -21,12 +22,8 @@ interface WebUrl {
 interface UrlMetadata {
   docType: string;
   isConfidential: boolean;
-  role?: string;
+  role: string;
   description: string;
-}
-
-interface CurrentUser {
-  id: string;
 }
 
 interface OrgRole {
@@ -35,26 +32,299 @@ interface OrgRole {
   is_system: boolean;
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 function formatDate(dateString: string) {
-  const date = new Date(dateString);
-  return date.toLocaleDateString("en-US", {
+  return new Date(dateString).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
   });
 }
 
+function getStatusStyle(status: string) {
+  switch (status.toLowerCase()) {
+    case "ready":
+      return { cls: "bg-green-50 text-green-800", dot: "bg-green-600", label: "Ready" };
+    case "processing":
+      return { cls: "bg-blue-50 text-blue-700", dot: "bg-blue-600", label: "Processing", spinning: true };
+    case "pending":
+      return { cls: "bg-orange-50 text-orange-700", dot: "bg-orange-500", label: "Pending", spinning: true };
+    case "error":
+    case "failed":
+      return { cls: "bg-red-50 text-red-700", dot: "bg-red-600", label: "Error" };
+    default:
+      return { cls: "bg-gray-100 text-gray-600", dot: "bg-gray-400", label: status };
+  }
+}
+
+// ── Shared metadata form ──────────────────────────────────────────────────────
+
+function MetadataFields({
+  metadata,
+  onChange,
+  orgRoles,
+  disabled,
+}: {
+  metadata: UrlMetadata;
+  onChange: (m: UrlMetadata) => void;
+  orgRoles: OrgRole[];
+  disabled?: boolean;
+}) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="block text-[13px] font-medium text-gray-800 mb-1.5">
+          Document Type <span className="text-red-500">*</span>
+        </label>
+        <input
+          type="text"
+          className="w-full px-3 py-2.5 border border-gray-300 rounded-md text-[13px] text-gray-900 outline-none focus:border-violet-500 transition-colors disabled:opacity-50"
+          value={metadata.docType}
+          onChange={(e) => onChange({ ...metadata, docType: e.target.value })}
+          placeholder="e.g., article, documentation, resource"
+          disabled={disabled}
+        />
+        <p className="text-[11.5px] text-gray-400 mt-1">Tag: doc-type</p>
+      </div>
+
+      <div>
+        <label className="block text-[13px] font-medium text-gray-800 mb-1.5">
+          Role <span className="text-red-500">*</span>
+        </label>
+        <select
+          className="w-full px-3 py-2.5 border border-gray-300 rounded-md text-[13px] text-gray-900 outline-none focus:border-violet-500 transition-colors bg-white disabled:opacity-50"
+          value={metadata.role}
+          onChange={(e) => onChange({ ...metadata, role: e.target.value })}
+          disabled={disabled}
+        >
+          <option value="">Select a role</option>
+          {orgRoles.map((r) => (
+            <option key={r.id} value={r.name}>{r.name}</option>
+          ))}
+        </select>
+        <p className="text-[11.5px] text-gray-400 mt-1">
+          {orgRoles.length > 0 ? "Showing all available organization roles." : "No roles found. Create roles from the Roles screen first."}
+        </p>
+      </div>
+
+      <div>
+        <label className="block text-[13px] font-medium text-gray-800 mb-1.5">Description</label>
+        <textarea
+          className="w-full px-3 py-2.5 border border-gray-300 rounded-md text-[13px] text-gray-900 outline-none focus:border-violet-500 transition-colors resize-y min-h-[72px] disabled:opacity-50"
+          value={metadata.description}
+          onChange={(e) => onChange({ ...metadata, description: e.target.value })}
+          placeholder="Add a description for this URL..."
+          disabled={disabled}
+        />
+      </div>
+
+      <div>
+        <label className="flex items-center gap-2.5 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            className="w-4 h-4 accent-violet-600"
+            checked={metadata.isConfidential}
+            onChange={(e) => onChange({ ...metadata, isConfidential: e.target.checked })}
+            disabled={disabled}
+          />
+          <span className="text-[13px] font-medium text-gray-800">Mark as Confidential</span>
+        </label>
+        <p className="text-[11.5px] text-gray-400 mt-1 ml-6">
+          Confidential URLs are restricted to authorized roles only.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ── Delete Modal ──────────────────────────────────────────────────────────────
+
+function DeleteModal({
+  urlItem,
+  onClose,
+  onConfirm,
+}: {
+  urlItem: WebUrl | null;
+  onClose: () => void;
+  onConfirm: () => Promise<void>;
+}) {
+  const [deleting, setDeleting] = useState(false);
+  if (!urlItem) return null;
+
+  const handleConfirm = async () => {
+    setDeleting(true);
+    await onConfirm();
+    setDeleting(false);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[2000]" onClick={() => !deleting && onClose()}>
+      <div className="bg-white rounded-xl p-7 w-[90%] max-w-[420px]" onClick={(e) => e.stopPropagation()}>
+        <h2 className="text-[17px] font-semibold text-gray-900 mb-3">Delete URL</h2>
+        <p className="text-[13.5px] text-gray-500 mb-6">
+          Are you sure you want to delete <strong className="text-gray-900 break-all">{urlItem.url}</strong>? This cannot be undone.
+        </p>
+        <div className="flex gap-3 justify-end">
+          <button className="px-4 py-2 bg-gray-100 text-gray-800 text-[13.5px] font-medium rounded-md hover:bg-gray-200 transition-colors disabled:opacity-50" onClick={onClose} disabled={deleting}>Cancel</button>
+          <button className="px-4 py-2 bg-red-600 text-white text-[13.5px] font-medium rounded-md hover:bg-red-700 transition-colors disabled:opacity-50" onClick={handleConfirm} disabled={deleting}>
+            {deleting ? "Deleting..." : "Delete"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Add/Edit URL Modal ────────────────────────────────────────────────────────
+
+function UrlModal({
+  open,
+  onClose,
+  orgRoles,
+  currentUserId,
+  editingUrl,
+  onSuccess,
+}: {
+  open: boolean;
+  onClose: () => void;
+  orgRoles: OrgRole[];
+  currentUserId: string;
+  editingUrl: WebUrl | null;
+  onSuccess: () => void;
+}) {
+  const [inputUrl, setInputUrl] = useState("");
+  const [metadata, setMetadata] = useState<UrlMetadata>({
+    docType: "",
+    isConfidential: false,
+    role: "",
+    description: "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const isEdit = !!editingUrl;
+
+  // Populate form when editing
+  useEffect(() => {
+    if (editingUrl) {
+      setInputUrl(editingUrl.url);
+      setMetadata({
+        docType: editingUrl.tags?.["doc-type"] || "",
+        isConfidential: editingUrl.tags?.confidential === "true",
+        role: editingUrl.tags?.role || "",
+        description: editingUrl.description || "",
+      });
+    } else {
+      setInputUrl("");
+      setMetadata({ docType: "", isConfidential: false, role: "", description: "" });
+    }
+    setError(null);
+    setSuccess(false);
+  }, [editingUrl, open]);
+
+  const handleClose = () => {
+    if (!saving) { setError(null); setSuccess(false); onClose(); }
+  };
+
+  const handleSave = async () => {
+    if (!inputUrl.trim()) { setError("Please enter a URL"); return; }
+    try { new URL(inputUrl); } catch { setError("Please enter a valid URL (include https://)"); return; }
+    if (!metadata.docType.trim()) { setError("Document Type is required"); return; }
+    if (!metadata.role) { setError("Please select a Role"); return; }
+
+    setError(null);
+    setSaving(true);
+    try {
+      const tags: Record<string, string> = {
+        "doc-type": metadata.docType.trim(),
+        confidential: metadata.isConfidential ? "true" : "false",
+        role: metadata.role,
+      };
+      if (currentUserId) tags["user-id"] = currentUserId;
+
+      const body = JSON.stringify({ url: inputUrl.trim(), tags, description: metadata.description });
+      const res = isEdit
+        ? await apiFetch(`/web-urls/${editingUrl!.id}`, { method: "PUT", body })
+        : await apiFetch("/web-urls", { method: "POST", body });
+
+      if (!res.success) throw new Error(res.error || "Failed to save URL");
+      setSuccess(true);
+      setTimeout(() => { handleClose(); onSuccess(); }, 1500);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to save URL");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[2000]" onClick={handleClose}>
+      <div className="bg-white rounded-xl p-7 w-[90%] max-w-[550px] max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <h2 className="text-[17px] font-semibold text-gray-900 mb-1">{isEdit ? "Edit URL" : "Add Web URL"}</h2>
+
+        {success ? (
+          <div className="text-center py-8">
+            <div className="text-4xl mb-3">✓</div>
+            <p className="text-[13.5px] text-green-700 font-medium">
+              {isEdit ? "URL updated successfully." : "URL submitted! Fetching and processing..."}
+            </p>
+          </div>
+        ) : (
+          <>
+            <p className="text-[13px] text-gray-500 mb-5">
+              {isEdit ? "Update the URL and its metadata." : "Paste any public web page URL to add it to your knowledge base."}
+            </p>
+
+            <div className="mb-4">
+              <label className="block text-[13px] font-medium text-gray-800 mb-1.5">
+                URL <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="url"
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-md text-[13px] text-gray-900 outline-none focus:border-violet-500 transition-colors"
+                value={inputUrl}
+                onChange={(e) => { setInputUrl(e.target.value); setError(null); }}
+                placeholder="https://example.com/article"
+                onKeyDown={(e) => e.key === "Enter" && handleSave()}
+                autoFocus={!isEdit}
+              />
+            </div>
+
+            <MetadataFields metadata={metadata} onChange={setMetadata} orgRoles={orgRoles} disabled={saving} />
+
+            {error && (
+              <div className="mt-3 text-[12.5px] text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+                {error}
+              </div>
+            )}
+
+            <div className="flex gap-3 justify-end mt-6">
+              <button className="px-4 py-2 bg-gray-100 text-gray-800 text-[13.5px] font-medium rounded-md hover:bg-gray-200 transition-colors disabled:opacity-50" onClick={handleClose} disabled={saving}>
+                Cancel
+              </button>
+              <button className="px-4 py-2 bg-violet-600 text-white text-[13.5px] font-medium rounded-md hover:bg-violet-700 transition-colors disabled:opacity-50" onClick={handleSave} disabled={saving}>
+                {saving ? "Saving..." : isEdit ? "Save Changes" : "Add URL"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Main Page ─────────────────────────────────────────────────────────────────
+
 export default function WebUrlPage() {
   const router = useRouter();
   const [urls, setUrls] = useState<WebUrl[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showUploadModal, setShowUploadModal] = useState(false);
-  const [showEditModal, setShowEditModal] = useState(false);
+  const [showModal, setShowModal] = useState(false);
   const [editingUrl, setEditingUrl] = useState<WebUrl | null>(null);
-  const [inputUrl, setInputUrl] = useState("");
-  const [editInputUrl, setEditInputUrl] = useState("");
-  const [uploading, setUploading] = useState(false);
-  const [savingEdit, setSavingEdit] = useState(false);
+  const [deleteItem, setDeleteItem] = useState<WebUrl | null>(null);
   const [currentUserId, setCurrentUserId] = useState("");
   const [orgRoles, setOrgRoles] = useState<OrgRole[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -63,684 +333,274 @@ export default function WebUrlPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  const [metadata, setMetadata] = useState<UrlMetadata>({
-    docType: "",
-    isConfidential: false,
-    role: "",
-    description: "",
-  });
-  const [editMetadata, setEditMetadata] = useState<UrlMetadata>({
-    docType: "",
-    isConfidential: false,
-    role: "",
-    description: "",
-  });
-
-  // Permission guard: check if user has access to the web_urls module
+  // Permission guard
   useEffect(() => {
     if (!PERMISSION_MODULE_ENABLED) return;
     const unrestricted = sessionStorage.getItem("userModulesUnrestricted");
     if (unrestricted) return;
     const raw = sessionStorage.getItem("userModules");
-    if (!raw) {
-      router.replace("/dashboard");
-      return;
-    }
+    if (!raw) { router.replace("/dashboard"); return; }
     try {
       const modules: string[] = JSON.parse(raw);
-      if (!modules.includes("web_urls")) {
-        router.replace("/dashboard");
-      }
-    } catch {
-      router.replace("/dashboard");
-    }
+      if (!modules.includes("web_urls")) router.replace("/dashboard");
+    } catch { router.replace("/dashboard"); }
   }, [router]);
 
   const fetchUrls = useCallback(async () => {
     try {
       const res = await apiFetch<{ data: WebUrl[] }>("/web-urls");
-      if (res.success) {
-        setUrls(res.data.data);
-      } else {
-        alert(res.error || "Failed to load URLs");
-      }
-    } catch {
-      alert("Failed to load URLs");
-    } finally {
-      setLoading(false);
-    }
+      if (res.success) setUrls(res.data.data);
+    } catch { /* no-op */ }
+    finally { setLoading(false); }
   }, []);
 
   useEffect(() => {
-    const initializePage = async () => {
+    const init = async () => {
       await fetchUrls();
-
       try {
-        const meRes = await apiFetch<{ data: CurrentUser }>("/auth/me");
-        if (meRes.success) {
-          setCurrentUserId(meRes.data.data.id);
-        }
-      } catch {
-        // No-op: upload validation will handle missing user context
-      }
-
+        const meRes = await apiFetch<{ data: { id: string } }>("/auth/me");
+        if (meRes.success) setCurrentUserId(meRes.data.data.id);
+      } catch { /* no-op */ }
       try {
         const token = localStorage.getItem("accessToken");
         if (token) {
-          const payload = JSON.parse(atob(token.split(".")[1]));
-          const orgId = payload.org_id;
-          if (orgId) {
-            const rolesRes = await apiFetch<{ data: OrgRole[] }>(
-              `/organizations/${orgId}/roles`,
-            );
-            if (rolesRes.success) {
-              // Include both system and organization roles (e.g. org_admin).
-              setOrgRoles(rolesRes.data.data);
-            }
+          const { org_id } = JSON.parse(atob(token.split(".")[1])) as { org_id?: string };
+          if (org_id) {
+            const rolesRes = await apiFetch<{ data: OrgRole[] }>(`/organizations/${org_id}/roles`);
+            if (rolesRes.success) setOrgRoles(rolesRes.data.data);
           }
         }
-      } catch {
-        // No-op: role dropdown will stay empty.
-      }
+      } catch { /* no-op */ }
     };
-
-    initializePage();
+    init();
   }, [fetchUrls]);
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setCurrentPage(1);
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [searchTerm, startDate, endDate]);
+  useEffect(() => { setCurrentPage(1); }, [searchTerm, startDate, endDate]);
 
-  const handleUrlSubmit = () => {
-    setShowUploadModal(true);
-  };
-
-  const handleUpload = async () => {
-    if (!inputUrl.trim()) {
-      alert("Please enter a URL");
-      return;
-    }
-
-    // Validate URL format
-    try {
-      new URL(inputUrl);
-    } catch {
-      alert("Please enter a valid URL");
-      return;
-    }
-
-    // Validate metadata
-    if (!currentUserId) {
-      alert("Unable to detect logged-in user. Please sign in again.");
-      return;
-    }
-
-    if (!metadata.docType) {
-      alert("Document Type is required");
-      return;
-    }
-
-    if (!metadata.role) {
-      alert("Please select a Role");
-      return;
-    }
-
-    setUploading(true);
-
-    try {
-      // Prepare tags
-      const tags = {
-        "user-id": currentUserId,
-        "doc-type": metadata.docType,
-        confidential: metadata.isConfidential ? "true" : "false",
-        ...(metadata.role && { role: metadata.role }),
-      };
-
-      // Save URL with metadata
-      const res = await apiFetch("/web-urls", {
-        method: "POST",
-        body: JSON.stringify({
-          url: inputUrl,
-          tags,
-          description: metadata.description,
-        }),
-      });
-
-      if (!res.success) throw new Error(res.error);
-
-      setShowUploadModal(false);
-      setInputUrl("");
-      setMetadata({
-        docType: "",
-        isConfidential: false,
-        role: "",
-        description: "",
-      });
-      fetchUrls();
-      alert("URL saved successfully!");
-    } catch (error: unknown) {
-      const e = error as Error;
-      alert("Upload failed: " + e.message);
-    } finally {
-      setUploading(false);
+  const handleDelete = async () => {
+    if (!deleteItem) return;
+    const res = await apiFetch(`/web-urls/${deleteItem.id}`, { method: "DELETE" });
+    if (res.success) {
+      setUrls((prev) => prev.filter((u) => u.id !== deleteItem.id));
+      setDeleteItem(null);
     }
   };
 
-  const handleView = (url: string) => {
-    // No S3/presigned flow for web URLs; open direct link.
-    window.open(url, "_blank");
-  };
+  const openAdd = () => { setEditingUrl(null); setShowModal(true); };
+  const openEdit = (u: WebUrl) => { setEditingUrl(u); setShowModal(true); };
+  const handleModalClose = () => { setShowModal(false); setEditingUrl(null); };
+  const handleSuccess = () => { setShowModal(false); setEditingUrl(null); fetchUrls(); };
 
-  const handleEdit = (urlItem: WebUrl) => {
-    setEditingUrl(urlItem);
-    setEditInputUrl(urlItem.url);
-    setEditMetadata({
-      docType: urlItem.tags?.["doc-type"] || "",
-      isConfidential: urlItem.tags?.confidential === "true",
-      role: urlItem.tags?.role || "",
-      description: urlItem.description || "",
-    });
-    setShowEditModal(true);
-  };
-
-  const handleSaveEdit = async () => {
-    if (!editingUrl) return;
-    if (!editInputUrl.trim()) {
-      alert("Please enter a URL");
-      return;
-    }
-    try {
-      new URL(editInputUrl);
-    } catch {
-      alert("Please enter a valid URL");
-      return;
-    }
-    if (!editMetadata.docType) {
-      alert("Document Type is required");
-      return;
-    }
-    if (!editMetadata.role) {
-      alert("Please select a Role");
-      return;
-    }
-
-    setSavingEdit(true);
-    try {
-      const tags = {
-        ...(editingUrl.tags || {}),
-        "user-id": currentUserId || editingUrl.tags?.["user-id"] || "",
-        "doc-type": editMetadata.docType,
-        confidential: editMetadata.isConfidential ? "true" : "false",
-        role: editMetadata.role,
-      };
-      const res = await apiFetch(`/web-urls/${editingUrl.id}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          url: editInputUrl,
-          tags,
-          description: editMetadata.description,
-        }),
-      });
-      if (res.success) {
-        setShowEditModal(false);
-        setEditingUrl(null);
-        fetchUrls();
-        alert("URL updated successfully");
-      } else {
-        alert(res.error || "Failed to update URL");
-      }
-    } catch {
-      alert("Failed to update URL");
-    } finally {
-      setSavingEdit(false);
-    }
-  };
-
-  const handleDelete = async (urlId: string) => {
-    if (!confirm("Are you sure you want to delete this URL?")) return;
-
-    try {
-      const res = await apiFetch(`/web-urls/${urlId}`, {
-        method: "DELETE",
-      });
-      if (res.success) {
-        setUrls(urls.filter((u) => u.id !== urlId));
-        alert("URL deleted successfully");
-      }
-    } catch {
-      alert("Error deleting URL");
-    }
-  };
-
-  // Filter and paginate
-  const filteredUrls = urls.filter((url) => {
+  // Filter + paginate
+  const filteredUrls = urls.filter((u) => {
     const matchesSearch =
-      url.url.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      url.title?.toLowerCase().includes(searchTerm.toLowerCase());
-    const urlDate = new Date(url.created_at);
-    const startDateObj = startDate ? new Date(`${startDate}T00:00:00`) : null;
-    const endDateObj = endDate ? new Date(`${endDate}T23:59:59.999`) : null;
-    const matchesStartDate = !startDateObj || urlDate >= startDateObj;
-    const matchesEndDate = !endDateObj || urlDate <= endDateObj;
-    return matchesSearch && matchesStartDate && matchesEndDate;
+      u.url.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      u.title?.toLowerCase().includes(searchTerm.toLowerCase());
+    const d = new Date(u.created_at);
+    const s = startDate ? new Date(`${startDate}T00:00:00`) : null;
+    const e = endDate ? new Date(`${endDate}T23:59:59.999`) : null;
+    return matchesSearch && (!s || d >= s) && (!e || d <= e);
   });
 
   const totalPages = Math.max(1, Math.ceil(filteredUrls.length / itemsPerPage));
-  const paginatedUrls = filteredUrls.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage,
-  );
+  const paginatedUrls = filteredUrls.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   return (
     <Layout>
-      
-
-      <div className="content">
-        <div className="page-header">Web URLs</div>
-
-        <div className="toolbar">
-          <input
-            type="text"
-            className="search-input"
-            placeholder="Search by URL or title..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-          <input
-            type="date"
-            className="date-input"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-          />
-          <span className="date-sep">to</span>
-          <input
-            type="date"
-            className="date-input"
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-          />
-          <button className="btn-upload" onClick={handleUrlSubmit}>
-            <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
+      <div className="p-8 max-w-[1200px]">
+        {/* Header */}
+        <div className="flex items-start justify-between mb-6 flex-wrap gap-3">
+          <div>
+            <h1 className="text-xl font-bold text-gray-900 tracking-tight">Web URLs</h1>
+            <p className="text-[13px] text-gray-500 mt-1">Add and manage web pages in your knowledge base.</p>
+          </div>
+          <button
+            className="flex items-center gap-1.5 px-4 py-2 bg-[#2f3640] text-white text-[13px] font-medium rounded-md hover:bg-[#1a1f28] transition-colors"
+            onClick={openAdd}
+          >
+            <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24">
               <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
             </svg>
             Add URL
           </button>
-          <button className="btn-download">
-            <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" />
-            </svg>
-          </button>
         </div>
 
-        <div className="table-container">
+        {/* Filters */}
+        <div className="flex gap-3 items-center mb-5 flex-wrap">
+          <input
+            type="text"
+            className="flex-1 min-w-[200px] px-3 py-2 border border-gray-200 rounded-md text-[13px] text-gray-900 outline-none focus:border-violet-400"
+            placeholder="Search by URL or title..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+          <input type="date" className="px-3 py-2 border border-gray-200 rounded-md text-[13px] text-gray-600 outline-none w-40" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+          <span className="text-[13px] text-gray-400">to</span>
+          <input type="date" className="px-3 py-2 border border-gray-200 rounded-md text-[13px] text-gray-600 outline-none w-40" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+        </div>
+
+        {/* Table */}
+        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
           {loading ? (
-            <div
-              style={{ padding: "60px", textAlign: "center", color: "#9a9a9a" }}
-            >
-              Loading...
+            <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-3">
+              <span className="w-6 h-6 rounded-full border-2 border-gray-200 border-t-violet-500 animate-spin" />
+              <span className="text-[13px]">Loading URLs...</span>
             </div>
           ) : paginatedUrls.length === 0 ? (
-            <div
-              style={{ padding: "60px", textAlign: "center", color: "#9a9a9a" }}
-            >
-              No URLs found. Click &quot;Add URL&quot; to get started.
+            <div className="py-16 text-center text-[13px] text-gray-400">
+              No URLs found.{" "}
+              <button className="text-violet-600 hover:underline" onClick={openAdd}>Add one now →</button>
             </div>
           ) : (
             <>
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>URL</th>
-                    <th>Title</th>
-                    <th>Category</th>
-                    <th>Processing Speed</th>
-                    <th>Action</th>
-                    <th>Status</th>
-                    <th>Date Added</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {paginatedUrls.map((url) => (
-                    <tr key={url.id}>
-                      <td>
-                        <a
-                          href={url.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="url-link"
-                        >
-                          {url.url}
-                        </a>
-                      </td>
-                      <td>{url.title || "-"}</td>
-                      <td>
-                        <span className="badge badge-success">
-                          {url.tags?.["doc-type"] || "General"}
-                        </span>
-                      </td>
-                      <td>{url.processing_speed || "-"}</td>
-                      <td>
-                        <div className="action-btns">
-                          <button
-                            className="btn-icon"
-                            title="Visit"
-                            onClick={() => handleView(url.url)}
-                          >
-                            <svg
-                              width="16"
-                              height="16"
-                              fill="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
-                            </svg>
-                          </button>
-                          <button
-                            className="btn-icon"
-                            title="Edit"
-                            onClick={() => handleEdit(url)}
-                          >
-                            <svg
-                              width="16"
-                              height="16"
-                              fill="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
-                            </svg>
-                          </button>
-                          <button
-                            className="btn-icon"
-                            title="Delete"
-                            onClick={() => handleDelete(url.id)}
-                          >
-                            <svg
-                              width="16"
-                              height="16"
-                              fill="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
-                            </svg>
-                          </button>
-                        </div>
-                      </td>
-                      <td>
-                        <span className="badge badge-success">
-                          {url.status}
-                        </span>
-                      </td>
-                      <td>{formatDate(url.created_at)}</td>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse min-w-[700px]">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      {["URL", "Title", "Category", "Status", "Date Added", "Actions"].map((h) => (
+                        <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
+                          {h}
+                        </th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {paginatedUrls.map((u) => {
+                      const badge = getStatusStyle(u.status);
+                      const isProcessing = u.status === "processing" || u.status === "pending";
+                      const isConfidential = u.tags?.confidential === "true";
 
-              <div className="pagination">
-                <div className="page-info">
-                  Page {currentPage} of {totalPages || 1}
-                </div>
-                <div className="page-btns">
-                  <button
-                    className="page-btn"
-                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                    disabled={currentPage === 1}
-                  >
-                    Previous
-                  </button>
-                  <button
-                    className="page-btn"
-                    onClick={() =>
-                      setCurrentPage((p) => Math.min(totalPages, p + 1))
-                    }
-                    disabled={currentPage === totalPages}
-                  >
-                    Next
-                  </button>
-                </div>
+                      return (
+                        <tr key={u.id} className="border-t border-gray-50 hover:bg-gray-50/60 transition-colors">
+                          {/* URL */}
+                          <td className="px-4 py-3 max-w-[240px]">
+                            <a
+                              href={u.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[13px] text-blue-600 hover:underline block truncate"
+                            >
+                              {u.url}
+                            </a>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {isConfidential && (
+                                <span className="inline-block text-[10px] font-semibold bg-red-50 text-red-700 px-1.5 py-0.5 rounded">Confidential</span>
+                              )}
+                              {u.tags?.role && (
+                                <span className="inline-block text-[10px] font-medium bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">{u.tags.role}</span>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* Title */}
+                          <td className="px-4 py-3 text-[13px] text-gray-700 max-w-[200px]">
+                            <span className="block truncate">{u.title || "—"}</span>
+                          </td>
+
+                          {/* Category */}
+                          <td className="px-4 py-3">
+                            <span className="inline-block px-2.5 py-0.5 rounded text-[11px] font-semibold bg-violet-50 text-violet-700">
+                              {u.tags?.["doc-type"] || "General"}
+                            </span>
+                          </td>
+
+                          {/* Status */}
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-semibold ${badge.cls}`}>
+                              {isProcessing ? (
+                                <span className="w-2.5 h-2.5 rounded-full border border-current border-t-transparent animate-spin inline-block" />
+                              ) : (
+                                <span className={`w-1.5 h-1.5 rounded-full ${badge.dot}`} />
+                              )}
+                              {badge.label}
+                            </span>
+                          </td>
+
+                          {/* Date */}
+                          <td className="px-4 py-3 text-[12px] text-gray-400 whitespace-nowrap">{formatDate(u.created_at)}</td>
+
+                          {/* Actions */}
+                          <td className="px-4 py-3">
+                            <div className="flex gap-1.5">
+                              <button
+                                className="p-1.5 rounded-md border border-gray-200 bg-white text-gray-400 hover:text-gray-700 hover:border-gray-300 transition-colors"
+                                title="Visit"
+                                onClick={() => window.open(u.url, "_blank")}
+                              >
+                                <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24">
+                                  <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
+                                </svg>
+                              </button>
+                              <button
+                                className="p-1.5 rounded-md border border-gray-200 bg-white text-gray-400 hover:text-gray-700 hover:border-gray-300 transition-colors"
+                                title="Edit"
+                                onClick={() => openEdit(u)}
+                              >
+                                <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24">
+                                  <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+                                </svg>
+                              </button>
+                              <button
+                                className="p-1.5 rounded-md border border-gray-200 bg-white text-gray-400 hover:text-red-500 hover:border-red-200 transition-colors"
+                                title="Delete"
+                                onClick={() => setDeleteItem(u)}
+                              >
+                                <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24">
+                                  <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
+                                </svg>
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination */}
+              <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
+                <p className="text-[12.5px] text-gray-500">
+                  {filteredUrls.length > itemsPerPage
+                    ? `${(currentPage - 1) * itemsPerPage + 1}–${Math.min(currentPage * itemsPerPage, filteredUrls.length)} of ${filteredUrls.length} URLs`
+                    : `${filteredUrls.length} URL${filteredUrls.length !== 1 ? "s" : ""}`}
+                </p>
+                {totalPages > 1 && (
+                  <div className="flex gap-1.5">
+                    <button className="px-3 py-1.5 bg-gray-100 text-gray-700 text-[12.5px] rounded-md hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors" onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1}>
+                      Previous
+                    </button>
+                    {Array.from({ length: totalPages }, (_, i) => i + 1)
+                      .filter((p) => Math.abs(p - currentPage) <= 2)
+                      .map((p) => (
+                        <button key={p} className={`px-3 py-1.5 text-[12.5px] rounded-md transition-colors min-w-[32px] ${p === currentPage ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`} onClick={() => setCurrentPage(p)}>
+                          {p}
+                        </button>
+                      ))}
+                    <button className="px-3 py-1.5 bg-gray-100 text-gray-700 text-[12.5px] rounded-md hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors" onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}>
+                      Next
+                    </button>
+                  </div>
+                )}
               </div>
             </>
           )}
         </div>
       </div>
 
-      {/* Upload Modal */}
-      {showUploadModal && (
-        <div
-          className="modal-overlay"
-          onClick={() => !uploading && setShowUploadModal(false)}
-        >
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2 className="modal-title">Add URL</h2>
-            <p className="modal-subtitle">
-              Paste a web link and set metadata to control access.
-            </p>
-
-            <div className="form-group">
-              <label className="form-label">
-                URL <span className="required">*</span>
-              </label>
-              <input
-                type="url"
-                className="form-input"
-                value={inputUrl}
-                onChange={(e) => setInputUrl(e.target.value)}
-                placeholder="https://example.com"
-                autoFocus
-              />
-            </div>
-
-            {/* {inputUrl && <div className="url-preview">{inputUrl}</div>} */}
-
-            <div className="form-group">
-              <label className="form-label">
-                Document Type <span className="required">*</span>
-              </label>
-              <input
-                type="text"
-                className="form-input"
-                value={metadata.docType}
-                onChange={(e) =>
-                  setMetadata({ ...metadata, docType: e.target.value })
-                }
-                placeholder="e.g., article, documentation, resource"
-              />
-              <div className="form-hint">Tag: doc-type</div>
-            </div>
-
-            <div className="form-group">
-              <div className="form-checkbox">
-                <input
-                  type="checkbox"
-                  checked={metadata.isConfidential}
-                  onChange={(e) =>
-                    setMetadata({
-                      ...metadata,
-                      isConfidential: e.target.checked,
-                    })
-                  }
-                />
-                <label className="form-label" style={{ marginBottom: 0 }}>
-                  Mark as Confidential
-                </label>
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">
-                Role <span className="required">*</span>
-              </label>
-              <select
-                className="form-select"
-                value={metadata.role}
-                onChange={(e) =>
-                  setMetadata({ ...metadata, role: e.target.value })
-                }
-              >
-                <option value="">Select a role</option>
-                {orgRoles.map((role) => (
-                  <option key={role.id} value={role.name}>
-                    {role.name}
-                  </option>
-                ))}
-              </select>
-              <div className="form-hint">
-                {orgRoles.length > 0
-                  ? "Showing all available organization roles."
-                  : "No roles found. Create roles from the Roles screen first."}
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Description</label>
-              <textarea
-                className="form-textarea"
-                value={metadata.description}
-                onChange={(e) =>
-                  setMetadata({ ...metadata, description: e.target.value })
-                }
-                placeholder="Add a description for this URL..."
-              />
-            </div>
-
-            <div className="modal-btns">
-              <button
-                className="btn-secondary"
-                onClick={() => setShowUploadModal(false)}
-                disabled={uploading}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn-primary"
-                onClick={handleUpload}
-                disabled={uploading}
-              >
-                {uploading ? "Saving..." : "Save URL"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Modal */}
-      {showEditModal && editingUrl && (
-        <div
-          className="modal-overlay"
-          onClick={() => !savingEdit && setShowEditModal(false)}
-        >
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2 className="modal-title">Edit URL</h2>
-            <p className="modal-subtitle">
-              Update URL metadata and access tags.
-            </p>
-
-            <div className="form-group">
-              <label className="form-label">
-                URL <span className="required">*</span>
-              </label>
-              <input
-                type="url"
-                className="form-input"
-                value={editInputUrl}
-                onChange={(e) => setEditInputUrl(e.target.value)}
-                placeholder="https://example.com"
-              />
-            </div>
-
-            {/* {editInputUrl && <div className="url-preview">{editInputUrl}</div>} */}
-
-            <div className="form-group">
-              <label className="form-label">
-                Document Type <span className="required">*</span>
-              </label>
-              <input
-                type="text"
-                className="form-input"
-                value={editMetadata.docType}
-                onChange={(e) =>
-                  setEditMetadata({ ...editMetadata, docType: e.target.value })
-                }
-                placeholder="e.g., article, documentation, resource"
-              />
-              <div className="form-hint">Tag: doc-type</div>
-            </div>
-
-            <div className="form-group">
-              <div className="form-checkbox">
-                <input
-                  type="checkbox"
-                  checked={editMetadata.isConfidential}
-                  onChange={(e) =>
-                    setEditMetadata({
-                      ...editMetadata,
-                      isConfidential: e.target.checked,
-                    })
-                  }
-                />
-                <label className="form-label" style={{ marginBottom: 0 }}>
-                  Mark as Confidential
-                </label>
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">
-                Role <span className="required">*</span>
-              </label>
-              <select
-                className="form-select"
-                value={editMetadata.role}
-                onChange={(e) =>
-                  setEditMetadata({ ...editMetadata, role: e.target.value })
-                }
-              >
-                <option value="">Select a role</option>
-                {orgRoles.map((role) => (
-                  <option key={role.id} value={role.name}>
-                    {role.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Description</label>
-              <textarea
-                className="form-textarea"
-                value={editMetadata.description}
-                onChange={(e) =>
-                  setEditMetadata({
-                    ...editMetadata,
-                    description: e.target.value,
-                  })
-                }
-                placeholder="Add a description for this URL..."
-              />
-            </div>
-
-            <div className="modal-btns">
-              <button
-                className="btn-secondary"
-                onClick={() => setShowEditModal(false)}
-                disabled={savingEdit}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn-primary"
-                onClick={handleSaveEdit}
-                disabled={savingEdit}
-              >
-                {savingEdit ? "Saving..." : "Save Changes"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <UrlModal
+        open={showModal}
+        onClose={handleModalClose}
+        orgRoles={orgRoles}
+        currentUserId={currentUserId}
+        editingUrl={editingUrl}
+        onSuccess={handleSuccess}
+      />
+      <DeleteModal
+        urlItem={deleteItem}
+        onClose={() => setDeleteItem(null)}
+        onConfirm={handleDelete}
+      />
     </Layout>
   );
 }
