@@ -6,7 +6,7 @@ A multi-tenant SaaS platform with AI chat agents. Each tenant gets full data iso
 
 | Layer | Tech |
 |---|---|
-| Frontend | Vite + React 18 + TypeScript |
+| Frontend | Next.js 16 + React 19 + TypeScript |
 | Server | FastAPI + SQLModel + Alembic (Python 3.12+) |
 | Agents | Arq + LangChain + Anthropic Claude |
 | Database | Postgres 16 + pgvector |
@@ -36,12 +36,10 @@ src/
 │       ├── s3.py          # S3 download helper
 │       ├── embeddings.py  # OpenAI embed_batch
 │       └── http.py        # httpx calls to server internal API
-└── web/           # Vite + React 18 frontend
-    └── src/
-        ├── routes/        # React Router v6 pages
-        ├── components/    # Shared UI components
-        ├── hooks/         # TanStack Query data hooks
-        └── lib/           # API client, SSE helpers
+└── frontend/      # Next.js 16 frontend
+    ├── app/               # Next.js App Router pages & layouts
+    ├── components/        # Shared UI components
+    └── src/lib/           # API client, config
 infra/             # Terraform (VPC, EC2, RDS, ElastiCache, S3, ECR)
 docker-compose.yml
 docker-compose.prod.yml
@@ -53,6 +51,8 @@ Makefile
 
 **Prerequisites**: Docker & Docker Compose, Node.js 20+, Python 3.12+, [uv](https://docs.astral.sh/uv/)
 
+**Working directory**: Run `make` from **`MultiTenantSaas/`** (same folder as `Makefile` and `docker-compose.yml`). If your editor workspace is the parent directory and you see `No rule to make target 'web'`, either `cd MultiTenantSaas` or use the parent **`Makefile`** that forwards into this folder.
+
 ### Option A — Docker Compose (recommended)
 
 ```bash
@@ -62,7 +62,7 @@ make dev
 
 | Service | URL |
 |---|---|
-| Web | http://localhost:5173 |
+| Frontend | http://localhost:3000 |
 | API | http://localhost:8000 |
 | API docs | http://localhost:8000/docs |
 
@@ -71,13 +71,37 @@ make dev
 ```bash
 make db-up      # Postgres + Redis in Docker
 make install    # uv sync (server + agents) + npm install
-make migrate    # Alembic migrations
+make migrate    # Run Alembic migrations (use make migrate-docker if localhost:5432 is unreachable)
 
 # In separate terminals:
 make server     # FastAPI on :8000
 make agents     # Arq worker — document ingest + AI chat agents
-make web        # Vite on :3000
+make frontend   # Next.js on :3000
 ```
+
+**Optional: activate the venv (macOS / Linux)** — `make install` runs `uv sync` in `src/server` and `src/agents`, each with its own `.venv`. To use `python` or tools without `uv run`, `cd` into that folder and activate:
+
+```bash
+cd src/server
+source .venv/bin/activate
+```
+
+Do the same under `src/agents` for the worker. The `make server` / `make agents` / `make migrate` targets use `uv run` and do not require activation.
+
+If `make migrate` prints **nothing on 127.0.0.1:5432**, either Postgres is not running (`make db-up` and wait until it is healthy) or your Docker setup does not publish **5432 to the host** (some contexts never bind `localhost:5432`). In that case run **`make migrate-docker`**, which starts the `postgres` service and runs Alembic in a one-off container on the Compose network (`DATABASE_URL` uses host `postgres`, not `localhost`). Use **`make migrate` without `sudo`** on macOS so `uv` uses your project `.venv`.
+
+**Windows (Command Prompt)** — from the directory that contains `.venv`: `call .venv\Scripts\activate.bat`
+
+## Seed Credentials
+
+After `make migrate`, the following dev users are available (all share password `Admin@123`):
+
+| Email | Role | Org |
+|---|---|---|
+| `superadmin@multitenant.com` | super admin | Acme Corporation |
+| `alice@acme.com` | tenant admin | Acme Corporation |
+| `bob@acme.com` | user | Acme Corporation |
+| `charlie@techstartup.io` | tenant admin | Tech Startup Inc |
 
 ## Environment Variables
 
@@ -125,12 +149,39 @@ Browser  →  GET /api/chat/sessions/{id}/stream?message=...&token=JWT
 ## Common Commands
 
 ```bash
-make migrate-new msg='add column'   # Autogenerate Alembic migration
-make clean                          # Remove Docker containers + volumes
+make migrate-new msg='add column'   # Autogenerate Alembic migration (host DB on :5432)
+make migrate-docker                 # Apply migrations when host :5432 is unavailable
+make clean                          # Remove Docker containers + volumes (wipes local DB)
 make logs-server                    # Tail server logs
 make logs-agents                    # Tail agents worker logs
+make logs-frontend                  # Tail Next.js frontend logs
 make redeploy-ecr                   # Build + push to ECR, deploy to EC2
 ```
+
+## Troubleshooting (Docker Postgres)
+
+**`dependency failed to start: container ... postgres ... exited (1)`** — inspect logs: `docker compose logs postgres`.
+
+If you see **“data directory was initialized by PostgreSQL version 15, which is not compatible with … version 16”**, the named volume still holds an old cluster. This project uses **Postgres 16** (`pgvector/pgvector:pg16`). Wipe local volumes and recreate (destroys dev data only):
+
+```bash
+docker compose down -v --remove-orphans   # same as: make clean
+make db-up
+make migrate-docker                      # or: make migrate
+```
+
+## Troubleshooting (Next.js / `make frontend`)
+
+**`EACCES: permission denied`** in `node_modules` or `.next` — these directories were probably created **as root** when the **`frontend` Docker service** ran `npm install` on the bind-mounted `src/frontend` directory. Fix ownership:
+
+```bash
+cd MultiTenantSaas
+sudo chown -R "$(id -un):$(id -gn)" src/frontend/node_modules src/frontend/.next src/frontend/package-lock.json
+```
+
+Alternatively: `sudo rm -rf src/frontend/node_modules src/frontend/.next && cd src/frontend && npm install --legacy-peer-deps`.
+
+Compose mounts anonymous volumes on `/app/node_modules` and `/app/.next` for the `frontend` service so Docker installs do not leave root-owned directories on the host.
 
 ## Infrastructure
 
