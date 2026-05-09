@@ -166,39 +166,25 @@ export default function DocumentUpload({ onUploadComplete }: UploadProps) {
       // xhr.send(file);
 
       // Bypass S3 and save file bytes to local backend storage first.
-      const token = localStorage.getItem('accessToken');
-      const uploadRes = await fetch(
-        `/api/documents/local-upload?filename=${encodeURIComponent(file.name)}`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: token ? `Bearer ${token}` : '',
-            'Content-Type': file.type,
-          },
-          body: file,
-        },
-      );
-      const uploadData = await uploadRes.json();
-      if (!uploadRes.ok || !uploadData?.success || !uploadData?.data?.s3Key) {
-        throw new Error(uploadData?.message || 'Local upload failed');
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('description', description || '');
+      formData.append('doc_type', tags['doc-type'] || '');
+      formData.append('role', tags['role'] || '');
+      formData.append('confidential', tags['confidential'] || 'false');
+      if (tags['user-id']) {
+        formData.append('user-id', tags['user-id']);
       }
-      const localBypassKey = uploadData.data.s3Key as string;
-      setProgress(100);
+
       const metadataRes = await apiFetch('/documents', {
         method: 'POST',
-        body: JSON.stringify({
-          filename: file.name,
-          s3Key: localBypassKey,
-          fileSize: file.size,
-          mimeType: file.type,
-          tags,
-          description,
-        }),
+        body: formData,
       });
 
       if (!metadataRes.success) {
-        throw new Error(metadataRes.error);
+        throw new Error(metadataRes.error || 'Upload failed');
       }
+      setProgress(100);
 
       setTimeout(() => {
         setFile(null);

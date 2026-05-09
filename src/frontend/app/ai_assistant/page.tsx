@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Layout from '../../components/Layout';
-import { apiFetch, getWebSocketUrl } from '../../src/lib/api';
+import { apiFetch } from '../../src/lib/api';
 import { PERMISSION_MODULE_ENABLED } from '../../src/lib/permissions';
 
 interface Message {
@@ -36,7 +36,7 @@ export default function AIAssistantPage() {
   const [input, setInput] = useState('');
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
-  const wsRef = useRef<WebSocket | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -63,58 +63,84 @@ export default function AIAssistantPage() {
   useEffect(() => { scrollToBottom(); }, [messages]);
 
   useEffect(() => {
-    const token = localStorage.getItem('accessToken');
-    if (!token) return;
-    try {
-      const ws = new WebSocket(getWebSocketUrl('/ws/task-status'));
-      wsRef.current = ws;
-      ws.onopen = () => { setWsConnected(true); };
-      ws.onmessage = (event) => {
-        const data = JSON.parse(event.data as string);
-        if (data.type === 'task-status') {
-          const { task_id, status, data: payload, error } = data.data as { task_id: string; status: string; data: Record<string, string>; error: string };
-          setMessages(prev => {
-            const existing = prev.find(m => m.id === task_id);
-            if (existing) {
-              return prev.map(msg => {
-                if (msg.id === task_id) {
-                  const nextContent = status === 'completed'
-                    ? (payload?.answer || payload?.message || msg.content)
-                    : status === 'failed'
-                      ? `Sorry, I encountered an error: ${error || payload?.error || 'Task failed.'}`
-                      : msg.content;
-                  return { ...msg, status: status as Message['status'], content: nextContent };
-                }
-                return msg;
-              });
-            }
-            return prev;
-          });
-        }
-      };
-      ws.onclose = () => setWsConnected(false);
-      return () => { ws.close(); };
-    } catch (err) { console.error('WebSocket connection error:', err); }
+    return () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+      }
+    };
   }, []);
 
   const handleSend = async (overrideInput?: string) => {
     const textToSend = overrideInput || input;
     if (!textToSend.trim()) return;
+
+    const token = localStorage.getItem('accessToken');
+    if (!token) {
+      setMessages(prev => [...prev, { id: Date.now().toString(), role: 'assistant', content: 'Authentication required. Please sign in.', timestamp: new Date() }]);
+      return;
+    }
+
     const userMessage: Message = { id: Math.random().toString(36), role: 'user', content: textToSend, timestamp: new Date() };
     setMessages(prev => [...prev, userMessage]);
     updateTitleFromInput(textToSend);
     if (!overrideInput) setInput('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
+
     try {
-      const res = await apiFetch<{ task_id: string; session_id?: string }>('/chat', {
-        method: 'POST',
-        apiType: 'CHAT',
-        body: JSON.stringify({ prompt: textToSend, sessionId }),
-      });
-      if (!res.success) throw new Error(res.error);
-      const { task_id, session_id } = res.data;
-      if (session_id && !sessionId) setSessionId(session_id);
-      setMessages(prev => [...prev, { id: task_id, role: 'assistant', content: 'thinking...', status: 'pending', timestamp: new Date() }]);
+      let chatSessionId = sessionId;
+      if (!chatSessionId) {
+        const sessionRes = await apiFetch<{ id: string }>('/chat/sessions', {
+          method: 'POST',
+          body: JSON.stringify({ chat_id: null, title: activeSession?.title || 'New chat' }),
+        });
+        if (!sessionRes.success) throw new Error(sessionRes.error);
+        chatSessionId = sessionRes.data.id;
+        setSessionId(chatSessionId);
+      }
+
+      const assistantId = `assistant-${Date.now()}`;
+      setMessages(prev => [...prev, { id: assistantId, role: 'assistant', content: 'thinking...', status: 'pending', timestamp: new Date() }]);
+
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+      }
+
+      const streamUrl = `${window.location.origin}/api/chat/sessions/${chatSessionId}/stream?message=${encodeURIComponent(textToSend)}&token=${encodeURIComponent(token)}`;
+      const es = new EventSource(streamUrl);
+      eventSourceRef.current = es;
+      setWsConnected(true);
+
+      es.onmessage = (event) => {
+        const data = event.data;
+        if (data === '[DONE]') {
+          setMessages(prev => prev.map(msg => msg.id === assistantId ? { ...msg, status: 'completed' } : msg));
+          es.close();
+          setWsConnected(false);
+          return;
+        }
+
+        if (data.startsWith('[ERROR]')) {
+          const errorText = data.replace(/\[ERROR\]\s*/i, '');
+          setMessages(prev => prev.map(msg => msg.id === assistantId ? { ...msg, content: `Sorry, I encountered an error: ${errorText}`, status: 'failed' } : msg));
+          es.close();
+          setWsConnected(false);
+          return;
+        }
+
+        setMessages(prev => prev.map(msg => {
+          if (msg.id === assistantId) {
+            return { ...msg, content: (msg.content === 'thinking...' ? '' : msg.content) + data };
+          }
+          return msg;
+        }));
+      };
+
+      es.onerror = () => {
+        setMessages(prev => prev.map(msg => msg.id === assistantId ? { ...msg, status: 'failed', content: `${msg.content}\n
+[Connection error]` } : msg));
+        es.close();
+        setWsConnected(false);
+      };
     } catch (err: unknown) {
       setMessages(prev => [...prev, { id: Date.now().toString(), role: 'assistant', content: `Sorry, I encountered an error: ${(err as Error).message}`, timestamp: new Date() }]);
     }

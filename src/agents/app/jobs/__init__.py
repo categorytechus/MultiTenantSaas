@@ -26,8 +26,20 @@ async def startup(ctx: dict) -> None:
 
 
 async def shutdown(ctx: dict) -> None:
-    await ctx["redis"].aclose()
-    await ctx["http"].aclose()
+    try:
+        await ctx["redis"].aclose()
+    except (RuntimeError, asyncio.CancelledError):
+        # If the worker is stopping during event-loop teardown, ignore close errors.
+        pass
+    except Exception:
+        pass
+
+    try:
+        await ctx["http"].aclose()
+    except (RuntimeError, asyncio.CancelledError):
+        pass
+    except Exception:
+        pass
 
 
 class WorkerSettings:
