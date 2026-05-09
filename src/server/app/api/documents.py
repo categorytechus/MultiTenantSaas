@@ -5,7 +5,7 @@ from uuid import UUID
 
 import httpx
 from bs4 import BeautifulSoup
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy import text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -181,6 +181,11 @@ async def list_docs(
 async def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
+    description: str | None = Form(None),
+    doc_type: str | None = Form(None),
+    role: str | None = Form(None),
+    confidential: str | None = Form(None),
+    user_id: str | None = Form(None),
     ctx: RequestContext = authorize("documents:upload"),
 ) -> Any:
     """

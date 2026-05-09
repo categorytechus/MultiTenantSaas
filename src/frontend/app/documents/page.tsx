@@ -314,39 +314,23 @@ function UploadModal({
   const uploadSingle = async (qf: QueuedFile, meta: UploadMetadata, userId: string) => {
     setQueue((prev) => prev.map((f) => f.id === qf.id ? { ...f, status: "uploading" } : f));
     try {
-      const token = localStorage.getItem("accessToken");
-      const uploadRes = await fetch(
-        `/api/documents/local-upload?filename=${encodeURIComponent(qf.file.name)}`,
-        {
-          method: "POST",
-          headers: { Authorization: token ? `Bearer ${token}` : "", "Content-Type": qf.file.type },
-          body: qf.file,
-        },
-      );
-      const uploadData = await uploadRes.json();
-      if (!uploadRes.ok || !uploadData?.success || !uploadData?.data?.s3Key) {
-        throw new Error(uploadData?.message || "Upload failed");
-      }
-      const s3Key = uploadData.data.s3Key as string;
-      const tags: Record<string, string> = {
-        "doc-type": meta.docType.trim(),
-        confidential: meta.isConfidential ? "true" : "false",
-        role: meta.role,
-      };
-      if (userId) tags["user-id"] = userId;
+      const formData = new FormData();
+      formData.append("file", qf.file);
+      formData.append("description", meta.description || "");
+      formData.append("doc_type", meta.docType || "");
+      formData.append("role", meta.role || "");
+      formData.append("confidential", meta.isConfidential ? "true" : "false");
+      if (userId) formData.append("user_id", userId);
 
-      const metaRes = await apiFetch("/documents", {
+      const uploadRes = await apiFetch("/documents", {
         method: "POST",
-        body: JSON.stringify({
-          filename: qf.file.name,
-          s3Key,
-          fileSize: qf.file.size,
-          mimeType: qf.file.type,
-          tags,
-          description: meta.description,
-        }),
+        body: formData,
       });
-      if (!metaRes.success) throw new Error(metaRes.error || "Metadata save failed");
+
+      if (!uploadRes.success) {
+        throw new Error(uploadRes.error || "Upload failed");
+      }
+
       setQueue((prev) => prev.map((f) => f.id === qf.id ? { ...f, status: "done" } : f));
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Upload failed";

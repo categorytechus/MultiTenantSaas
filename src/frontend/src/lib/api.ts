@@ -44,12 +44,15 @@ export async function apiFetch<T = unknown>(
   if (token && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${token}`);
   }
-  if (!headers.has('Content-Type') && (fetchOptions.method === 'POST' || fetchOptions.method === 'PUT' || fetchOptions.method === 'PATCH')) {
+  const body = fetchOptions.body;
+  const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
+  if (!headers.has('Content-Type') && (fetchOptions.method === 'POST' || fetchOptions.method === 'PUT' || fetchOptions.method === 'PATCH') && !isFormData) {
     headers.set('Content-Type', 'application/json');
   }
 
   const mergedOptions: RequestInit = {
     ...fetchOptions,
+    body,
     headers,
   };
 

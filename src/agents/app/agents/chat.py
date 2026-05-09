@@ -124,11 +124,15 @@ async def run_agent(
     else:
         system_prompt = _SYSTEM_NO_CONTEXT
 
-    if settings.BEDROCK_MODEL_ARN:
+    if settings.CHAT_MODEL == "bedrock":
+        if not settings.BEDROCK_MODEL_ARN:
+            raise ValueError("BEDROCK_MODEL_ARN must be set when CHAT_MODEL='bedrock'")
         return await _run_bedrock(conversation, system_prompt, redis, channel)
-    elif settings.GEMINI_API_KEY:
+    elif settings.CHAT_MODEL == "gemini":
+        if not settings.GEMINI_API_KEY:
+            raise ValueError("GEMINI_API_KEY must be set when CHAT_MODEL='gemini'")
         return await _run_gemini(settings.GEMINI_API_KEY, conversation, system_prompt, redis, channel)
     else:
-        mock = "[Mock response — neither BEDROCK_MODEL_ARN nor GEMINI_API_KEY set]"
+        mock = f"[Mock response — CHAT_MODEL '{settings.CHAT_MODEL}' unknown]"
         await redis.publish(channel, json.dumps({"type": "token", "data": mock}))
         return mock
