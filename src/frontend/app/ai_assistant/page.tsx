@@ -26,6 +26,7 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   streaming?: boolean;
+  isNew?: boolean; // true only for messages created in this session (not loaded from history)
 }
 
 // ── Typewriter hook ────────────────────────────────────────────────────────────
@@ -175,43 +176,53 @@ function MarkdownContent({ content, streaming }: { content: string; streaming?: 
 
 // ── Streaming typewriter wrapper ───────────────────────────────────────────────
 
-function StreamingMarkdown({ content, streaming }: { content: string; streaming?: boolean }) {
-  // History messages start fully revealed; streaming messages start at 0
-  const [pos, setPos] = useState(() => (streaming ? 0 : content.length));
+function StreamingMarkdown({
+  content,
+  streaming,
+  isNew,
+}: {
+  content: string;
+  streaming?: boolean;
+  isNew?: boolean;
+}) {
+  // History messages (isNew=false) start fully revealed.
+  // Live messages (isNew=true) always start at 0 — even if React batched the
+  // state updates so that the component mounts with streaming already false.
+  const [pos, setPos] = useState(() => (isNew ? 0 : content.length));
   const contentRef = useRef(content);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   contentRef.current = content;
 
-  // One interval started at mount — reads contentRef on every tick so it is
-  // never cancelled by incoming tokens causing re-renders (that was the bug).
-  useEffect(() => {
-    if (!streaming) return; // history messages skip this entirely
+  const startDrainRef = useRef((charsPerTick: number) => {
+    if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = setInterval(() => {
       setPos((p) => {
         const target = contentRef.current.length;
-        return p < target ? Math.min(p + 3, target) : p;
+        if (p >= target) return p;
+        return Math.min(p + charsPerTick, target);
       });
     }, 16);
+  });
+
+  // Single interval on mount — idles while content is empty, advances as tokens arrive.
+  useEffect(() => {
+    if (!isNew) return;
+    startDrainRef.current(3);
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // When the SSE stream ends, stop the ticker and flush remaining chars at once
+  // When streaming ends, speed up the remaining drain so it finishes quickly.
   useEffect(() => {
-    if (!streaming) {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-      setPos(contentRef.current.length);
-    }
-  }, [streaming]);
+    if (!isNew || streaming) return;
+    startDrainRef.current(6);
+  }, [streaming]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <MarkdownContent
       content={content.slice(0, pos)}
-      streaming={streaming && pos < content.length}
+      streaming={!!isNew && !!streaming && pos < content.length}
     />
   );
 }
@@ -387,7 +398,7 @@ export default function AIAssistantPage() {
     const assistantId = `a-${Date.now()}`;
     setMessages((prev) => [
       ...prev,
-      { id: assistantId, role: 'assistant', content: '', streaming: true },
+      { id: assistantId, role: 'assistant', content: '', streaming: true, isNew: true },
     ]);
     setStreaming(true);
 
@@ -564,7 +575,7 @@ export default function AIAssistantPage() {
                         {msg.streaming && !msg.content ? (
                           <ThinkingDots />
                         ) : (
-                          <StreamingMarkdown content={msg.content} streaming={msg.streaming} />
+                          <StreamingMarkdown content={msg.content} streaming={msg.streaming} isNew={msg.isNew} />
                         )}
                       </div>
                     )}

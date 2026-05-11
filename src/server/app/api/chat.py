@@ -198,7 +198,10 @@ async def stream_chat(
 
                 event_type = event.get("type")
                 if event_type == "token":
-                    yield f"data: {event['data']}\n\n"
+                    # SSE requires multi-line data to use multiple "data:" lines.
+                    token = event["data"]
+                    lines = "\n".join(f"data: {line}" for line in token.split("\n"))
+                    yield f"{lines}\n\n"
                 elif event_type == "done":
                     yield "data: [DONE]\n\n"
                     break
