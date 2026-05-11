@@ -28,7 +28,6 @@ export async function apiFetch<T = unknown>(
   options: FetchOptions = {}
 ): Promise<ApiResponse<T>> {
   const { apiType = 'AUTH', ...fetchOptions } = options;
-  console.log('config', CONFIG);
   // Decide the base URL
   const baseUrl = apiType === 'AUTH' ? CONFIG.AUTH_API_URL : CONFIG.CHAT_API_URL;
   
@@ -55,7 +54,12 @@ export async function apiFetch<T = unknown>(
 
   try {
     const response = await fetch(url, mergedOptions);
-    
+
+    // 204 / 205 have no body — skip parsing entirely.
+    if (response.status === 204 || response.status === 205) {
+      return { success: true, data: null as T, status: response.status };
+    }
+
     // Attempt to parse JSON
     let data = null;
     const contentType = response.headers.get('content-type');

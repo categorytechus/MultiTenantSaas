@@ -13,19 +13,18 @@ interface Document {
   filename: string;
   file_size: number;
   mime_type: string;
-  tags: Record<string, string>;
+  tags: {
+    "doc-type"?: string;
+    roles?: string[];
+    confidential?: string;
+    "user-id"?: string;
+    [key: string]: string | string[] | undefined;
+  };
   description?: string;
   status: string;
   created_at: string;
   updated_at?: string;
   upload_source?: string;
-}
-
-interface UploadMetadata {
-  docType: string;
-  isConfidential: boolean;
-  role: string;
-  description: string;
 }
 
 interface OrgRole {
@@ -36,16 +35,27 @@ interface OrgRole {
 
 type FileStatus = "pending" | "uploading" | "done" | "error";
 
+interface PerFileMeta {
+  docType: string;
+  accessRoles: string[];   // empty = unrestricted (all roles)
+  allRoles: boolean;       // "all roles" toggle — overrides accessRoles
+  description: string;
+  isConfidential: boolean;
+}
+
 interface QueuedFile {
   id: string;
   file: File;
   status: FileStatus;
   error?: string;
+  meta: PerFileMeta;
+  open: boolean;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function formatFileSize(bytes: number) {
+  if (!bytes) return "—";
   if (bytes < 1024) return bytes + " B";
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
   return (bytes / 1024 / 1024).toFixed(1) + " MB";
@@ -95,92 +105,203 @@ const ALLOWED_TYPES = [
 ];
 const MAX_FILE_SIZE = 15 * 1024 * 1024;
 
-// ── Shared metadata fields ────────────────────────────────────────────────────
+function defaultMeta(): PerFileMeta {
+  return { docType: "", accessRoles: [], allRoles: true, description: "", isConfidential: false };
+}
 
-function MetadataFields({
-  metadata,
-  onChange,
+// ── File Accordion Item ───────────────────────────────────────────────────────
+
+function FileAccordion({
+  qf,
   orgRoles,
-  disabled,
+  uploading,
+  onRemove,
+  onMetaChange,
+  onToggle,
 }: {
-  metadata: UploadMetadata;
-  onChange: (m: UploadMetadata) => void;
+  qf: QueuedFile;
   orgRoles: OrgRole[];
-  disabled?: boolean;
+  uploading: boolean;
+  onRemove: (id: string) => void;
+  onMetaChange: (id: string, meta: PerFileMeta) => void;
+  onToggle: (id: string) => void;
 }) {
+  const typeLabel = getFileTypeLabel(qf.file.type);
+  const canEdit = !uploading && qf.status === "pending";
+  const rolesSummary = qf.meta.allRoles
+    ? "All roles"
+    : qf.meta.accessRoles.length > 0
+      ? qf.meta.accessRoles.join(", ")
+      : "—";
+
+  const headerBg =
+    qf.status === "done" ? "border-green-200 bg-green-50/40"
+    : qf.status === "error" ? "border-red-200 bg-red-50/40"
+    : qf.status === "uploading" ? "border-blue-200 bg-blue-50/40"
+    : "border-gray-200 bg-white";
+
+  const toggleRole = (roleName: string) => {
+    const has = qf.meta.accessRoles.includes(roleName);
+    const next = has
+      ? qf.meta.accessRoles.filter((r) => r !== roleName)
+      : [...qf.meta.accessRoles, roleName];
+    onMetaChange(qf.id, { ...qf.meta, accessRoles: next, allRoles: false });
+  };
+
   return (
-    <div className="space-y-4">
-      <div>
-        <label className="block text-[13px] font-medium text-gray-800 mb-1.5">
-          Document Type <span className="text-red-500">*</span>
-        </label>
-        <input
-          type="text"
-          className="w-full px-3 py-2.5 border border-gray-300 rounded-md text-[13px] text-gray-900 outline-none focus:border-violet-500 transition-colors disabled:opacity-50"
-          value={metadata.docType}
-          onChange={(e) => onChange({ ...metadata, docType: e.target.value })}
-          placeholder="e.g., student_guide, invoice, report"
-          disabled={disabled}
-        />
-        <p className="text-[11.5px] text-gray-400 mt-1">
-          Tag: doc-type — applies to all files
-        </p>
+    <div className={`border rounded-lg overflow-hidden transition-colors ${headerBg}`}>
+      {/* Header */}
+      <div
+        className="flex items-center gap-2.5 px-3 py-2.5 cursor-pointer select-none"
+        onClick={() => canEdit && onToggle(qf.id)}
+      >
+        <div className={`w-8 h-8 rounded-md flex items-center justify-center text-[10px] font-bold shrink-0 ${
+          qf.status === "done" ? "bg-green-100 text-green-700"
+          : qf.status === "error" ? "bg-red-100 text-red-700"
+          : qf.status === "uploading" ? "bg-blue-100 text-blue-700"
+          : "bg-violet-50 text-violet-700"
+        }`}>
+          {qf.status === "uploading" ? (
+            <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />
+          ) : qf.status === "done" ? (
+            <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          ) : qf.status === "error" ? "✗" : typeLabel}
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <p className="text-[12.5px] font-medium text-gray-900 truncate leading-tight">{qf.file.name}</p>
+          <p className="text-[11px] text-gray-400 leading-tight mt-0.5">
+            {formatFileSize(qf.file.size)}
+            {qf.meta.docType && <> · <span className="text-violet-600">{qf.meta.docType}</span></>}
+            {" · "}<span className="text-gray-500">{rolesSummary}</span>
+          </p>
+        </div>
+
+        {qf.status === "error" && (
+          <span className="text-[11px] text-red-600 shrink-0 max-w-[120px] truncate">{qf.error}</span>
+        )}
+        {qf.status === "done" && (
+          <span className="text-[11px] text-green-600 shrink-0">Processing…</span>
+        )}
+        {qf.status === "uploading" && (
+          <span className="text-[11px] text-blue-600 shrink-0">Uploading…</span>
+        )}
+
+        {canEdit && (
+          <>
+            <svg
+              width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"
+              viewBox="0 0 24 24"
+              className={`shrink-0 text-gray-400 transition-transform ${qf.open ? "rotate-180" : ""}`}
+            >
+              <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <button
+              className="w-5 h-5 rounded-full border border-gray-300 text-gray-400 hover:border-red-400 hover:text-red-500 hover:bg-red-50 flex items-center justify-center text-sm shrink-0 transition-colors"
+              onClick={(e) => { e.stopPropagation(); onRemove(qf.id); }}
+              title="Remove"
+            >
+              ×
+            </button>
+          </>
+        )}
       </div>
 
-      <div>
-        <label className="block text-[13px] font-medium text-gray-800 mb-1.5">
-          Role <span className="text-red-500">*</span>
-        </label>
-        <select
-          className="w-full px-3 py-2.5 border border-gray-300 rounded-md text-[13px] text-gray-900 outline-none focus:border-violet-500 transition-colors bg-white disabled:opacity-50"
-          value={metadata.role}
-          onChange={(e) => onChange({ ...metadata, role: e.target.value })}
-          disabled={disabled}
-        >
-          <option value="">Select a role</option>
-          {orgRoles.map((r) => (
-            <option key={r.id} value={r.name}>
-              {r.name}
-            </option>
-          ))}
-        </select>
-        <p className="text-[11.5px] text-gray-400 mt-1">
-          {orgRoles.length > 0
-            ? "Showing all available organization roles."
-            : "No roles found. Create roles from the Roles screen first."}
-        </p>
-      </div>
+      {/* Expanded metadata fields */}
+      {qf.open && canEdit && (
+        <div className="px-3 pb-3 pt-2 border-t border-gray-100 space-y-3">
+          {/* Doc type */}
+          <div>
+            <label className="block text-[11.5px] font-medium text-gray-700 mb-1">
+              Doc Type <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-[12px] text-gray-900 outline-none focus:border-violet-500 transition-colors"
+              value={qf.meta.docType}
+              onChange={(e) => onMetaChange(qf.id, { ...qf.meta, docType: e.target.value })}
+              placeholder="e.g. invoice, report, guide"
+            />
+          </div>
 
-      <div>
-        <label className="block text-[13px] font-medium text-gray-800 mb-1.5">
-          Description
-        </label>
-        <textarea
-          className="w-full px-3 py-2.5 border border-gray-300 rounded-md text-[13px] text-gray-900 outline-none focus:border-violet-500 transition-colors resize-y min-h-[72px] disabled:opacity-50"
-          value={metadata.description}
-          onChange={(e) => onChange({ ...metadata, description: e.target.value })}
-          placeholder="Add a description..."
-          disabled={disabled}
-        />
-      </div>
+          {/* Access roles */}
+          <div>
+            <label className="block text-[11.5px] font-medium text-gray-700 mb-1.5">
+              Access Roles <span className="text-red-500">*</span>
+            </label>
 
-      <div>
-        <label className="flex items-center gap-2.5 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            className="w-4 h-4 accent-violet-600"
-            checked={metadata.isConfidential}
-            onChange={(e) => onChange({ ...metadata, isConfidential: e.target.checked })}
-            disabled={disabled}
-          />
-          <span className="text-[13px] font-medium text-gray-800">
-            Mark as Confidential
-          </span>
-        </label>
-        <p className="text-[11.5px] text-gray-400 mt-1 ml-6">
-          Confidential documents are restricted to authorized roles only.
-        </p>
-      </div>
+            {/* All roles toggle */}
+            <label className={`flex items-center gap-2 px-2.5 py-1.5 rounded-md border cursor-pointer select-none mb-2 transition-colors ${
+              qf.meta.allRoles
+                ? "border-violet-400 bg-violet-50 text-violet-700"
+                : "border-gray-200 bg-white text-gray-600 hover:border-violet-300"
+            }`}>
+              <input
+                type="checkbox"
+                className="w-3.5 h-3.5 accent-violet-600"
+                checked={qf.meta.allRoles}
+                onChange={(e) => onMetaChange(qf.id, { ...qf.meta, allRoles: e.target.checked, accessRoles: [] })}
+              />
+              <span className="text-[12px] font-medium">All roles (unrestricted)</span>
+            </label>
+
+            {/* Individual role pills */}
+            {!qf.meta.allRoles && (
+              <div className="flex flex-wrap gap-1.5">
+                {orgRoles.length === 0 && (
+                  <p className="text-[11.5px] text-gray-400">No roles found — create roles first.</p>
+                )}
+                {orgRoles.map((r) => {
+                  const selected = qf.meta.accessRoles.includes(r.name);
+                  return (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => toggleRole(r.name)}
+                      className={`px-2.5 py-1 rounded-full text-[11.5px] font-medium border transition-colors ${
+                        selected
+                          ? "bg-violet-600 border-violet-600 text-white"
+                          : "bg-white border-gray-300 text-gray-600 hover:border-violet-400"
+                      }`}
+                    >
+                      {r.name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {!qf.meta.allRoles && (
+              <p className="text-[11px] text-gray-400 mt-1">
+                Select one or more roles that can access this document.
+              </p>
+            )}
+          </div>
+
+          {/* Description */}
+          <div>
+            <label className="block text-[11.5px] font-medium text-gray-700 mb-1">Description</label>
+            <input
+              type="text"
+              className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-[12px] text-gray-900 outline-none focus:border-violet-500 transition-colors"
+              value={qf.meta.description}
+              onChange={(e) => onMetaChange(qf.id, { ...qf.meta, description: e.target.value })}
+              placeholder="Optional description…"
+            />
+          </div>
+
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              className="w-3.5 h-3.5 accent-violet-600"
+              checked={qf.meta.isConfidential}
+              onChange={(e) => onMetaChange(qf.id, { ...qf.meta, isConfidential: e.target.checked })}
+            />
+            <span className="text-[11.5px] text-gray-700">Confidential</span>
+          </label>
+        </div>
+      )}
     </div>
   );
 }
@@ -214,13 +335,10 @@ function DeleteModal({
         className="bg-white rounded-xl p-7 w-[90%] max-w-[420px]"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-[17px] font-semibold text-gray-900 mb-3">
-          Delete document
-        </h2>
+        <h2 className="text-[17px] font-semibold text-gray-900 mb-3">Delete document</h2>
         <p className="text-[13.5px] text-gray-500 mb-6">
           Are you sure you want to delete{" "}
-          <strong className="text-gray-900">{doc.filename}</strong>? This cannot
-          be undone.
+          <strong className="text-gray-900">{doc.filename}</strong>? This cannot be undone.
         </p>
         <div className="flex gap-3 justify-end">
           <button
@@ -243,31 +361,21 @@ function DeleteModal({
   );
 }
 
-// ── URL Ingest Modal ──────────────────────────────────────────────────────────
-
 // ── Upload Modal ──────────────────────────────────────────────────────────────
 
 function UploadModal({
   open,
   onClose,
   orgRoles,
-  currentUserId,
   onSuccess,
 }: {
   open: boolean;
   onClose: () => void;
   orgRoles: OrgRole[];
-  currentUserId: string;
   onSuccess: () => void;
 }) {
   const [queue, setQueue] = useState<QueuedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
-  const [metadata, setMetadata] = useState<UploadMetadata>({
-    docType: "",
-    isConfidential: false,
-    role: "",
-    description: "",
-  });
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [allDone, setAllDone] = useState(false);
@@ -275,7 +383,6 @@ function UploadModal({
 
   const reset = () => {
     setQueue([]);
-    setMetadata({ docType: "", isConfidential: false, role: "", description: "" });
     setError(null);
     setAllDone(false);
   };
@@ -296,7 +403,13 @@ function UploadModal({
         errs.push(`"${file.name}" — exceeds 15MB limit`);
         continue;
       }
-      valid.push({ id: `${Date.now()}-${Math.random()}`, file, status: "pending" });
+      valid.push({
+        id: `${Date.now()}-${Math.random()}`,
+        file,
+        status: "pending",
+        meta: defaultMeta(),
+        open: true,
+      });
     }
     if (errs.length > 0) setError(errs[0]);
     else setError(null);
@@ -304,6 +417,10 @@ function UploadModal({
   };
 
   const removeFile = (id: string) => setQueue((prev) => prev.filter((f) => f.id !== id));
+  const toggleAccordion = (id: string) =>
+    setQueue((prev) => prev.map((f) => f.id === id ? { ...f, open: !f.open } : f));
+  const updateMeta = (id: string, meta: PerFileMeta) =>
+    setQueue((prev) => prev.map((f) => f.id === id ? { ...f, meta } : f));
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -311,42 +428,26 @@ function UploadModal({
     addFiles(Array.from(e.dataTransfer.files));
   };
 
-  const uploadSingle = async (qf: QueuedFile, meta: UploadMetadata, userId: string) => {
-    setQueue((prev) => prev.map((f) => f.id === qf.id ? { ...f, status: "uploading" } : f));
+  const uploadSingle = async (qf: QueuedFile) => {
+    setQueue((prev) => prev.map((f) => f.id === qf.id ? { ...f, status: "uploading", open: false } : f));
     try {
       const token = localStorage.getItem("accessToken");
-      const uploadRes = await fetch(
-        `/api/documents/local-upload?filename=${encodeURIComponent(qf.file.name)}`,
-        {
-          method: "POST",
-          headers: { Authorization: token ? `Bearer ${token}` : "", "Content-Type": qf.file.type },
-          body: qf.file,
-        },
-      );
-      const uploadData = await uploadRes.json();
-      if (!uploadRes.ok || !uploadData?.success || !uploadData?.data?.s3Key) {
-        throw new Error(uploadData?.message || "Upload failed");
-      }
-      const s3Key = uploadData.data.s3Key as string;
-      const tags: Record<string, string> = {
-        "doc-type": meta.docType.trim(),
-        confidential: meta.isConfidential ? "true" : "false",
-        role: meta.role,
-      };
-      if (userId) tags["user-id"] = userId;
+      const formData = new FormData();
+      formData.append("file", qf.file);
+      formData.append("doc_type", qf.meta.docType.trim());
+      // Send comma-separated roles; empty string = unrestricted
+      const rolesValue = qf.meta.allRoles ? "" : qf.meta.accessRoles.join(",");
+      formData.append("access_roles", rolesValue);
+      formData.append("description", qf.meta.description);
+      formData.append("is_confidential", qf.meta.isConfidential ? "true" : "false");
 
-      const metaRes = await apiFetch("/documents", {
+      const res = await fetch("/api/documents", {
         method: "POST",
-        body: JSON.stringify({
-          filename: qf.file.name,
-          s3Key,
-          fileSize: qf.file.size,
-          mimeType: qf.file.type,
-          tags,
-          description: meta.description,
-        }),
+        headers: { Authorization: token ? `Bearer ${token}` : "" },
+        body: formData,
       });
-      if (!metaRes.success) throw new Error(metaRes.error || "Metadata save failed");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.detail || data?.message || "Upload failed");
       setQueue((prev) => prev.map((f) => f.id === qf.id ? { ...f, status: "done" } : f));
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Upload failed";
@@ -355,18 +456,32 @@ function UploadModal({
   };
 
   const handleUploadAll = async () => {
-    if (!metadata.docType.trim()) { setError("Document Type is required"); return; }
-    if (!metadata.role) { setError("Please select a Role"); return; }
-    if (queue.length === 0) { setError("Please add at least one file"); return; }
+    const pending = queue.filter((f) => f.status === "pending");
+    if (pending.length === 0) { setError("Please add at least one file"); return; }
+
+    const invalid = pending.find((f) => !f.meta.docType.trim());
+    if (invalid) {
+      setError(`"${invalid.file.name}" — Document Type is required`);
+      setQueue((prev) => prev.map((f) => f.id === invalid.id ? { ...f, open: true } : f));
+      return;
+    }
+    // Roles are valid when allRoles=true OR at least one role is selected
+    const noRole = pending.find((f) => !f.meta.allRoles && f.meta.accessRoles.length === 0);
+    if (noRole) {
+      setError(`"${noRole.file.name}" — Select at least one role or choose "All roles"`);
+      setQueue((prev) => prev.map((f) => f.id === noRole.id ? { ...f, open: true } : f));
+      return;
+    }
+
     setError(null);
     setUploading(true);
-    for (const qf of queue.filter((f) => f.status === "pending")) {
-      await uploadSingle(qf, metadata, currentUserId);
+    for (const qf of pending) {
+      await uploadSingle(qf);
     }
     setUploading(false);
     setAllDone(true);
     onSuccess();
-    setTimeout(() => { reset(); onClose(); }, 2000);
+    setTimeout(() => { reset(); onClose(); }, 2500);
   };
 
   if (!open) return null;
@@ -377,104 +492,91 @@ function UploadModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[2000]" onClick={handleClose}>
-      <div className="bg-white rounded-xl p-7 w-[90%] max-w-[560px] max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <h2 className="text-[17px] font-semibold text-gray-900 mb-5">Upload Documents</h2>
+      <div className="bg-white rounded-xl p-6 w-[90%] max-w-[580px] max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <h2 className="text-[17px] font-semibold text-gray-900 mb-4">Upload Documents</h2>
 
         {allDone ? (
-          <div className="text-center py-8">
-            <div className="text-4xl mb-3">{errorCount === 0 ? "✓" : "⚠"}</div>
-            <p className={`text-[13.5px] font-medium ${errorCount === 0 ? "text-green-700" : "text-orange-600"}`}>
-              {doneCount} uploaded{errorCount > 0 ? `, ${errorCount} failed` : ""}. Processing in background...
+          <div className="text-center py-10">
+            <div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3 ${errorCount === 0 ? "bg-green-100 text-green-700" : "bg-orange-100 text-orange-600"}`}>
+              {errorCount === 0 ? (
+                <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                  <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              ) : "⚠"}
+            </div>
+            <p className={`text-[14px] font-semibold ${errorCount === 0 ? "text-green-700" : "text-orange-600"}`}>
+              {doneCount} uploaded{errorCount > 0 ? `, ${errorCount} failed` : ""}
             </p>
+            <p className="text-[12.5px] text-gray-400 mt-1">Documents are being embedded in the background.</p>
           </div>
         ) : (
           <>
             {/* Drop zone */}
             <div
-              className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all mb-2 ${isDragging ? "border-violet-500 bg-violet-50" : "border-gray-200 bg-gray-50 hover:border-violet-400 hover:bg-violet-50/40"}`}
+              className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all mb-4 ${isDragging ? "border-violet-500 bg-violet-50" : "border-gray-200 bg-gray-50 hover:border-violet-400 hover:bg-violet-50/40"}`}
               onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
               onDragLeave={() => setIsDragging(false)}
               onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
             >
-              <input ref={fileInputRef} type="file" multiple accept=".pdf,.doc,.docx,.ppt,.pptx" className="hidden" onChange={(e) => e.target.files && addFiles(Array.from(e.target.files))} />
-              <div className="w-12 h-12 rounded-full bg-white border border-gray-200 flex items-center justify-center mx-auto mb-3 text-violet-600 shadow-sm">
-                <svg width="22" height="22" fill="none" viewBox="0 0 24 24">
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept=".pdf,.doc,.docx,.ppt,.pptx"
+                className="hidden"
+                onChange={(e) => e.target.files && addFiles(Array.from(e.target.files))}
+              />
+              <div className="w-10 h-10 rounded-full bg-white border border-gray-200 flex items-center justify-center mx-auto mb-2.5 text-violet-600 shadow-sm">
+                <svg width="20" height="20" fill="none" viewBox="0 0 24 24">
                   <path d="M12 16V8M12 8L8.5 11.5M12 8L15.5 11.5M4 15.5V17a2 2 0 002 2h12a2 2 0 002-2v-1.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </div>
-              <p className="text-[13.5px] font-medium text-gray-600">
+              <p className="text-[13px] font-medium text-gray-600">
                 Drop files here or <span className="text-violet-600 underline">browse</span>
               </p>
-              <p className="text-[12px] text-gray-400 mt-1">PDF, DOC, DOCX, PPT, PPTX · max 15MB · multiple files supported</p>
+              <p className="text-[11.5px] text-gray-400 mt-1">PDF, DOC, DOCX, PPT, PPTX · max 15MB</p>
             </div>
 
-            {/* File queue */}
+            {/* File accordions */}
             {queue.length > 0 && (
-              <div className="flex flex-col gap-1.5 max-h-44 overflow-y-auto border border-gray-100 rounded-lg p-2 mb-1">
-                {queue.map((qf) => {
-                  const typeLabel = getFileTypeLabel(qf.file.type);
-                  const iconBg =
-                    qf.status === "done" ? "bg-green-50 text-green-700"
-                    : qf.status === "error" ? "bg-red-50 text-red-700"
-                    : qf.status === "uploading" ? "bg-blue-50 text-blue-700"
-                    : "bg-violet-50 text-violet-700";
-
-                  return (
-                    <div key={qf.id} className="flex items-center gap-2.5 bg-gray-50 rounded-md px-2.5 py-2">
-                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-[10px] font-bold shrink-0 ${iconBg}`}>
-                        {qf.status === "uploading" ? (
-                          <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin inline-block" />
-                        ) : qf.status === "done" ? "✓" : qf.status === "error" ? "✗" : typeLabel}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[12.5px] font-medium text-gray-900 truncate">{qf.file.name}</p>
-                        {qf.status === "error" ? (
-                          <p className="text-[11px] text-red-600 mt-0.5">{qf.error}</p>
-                        ) : (
-                          <p className="text-[11px] text-gray-400 mt-0.5">
-                            {formatFileSize(qf.file.size)} · {qf.status === "uploading" ? "Uploading..." : qf.status === "done" ? "Uploaded" : "Ready"}
-                          </p>
-                        )}
-                      </div>
-                      {(qf.status === "pending" || qf.status === "error") && !uploading && (
-                        <button
-                          className="w-5 h-5 rounded-full border border-gray-300 text-gray-400 hover:border-red-400 hover:text-red-500 hover:bg-red-50 flex items-center justify-center text-sm shrink-0 transition-colors"
-                          onClick={(e) => { e.stopPropagation(); removeFile(qf.id); }}
-                          title="Remove"
-                        >
-                          ×
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
+              <div className="flex flex-col gap-2 mb-4">
+                {queue.map((qf) => (
+                  <FileAccordion
+                    key={qf.id}
+                    qf={qf}
+                    orgRoles={orgRoles}
+                    uploading={uploading}
+                    onRemove={removeFile}
+                    onMetaChange={updateMeta}
+                    onToggle={toggleAccordion}
+                  />
+                ))}
               </div>
             )}
 
-            {/* Metadata */}
-            <div className="mt-5">
-              <MetadataFields metadata={metadata} onChange={setMetadata} orgRoles={orgRoles} disabled={uploading} />
-            </div>
-
             {error && (
-              <div className="mt-3 text-[12.5px] text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+              <div className="mb-4 text-[12.5px] text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">
                 {error}
               </div>
             )}
 
-            <div className="flex gap-3 justify-end mt-6">
-              <button className="px-4 py-2 bg-gray-100 text-gray-800 text-[13.5px] font-medium rounded-md hover:bg-gray-200 transition-colors disabled:opacity-50" onClick={handleClose} disabled={uploading}>
+            <div className="flex gap-3 justify-end">
+              <button
+                className="px-4 py-2 bg-gray-100 text-gray-800 text-[13.5px] font-medium rounded-md hover:bg-gray-200 transition-colors disabled:opacity-50"
+                onClick={handleClose}
+                disabled={uploading}
+              >
                 Cancel
               </button>
               <button
                 className="px-4 py-2 bg-violet-600 text-white text-[13.5px] font-medium rounded-md hover:bg-violet-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 onClick={handleUploadAll}
-                disabled={uploading || queue.length === 0 || pendingCount === 0}
+                disabled={uploading || pendingCount === 0}
               >
                 {uploading
-                  ? `Uploading ${doneCount + errorCount} / ${queue.length}...`
-                  : `Upload ${pendingCount > 0 ? pendingCount : queue.length} file${pendingCount !== 1 ? "s" : ""}`}
+                  ? `Uploading ${doneCount + errorCount} / ${queue.length}…`
+                  : `Upload ${pendingCount} file${pendingCount !== 1 ? "s" : ""}`}
               </button>
             </div>
           </>
@@ -493,7 +595,6 @@ export default function DocumentsPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [deleteDoc, setDeleteDoc] = useState<Document | null>(null);
-  const [currentUserId, setCurrentUserId] = useState("");
   const [orgRoles, setOrgRoles] = useState<OrgRole[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [startDate, setStartDate] = useState("");
@@ -520,9 +621,9 @@ export default function DocumentsPage() {
     if (!silent) setLoading(true);
     else setRefreshing(true);
     try {
-      const res = await apiFetch<{ data: Document[] }>("/documents");
+      const res = await apiFetch<Document[] | { data?: Document[] }>("/documents");
       if (res.success) {
-        const payload = res.data as { data?: Document[] } | Document[] | undefined;
+        const payload = res.data;
         const docs = Array.isArray(payload)
           ? payload
           : Array.isArray((payload as { data?: Document[] })?.data)
@@ -557,10 +658,6 @@ export default function DocumentsPage() {
     const init = async () => {
       const docs = await fetchDocuments();
       startPollingIfNeeded(docs);
-      try {
-        const meRes = await apiFetch<{ data: { id: string } }>("/auth/me");
-        if (meRes.success) setCurrentUserId(meRes.data.data.id);
-      } catch { /* no-op */ }
       try {
         const token = localStorage.getItem("accessToken");
         if (token) {
@@ -650,7 +747,6 @@ export default function DocumentsPage() {
             <p className="text-[13px] text-gray-500 mt-1">Manage and search your knowledge base documents.</p>
           </div>
           <div className="flex gap-2 flex-wrap">
-            {/* Refresh */}
             <button
               className="flex items-center gap-1.5 px-3 py-2 bg-white text-gray-800 text-[13px] font-medium rounded-md border border-gray-200 hover:bg-gray-50 transition-colors disabled:opacity-60"
               onClick={handleRefresh}
@@ -662,7 +758,6 @@ export default function DocumentsPage() {
               </svg>
               Refresh
             </button>
-            {/* Upload */}
             <button
               className="flex items-center gap-1.5 px-4 py-2 bg-[#2f3640] text-white text-[13px] font-medium rounded-md hover:bg-[#1a1f28] transition-colors"
               onClick={() => setShowUploadModal(true)}
@@ -740,9 +835,21 @@ export default function DocumentsPage() {
                                       Confidential
                                     </span>
                                   )}
-                                  {doc.tags?.role && (
-                                    <span className="inline-block text-[10px] font-medium bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">
-                                      {doc.tags.role}
+                                  {Array.isArray(doc.tags?.roles) && doc.tags.roles.length > 0
+                                    ? doc.tags.roles.map((r) => (
+                                        <span key={r} className="inline-block text-[10px] font-medium bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">
+                                          {r}
+                                        </span>
+                                      ))
+                                    : (
+                                        <span className="inline-block text-[10px] font-medium bg-gray-50 text-gray-400 px-1.5 py-0.5 rounded">
+                                          All roles
+                                        </span>
+                                      )
+                                  }
+                                  {doc.tags?.["doc-type"] && (
+                                    <span className="inline-block text-[10px] font-medium bg-violet-50 text-violet-600 px-1.5 py-0.5 rounded">
+                                      {doc.tags["doc-type"]}
                                     </span>
                                   )}
                                 </div>
@@ -855,7 +962,12 @@ export default function DocumentsPage() {
         </div>
       </div>
 
-      <UploadModal open={showUploadModal} onClose={() => setShowUploadModal(false)} orgRoles={orgRoles} currentUserId={currentUserId} onSuccess={handleUploadSuccess} />
+      <UploadModal
+        open={showUploadModal}
+        onClose={() => setShowUploadModal(false)}
+        orgRoles={orgRoles}
+        onSuccess={handleUploadSuccess}
+      />
       <DeleteModal doc={deleteDoc} onClose={() => setDeleteDoc(null)} onConfirm={handleDelete} />
     </Layout>
   );

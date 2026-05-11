@@ -1,11 +1,12 @@
 import json
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
 from uuid import UUID
 
 import httpx
 from bs4 import BeautifulSoup
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy import text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,39 +39,53 @@ class DocumentResponse(BaseModel):
     id: str
     filename: str
     mime_type: str | None
-    size_bytes: int | None
+    file_size: int | None
     status: str
     s3_key: str | None
     source_url: str | None = None
     document_type: str = "file"
+    upload_source: str = "file"
     created_at: str
+    updated_at: str | None = None
     download_url: str | None = None
     extracted_title: str | None = None
     summary: str | None = None
     keywords: list[str] | None = None
+    tags: dict | None = None
+    description: str | None = None
 
 
-def _doc_to_response(doc, download_url: str | None = None) -> dict:
+def _doc_to_response(doc: Document, download_url: str | None = None) -> dict:
     kw = doc.keywords
     if isinstance(kw, str):
         try:
             kw = json.loads(kw)
         except Exception:
             kw = None
+    tags = doc.tags or {}
+    if isinstance(tags, str):
+        try:
+            tags = json.loads(tags)
+        except Exception:
+            tags = {}
     return {
         "id": str(doc.id),
         "filename": doc.filename,
         "mime_type": doc.mime_type,
-        "size_bytes": doc.size_bytes,
+        "file_size": doc.size_bytes,
         "status": doc.status,
         "s3_key": doc.s3_key,
         "source_url": doc.source_url,
         "document_type": doc.document_type,
+        "upload_source": doc.document_type,
         "created_at": doc.created_at.isoformat(),
+        "updated_at": doc.updated_at.isoformat() if doc.updated_at else None,
         "download_url": download_url,
         "extracted_title": doc.extracted_title,
         "summary": doc.summary,
         "keywords": kw if isinstance(kw, list) else None,
+        "tags": tags,
+        "description": doc.description,
     }
 
 
@@ -91,8 +106,10 @@ async def _ingest_document_bg(
         try:
             async with db_session(org_id) as sess:
                 await sess.execute(
-                    sa_text("UPDATE documents SET status = :s WHERE id = CAST(:id AS uuid)"),
-                    {"s": s, "id": str(document_id)},
+                    sa_text(
+                        "UPDATE documents SET status = :s, updated_at = :ts WHERE id = CAST(:id AS uuid)"
+                    ),
+                    {"s": s, "id": str(document_id), "ts": datetime.now(timezone.utc)},
                 )
         except Exception:
             pass
@@ -106,7 +123,6 @@ async def _ingest_document_bg(
                 response = await client.get(source_url, headers={"User-Agent": "Mozilla/5.0"})
                 response.raise_for_status()
             soup = BeautifulSoup(response.text, "lxml")
-            # Remove script / style noise
             for tag in soup(["script", "style", "nav", "footer", "header"]):
                 tag.decompose()
             text = soup.get_text(separator="\n", strip=True)
@@ -127,6 +143,7 @@ async def _ingest_document_bg(
             generate_document_metadata(text, filename),
         )
 
+        now = datetime.now(timezone.utc)
         async with db_session(org_id) as sess:
             for i, (content, embedding) in enumerate(zip(chunks, embeddings)):
                 sess.add(DocumentChunk(
@@ -138,11 +155,12 @@ async def _ingest_document_bg(
                 ))
             await sess.flush()
             update_query = (
-                "UPDATE documents SET status = :s, extracted_title = :title, "
+                "UPDATE documents SET status = :s, updated_at = :ts, extracted_title = :title, "
                 "summary = :summary, keywords = CAST(:keywords AS json) "
             )
             update_params = {
                 "s": DocumentStatus.READY.value,
+                "ts": now,
                 "id": str(document_id),
                 "title": metadata.get("title") or None,
                 "summary": metadata.get("summary") or None,
@@ -151,9 +169,8 @@ async def _ingest_document_bg(
             if scraped_size is not None:
                 update_query += ", size_bytes = :size "
                 update_params["size"] = scraped_size
-            
-            update_query += "WHERE id = CAST(:id AS uuid)"
 
+            update_query += "WHERE id = CAST(:id AS uuid)"
             await sess.execute(sa_text(update_query), update_params)
 
         logger.info("Ingestion complete", doc_id=str(document_id), chunks=len(chunks))
@@ -181,11 +198,15 @@ async def list_docs(
 async def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
+    doc_type: str = Form(""),
+    access_roles: str = Form(""),   # comma-separated list of role names
+    description: str = Form(""),
+    is_confidential: str = Form("false"),
     ctx: RequestContext = authorize("documents:upload"),
 ) -> Any:
     """
-    Upload a document (<50MB). Commits the document record first, then runs
-    ingestion as a background task so the FK constraint is satisfied.
+    Upload a document (<50MB) with metadata. Commits the document record first,
+    then runs ingestion as a background task so the FK constraint is satisfied.
     """
     body = await file.read()
 
@@ -200,7 +221,14 @@ async def upload_document(
     size_bytes = len(body)
     ext = filename.rsplit(".", 1)[-1] if "." in filename else "bin"
 
-    # Commit document record in its own transaction so background task sees it
+    roles_list = [r.strip() for r in access_roles.split(",") if r.strip()]
+    tags: dict = {
+        "roles": roles_list,
+        "doc-type": doc_type.strip(),
+        "confidential": "true" if is_confidential.lower() == "true" else "false",
+        "user-id": str(ctx.user_id),
+    }
+
     async with db_session(ctx.org_id) as session:
         doc = await create_document(
             session,
@@ -210,6 +238,8 @@ async def upload_document(
             s3_key="",
             mime_type=mime_type,
             size_bytes=size_bytes,
+            tags=tags,
+            description=description.strip() or None,
         )
         s3_key = make_s3_key(str(ctx.org_id), str(doc.id), ext)
         doc.s3_key = s3_key
@@ -218,7 +248,6 @@ async def upload_document(
         doc_id = doc.id
         doc_snapshot = _doc_to_response(doc)
         await log_action(session, ctx, "document.upload", "document", str(doc_id), {"filename": filename})
-    # Transaction committed here — document is now visible to other sessions
 
     await upload(s3_key, body, tags={"org_id": str(ctx.org_id), "document_id": str(doc_id)})
 
@@ -239,8 +268,6 @@ async def ingest_url(
 ) -> Any:
     """
     Submit a public web URL for ingestion.
-    The server fetches the page, strips HTML, chunks and embeds the text,
-    then stores the result as searchable document chunks.
     """
     parsed = urlparse(payload.url)
     if parsed.scheme not in ("http", "https"):
@@ -261,16 +288,15 @@ async def ingest_url(
         await log_action(
             session, ctx, "document.url_ingest", "document", str(doc_id), {"url": payload.url}
         )
-    # Transaction committed — document record is now visible to the background task
 
     background_tasks.add_task(
         _ingest_document_bg,
         doc_id,
         ctx.org_id,
-        None,          # no file bytes
-        None,          # no mime_type
+        None,
+        None,
         doc_snapshot["filename"],
-        payload.url,   # source_url → triggers URL fetch branch
+        payload.url,
     )
 
     return {"task_id": None, "document": doc_snapshot}

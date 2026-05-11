@@ -182,6 +182,7 @@ async def stream_chat(
                 org_id=org_id,
                 session_id=session_id,
                 message=message,
+                user_role=ctx.role.value if ctx.role else "",
             )
             await arq.aclose()
 

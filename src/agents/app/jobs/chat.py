@@ -32,6 +32,7 @@ async def run_chat(
     org_id: str,
     session_id: str,
     message: str,
+    user_role: str = "",
 ) -> None:
     redis: aioredis.Redis = ctx["redis"]
     http: httpx.AsyncClient = ctx["http"]
@@ -58,7 +59,7 @@ async def run_chat(
 
                 # RAG: embed the current user message and retrieve relevant chunks
                 query_vector = await embed_query(message)
-                chunks = await retrieve_chunks(conn, query_vector)
+                chunks = await retrieve_chunks(conn, query_vector, user_role=user_role)
 
         response = await run_agent(
             conversation=conversation,
