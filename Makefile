@@ -69,7 +69,11 @@ agents:
 	cd $(AGENTS_DIR) && $(UV) run arq app.jobs.WorkerSettings
 
 frontend:
+ifeq ($(OS),Windows_NT)
+	cd $(FRONTEND_DIR) && set "AUTH_GATEWAY_PROXY_ORIGIN=http://localhost:8000" && npm run dev
+else
 	cd $(FRONTEND_DIR) && AUTH_GATEWAY_PROXY_ORIGIN=http://localhost:8000 npm run dev
+endif
 
 migrate:
 	@if ! nc -z 127.0.0.1 5432 2>/dev/null; then \

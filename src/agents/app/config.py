@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+psycopg://postgres:postgres@localhost:5432/multitenant"
     SERVER_URL: str = "http://localhost:8000"
     SECRET_KEY: str = "change-me-in-production"
+    CHAT_MODEL: str = "gemini"  # "gemini" or "bedrock"
     GEMINI_API_KEY: str = ""
     BEDROCK_MODEL_ARN: str = ""
     BEDROCK_MODEL_PROVIDER: str = "anthropic"
