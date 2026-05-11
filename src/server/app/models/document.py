@@ -4,6 +4,7 @@ from typing import Any, Optional
 from uuid import UUID, uuid4
 
 import sqlalchemy as sa
+import sqlalchemy.dialects.postgresql  # noqa: F401  — needed for JSONB
 from pgvector.sqlalchemy import Vector
 from sqlmodel import Column, Field, SQLModel
 from sqlalchemy import JSON
@@ -30,9 +31,12 @@ class Document(SQLModel, table=True):
     status: str = Field(default=DocumentStatus.PROCESSING.value)
     uploaded_by: UUID | None = Field(default=None, foreign_key="users.id")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime | None = Field(default=None, sa_column=Column(sa.TIMESTAMP(timezone=True), nullable=True))
     extracted_title: str | None = Field(default=None, sa_column=Column(sa.Text, nullable=True))
     summary: str | None = Field(default=None, sa_column=Column(sa.Text, nullable=True))
     keywords: Optional[Any] = Field(default=None, sa_column=Column(JSON, nullable=True))
+    tags: Optional[Any] = Field(default=None, sa_column=Column(sa.dialects.postgresql.JSONB, nullable=True))
+    description: str | None = Field(default=None, sa_column=Column(sa.Text, nullable=True))
 
 
 class DocumentChunk(SQLModel, table=True):

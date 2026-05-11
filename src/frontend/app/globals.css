@@ -533,6 +533,86 @@ body {
 .kebab-item.danger { color: var(--color-danger); }
 .kebab-item.danger:hover { background: var(--color-danger-bg); }
 
+/* ── Markdown content (AI assistant responses) ──────────────────────────────── */
+.markdown-content {
+  font-size: 14px;
+  line-height: 1.65;
+  color: #1a1a1a;
+}
+.markdown-content > *:first-child { margin-top: 0; }
+.markdown-content > *:last-child { margin-bottom: 0; }
+.markdown-content p { margin: 0.35em 0; }
+.markdown-content h1, .markdown-content h2, .markdown-content h3,
+.markdown-content h4, .markdown-content h5, .markdown-content h6 {
+  font-weight: 700;
+  line-height: 1.3;
+  color: #111;
+  margin: 0.85em 0 0.3em;
+}
+.markdown-content h1 { font-size: 1.2em; }
+.markdown-content h2 { font-size: 1.1em; }
+.markdown-content h3 { font-size: 1em; }
+.markdown-content ul, .markdown-content ol {
+  margin: 0.4em 0;
+  padding-left: 1.4em;
+}
+.markdown-content li { margin: 0.2em 0; }
+.markdown-content li > p { margin: 0; }
+.markdown-content code {
+  background: #f0eef8;
+  color: #6d28d9;
+  padding: 0.12em 0.35em;
+  border-radius: 4px;
+  font-size: 0.85em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.markdown-content pre {
+  background: #1e1e2e;
+  color: #cdd6f4;
+  border-radius: 8px;
+  padding: 12px 14px;
+  overflow-x: auto;
+  margin: 0.6em 0;
+  font-size: 0.82em;
+  line-height: 1.55;
+}
+.markdown-content pre code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  font-size: inherit;
+  color: inherit;
+}
+.markdown-content blockquote {
+  border-left: 3px solid #c4b5fd;
+  padding: 2px 0 2px 12px;
+  margin: 0.5em 0;
+  color: #6b7280;
+  font-style: italic;
+}
+.markdown-content strong { font-weight: 600; color: #111; }
+.markdown-content em { font-style: italic; }
+.markdown-content a { color: #7c3aed; text-decoration: none; }
+.markdown-content a:hover { text-decoration: underline; }
+.markdown-content hr { border: none; border-top: 1px solid #e8e6e2; margin: 0.75em 0; }
+.markdown-content table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9em;
+  margin: 0.5em 0;
+}
+.markdown-content th {
+  background: #f4f3f0;
+  font-weight: 600;
+  padding: 6px 10px;
+  border: 1px solid #e8e6e2;
+  text-align: left;
+}
+.markdown-content td {
+  padding: 6px 10px;
+  border: 1px solid #e8e6e2;
+}
+
 /* PROFILE PAGE */
 .profile-page { padding: 32px; }
 @media (max-width: 640px) { .profile-page { padding: 16px; } }

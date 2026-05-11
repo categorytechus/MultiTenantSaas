@@ -35,6 +35,8 @@ async def create_document(
     s3_key: str,
     mime_type: str | None,
     size_bytes: int | None,
+    tags: dict | None = None,
+    description: str | None = None,
 ) -> Document:
     """Create a new document record (file upload)."""
     doc = Document(
@@ -46,6 +48,8 @@ async def create_document(
         size_bytes=size_bytes,
         document_type="file",
         status=DocumentStatus.PROCESSING.value,
+        tags=tags,
+        description=description,
     )
     session.add(doc)
     await session.flush()
