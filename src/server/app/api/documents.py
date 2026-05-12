@@ -96,6 +96,7 @@ async def _ingest_document_bg(
     mime_type: str | None,
     filename: str = "document",
     source_url: str | None = None,
+    web_url_id: UUID | None = None,
 ) -> None:
     """
     Background ingestion: parse → chunk → embed → generate metadata → insert chunks → mark ready.
@@ -110,6 +111,18 @@ async def _ingest_document_bg(
                         "UPDATE documents SET status = :s, updated_at = :ts WHERE id = CAST(:id AS uuid)"
                     ),
                     {"s": s, "id": str(document_id), "ts": datetime.now(timezone.utc)},
+                )
+        except Exception:
+            pass
+
+    async def _set_web_url_status(s: str) -> None:
+        if not web_url_id:
+            return
+        try:
+            async with db_session(org_id) as sess:
+                await sess.execute(
+                    sa_text("UPDATE web_urls SET status = :s WHERE id = CAST(:id AS uuid)"),
+                    {"s": s, "id": str(web_url_id)},
                 )
         except Exception:
             pass
@@ -173,11 +186,13 @@ async def _ingest_document_bg(
             update_query += "WHERE id = CAST(:id AS uuid)"
             await sess.execute(sa_text(update_query), update_params)
 
+        await _set_web_url_status("ready")
         logger.info("Ingestion complete", doc_id=str(document_id), chunks=len(chunks))
 
     except Exception as e:
         logger.error("Background ingestion failed", doc_id=str(document_id), error=str(e))
         await _set_status(DocumentStatus.FAILED.value)
+        await _set_web_url_status("failed")
 
 
 async def _run_parallel(*coros):
@@ -191,7 +206,37 @@ async def list_docs(
     session: AsyncSession = Depends(get_db),
 ) -> Any:
     docs = await list_documents(session, ctx.org_id)
-    return [_doc_to_response(d) for d in docs]
+    return [_doc_to_response(d) for d in docs if d.document_type == "file"]
+
+
+class UpdateDocumentRequest(BaseModel):
+    doc_type: str = ""
+    access_roles: list[str] = []
+    description: str | None = None
+    is_confidential: bool = False
+
+
+@router.patch("/{doc_id}", response_model=DocumentResponse)
+async def update_doc_metadata(
+    doc_id: UUID,
+    body: UpdateDocumentRequest,
+    ctx: RequestContext = authorize("documents:upload"),
+    session: AsyncSession = Depends(get_db),
+) -> Any:
+    doc = await get_document(session, doc_id)
+    existing = doc.tags or {}
+    doc.tags = {
+        **existing,
+        "doc-type": body.doc_type.strip(),
+        "roles": body.access_roles,
+        "confidential": "true" if body.is_confidential else "false",
+    }
+    doc.description = body.description
+    doc.updated_at = datetime.now(timezone.utc)
+    session.add(doc)
+    await session.flush()
+    await log_action(session, ctx, "document.update", "document", str(doc_id))
+    return _doc_to_response(doc)
 
 
 @router.post("", status_code=202)

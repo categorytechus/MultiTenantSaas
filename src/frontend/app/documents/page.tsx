@@ -361,6 +361,177 @@ function DeleteModal({
   );
 }
 
+// ── Edit Document Modal ───────────────────────────────────────────────────────
+
+function EditDocumentModal({
+  doc,
+  orgRoles,
+  onClose,
+  onSuccess,
+}: {
+  doc: Document | null;
+  orgRoles: OrgRole[];
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [docType, setDocType] = useState("");
+  const [accessRoles, setAccessRoles] = useState<string[]>([]);
+  const [allRoles, setAllRoles] = useState(true);
+  const [description, setDescription] = useState("");
+  const [isConfidential, setIsConfidential] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!doc) return;
+    const savedRoles: string[] = Array.isArray(doc.tags?.roles)
+      ? (doc.tags.roles as string[])
+      : typeof doc.tags?.roles === "string" && doc.tags.roles
+        ? (doc.tags.roles as string).split(",").map((r) => r.trim()).filter(Boolean)
+        : [];
+    setDocType(doc.tags?.["doc-type"] || "");
+    setAccessRoles(savedRoles);
+    setAllRoles(savedRoles.length === 0);
+    setDescription(doc.description || "");
+    setIsConfidential(doc.tags?.confidential === "true");
+    setError(null);
+  }, [doc]);
+
+  if (!doc) return null;
+
+  const toggleRole = (roleName: string) => {
+    const has = accessRoles.includes(roleName);
+    setAccessRoles(has ? accessRoles.filter((r) => r !== roleName) : [...accessRoles, roleName]);
+    setAllRoles(false);
+  };
+
+  const handleSave = async () => {
+    if (!docType.trim()) { setError("Document Type is required"); return; }
+    if (!allRoles && accessRoles.length === 0) { setError('Select at least one role or choose "All roles"'); return; }
+    setError(null);
+    setSaving(true);
+    try {
+      const res = await apiFetch(`/documents/${doc.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          doc_type: docType.trim(),
+          access_roles: allRoles ? [] : accessRoles,
+          description: description.trim() || null,
+          is_confidential: isConfidential,
+        }),
+      });
+      if (!res.success) throw new Error(res.error || "Failed to save");
+      onSuccess();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[2000]" onClick={() => !saving && onClose()}>
+      <div className="bg-white rounded-xl p-7 w-[90%] max-w-[520px] max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <h2 className="text-[17px] font-semibold text-gray-900 mb-1">Edit Document</h2>
+        <p className="text-[13px] text-gray-500 mb-5 truncate">{doc.filename}</p>
+
+        {/* Doc type */}
+        <div className="mb-4">
+          <label className="block text-[13px] font-medium text-gray-800 mb-1.5">
+            Document Type <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="text"
+            className="w-full px-3 py-2.5 border border-gray-300 rounded-md text-[13px] text-gray-900 outline-none focus:border-violet-500 transition-colors disabled:opacity-50"
+            value={docType}
+            onChange={(e) => setDocType(e.target.value)}
+            placeholder="e.g., invoice, report, guide"
+            disabled={saving}
+          />
+        </div>
+
+        {/* Access roles */}
+        <div className="mb-4">
+          <label className="block text-[13px] font-medium text-gray-800 mb-1.5">
+            Access Roles <span className="text-red-500">*</span>
+          </label>
+          <label className={`flex items-center gap-2 px-2.5 py-1.5 rounded-md border cursor-pointer select-none mb-2 transition-colors ${
+            allRoles ? "border-violet-400 bg-violet-50 text-violet-700" : "border-gray-200 bg-white text-gray-600 hover:border-violet-300"
+          } ${saving ? "opacity-50 pointer-events-none" : ""}`}>
+            <input
+              type="checkbox"
+              className="w-3.5 h-3.5 accent-violet-600"
+              checked={allRoles}
+              onChange={(e) => { setAllRoles(e.target.checked); if (e.target.checked) setAccessRoles([]); }}
+              disabled={saving}
+            />
+            <span className="text-[13px] font-medium">All roles (unrestricted)</span>
+          </label>
+          {!allRoles && (
+            <div className="flex flex-wrap gap-1.5 mt-1">
+              {orgRoles.length === 0 && <p className="text-[12px] text-gray-400">No roles found — create roles first.</p>}
+              {orgRoles.map((r) => {
+                const selected = accessRoles.includes(r.name);
+                return (
+                  <button
+                    key={r.id}
+                    type="button"
+                    onClick={() => toggleRole(r.name)}
+                    disabled={saving}
+                    className={`px-2.5 py-1 rounded-full text-[12px] font-medium border transition-colors disabled:opacity-50 ${
+                      selected ? "bg-violet-600 border-violet-600 text-white" : "bg-white border-gray-300 text-gray-600 hover:border-violet-400"
+                    }`}
+                  >
+                    {r.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {!allRoles && <p className="text-[11.5px] text-gray-400 mt-1.5">Select one or more roles.</p>}
+        </div>
+
+        {/* Description */}
+        <div className="mb-4">
+          <label className="block text-[13px] font-medium text-gray-800 mb-1.5">Description</label>
+          <textarea
+            className="w-full px-3 py-2.5 border border-gray-300 rounded-md text-[13px] text-gray-900 outline-none focus:border-violet-500 transition-colors resize-y min-h-[72px] disabled:opacity-50"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Optional description…"
+            disabled={saving}
+          />
+        </div>
+
+        {/* Confidential */}
+        <div className="mb-5">
+          <label className={`flex items-center gap-2.5 cursor-pointer select-none ${saving ? "opacity-50 pointer-events-none" : ""}`}>
+            <input
+              type="checkbox"
+              className="w-4 h-4 accent-violet-600"
+              checked={isConfidential}
+              onChange={(e) => setIsConfidential(e.target.checked)}
+              disabled={saving}
+            />
+            <span className="text-[13px] font-medium text-gray-800">Mark as Confidential</span>
+          </label>
+        </div>
+
+        {error && (
+          <div className="mb-4 text-[12.5px] text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">{error}</div>
+        )}
+
+        <div className="flex gap-3 justify-end">
+          <button className="px-4 py-2 bg-gray-100 text-gray-800 text-[13.5px] font-medium rounded-md hover:bg-gray-200 transition-colors disabled:opacity-50" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="px-4 py-2 bg-violet-600 text-white text-[13.5px] font-medium rounded-md hover:bg-violet-700 transition-colors disabled:opacity-50" onClick={handleSave} disabled={saving}>
+            {saving ? "Saving…" : "Save Changes"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Upload Modal ──────────────────────────────────────────────────────────────
 
 function UploadModal({
@@ -595,12 +766,12 @@ export default function DocumentsPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [deleteDoc, setDeleteDoc] = useState<Document | null>(null);
+  const [editDoc, setEditDoc] = useState<Document | null>(null);
   const [orgRoles, setOrgRoles] = useState<OrgRole[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
-  const [reembedding, setReembedding] = useState<Set<string>>(new Set());
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const itemsPerPage = 10;
 
@@ -694,16 +865,6 @@ export default function DocumentsPage() {
     }
   };
 
-  const handleReembed = async (docId: string) => {
-    setReembedding((prev) => new Set(prev).add(docId));
-    try {
-      await apiFetch(`/documents/${docId}/re-embed`, { method: "POST" });
-      const docs = await fetchDocuments(true);
-      startPollingIfNeeded(docs);
-    } finally {
-      setReembedding((prev) => { const n = new Set(prev); n.delete(docId); return n; });
-    }
-  };
 
   const handleView = async (doc: Document) => {
     try {
@@ -900,19 +1061,13 @@ export default function DocumentsPage() {
                                 </svg>
                               </button>
                               <button
-                                className="flex items-center gap-1 px-2 py-1.5 rounded-md border border-gray-200 bg-white text-[11px] font-medium text-gray-500 hover:text-violet-600 hover:border-violet-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                                title="Re-embed"
-                                disabled={reembedding.has(doc.id)}
-                                onClick={() => handleReembed(doc.id)}
+                                className="p-1.5 rounded-md border border-gray-200 bg-white text-gray-400 hover:text-violet-600 hover:border-violet-200 transition-colors"
+                                title="Edit"
+                                onClick={() => setEditDoc(doc)}
                               >
-                                {reembedding.has(doc.id) ? (
-                                  <span className="w-3 h-3 rounded-full border border-current border-t-transparent animate-spin" />
-                                ) : (
-                                  <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                                    <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/>
-                                  </svg>
-                                )}
-                                Re-embed
+                                <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24">
+                                  <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+                                </svg>
                               </button>
                               <button
                                 className="p-1.5 rounded-md border border-gray-200 bg-white text-gray-400 hover:text-red-500 hover:border-red-200 transition-colors"
@@ -969,6 +1124,12 @@ export default function DocumentsPage() {
         onSuccess={handleUploadSuccess}
       />
       <DeleteModal doc={deleteDoc} onClose={() => setDeleteDoc(null)} onConfirm={handleDelete} />
+      <EditDocumentModal
+        doc={editDoc}
+        orgRoles={orgRoles}
+        onClose={() => setEditDoc(null)}
+        onSuccess={async () => { setEditDoc(null); await fetchDocuments(true); }}
+      />
     </Layout>
   );
 }

@@ -91,7 +91,7 @@ async def create_web_url(
         title=title[:500],
         tags=body.tags or {},
         description=body.description,
-        status="active",
+        status="processing",
     )
     session.add(web_url_row)
     await session.flush()
@@ -129,10 +129,11 @@ async def create_web_url(
         _ingest_document_bg,
         doc_id,
         ctx.org_id,
-        None,           # no file bytes
-        None,           # no mime_type
+        None,                  # no file bytes
+        None,                  # no mime_type
         doc_snapshot["filename"],
-        url_stripped,   # source_url → triggers URL fetch branch
+        url_stripped,          # source_url → triggers URL fetch branch
+        web_url_row.id,        # mirrors status back to the WebUrl record
     )
     
     return {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Layout from "../../components/Layout";
 import { apiFetch } from "../../src/lib/api";
@@ -12,7 +12,13 @@ interface WebUrl {
   id: string;
   url: string;
   title: string;
-  tags: Record<string, string>;
+  tags: {
+    "doc-type"?: string;
+    roles?: string[] | string;
+    confidential?: string;
+    "user-id"?: string;
+    [key: string]: unknown;
+  };
   description?: string;
   status: string;
   created_at: string;
@@ -22,7 +28,8 @@ interface WebUrl {
 interface UrlMetadata {
   docType: string;
   isConfidential: boolean;
-  role: string;
+  accessRoles: string[];  // empty = unrestricted (all roles)
+  allRoles: boolean;      // "all roles" toggle — overrides accessRoles
   description: string;
 }
 
@@ -45,16 +52,16 @@ function formatDate(dateString: string) {
 function getStatusStyle(status: string) {
   switch (status.toLowerCase()) {
     case "ready":
-      return { cls: "bg-green-50 text-green-800", dot: "bg-green-600", label: "Ready" };
+      return { cls: "bg-green-50 text-green-800", dot: "bg-green-600", label: "Ready", spinning: false };
     case "processing":
       return { cls: "bg-blue-50 text-blue-700", dot: "bg-blue-600", label: "Processing", spinning: true };
     case "pending":
       return { cls: "bg-orange-50 text-orange-700", dot: "bg-orange-500", label: "Pending", spinning: true };
     case "error":
     case "failed":
-      return { cls: "bg-red-50 text-red-700", dot: "bg-red-600", label: "Error" };
+      return { cls: "bg-red-50 text-red-700", dot: "bg-red-600", label: "Failed", spinning: false };
     default:
-      return { cls: "bg-gray-100 text-gray-600", dot: "bg-gray-400", label: status };
+      return { cls: "bg-gray-100 text-gray-600", dot: "bg-gray-400", label: status, spinning: false };
   }
 }
 
@@ -71,6 +78,14 @@ function MetadataFields({
   orgRoles: OrgRole[];
   disabled?: boolean;
 }) {
+  const toggleRole = (roleName: string) => {
+    const has = metadata.accessRoles.includes(roleName);
+    const next = has
+      ? metadata.accessRoles.filter((r) => r !== roleName)
+      : [...metadata.accessRoles, roleName];
+    onChange({ ...metadata, accessRoles: next, allRoles: false });
+  };
+
   return (
     <div className="space-y-4">
       <div>
@@ -90,22 +105,56 @@ function MetadataFields({
 
       <div>
         <label className="block text-[13px] font-medium text-gray-800 mb-1.5">
-          Role <span className="text-red-500">*</span>
+          Access Roles <span className="text-red-500">*</span>
         </label>
-        <select
-          className="w-full px-3 py-2.5 border border-gray-300 rounded-md text-[13px] text-gray-900 outline-none focus:border-violet-500 transition-colors bg-white disabled:opacity-50"
-          value={metadata.role}
-          onChange={(e) => onChange({ ...metadata, role: e.target.value })}
-          disabled={disabled}
-        >
-          <option value="">Select a role</option>
-          {orgRoles.map((r) => (
-            <option key={r.id} value={r.name}>{r.name}</option>
-          ))}
-        </select>
-        <p className="text-[11.5px] text-gray-400 mt-1">
-          {orgRoles.length > 0 ? "Showing all available organization roles." : "No roles found. Create roles from the Roles screen first."}
-        </p>
+
+        {/* All roles toggle */}
+        <label className={`flex items-center gap-2 px-2.5 py-1.5 rounded-md border cursor-pointer select-none mb-2 transition-colors ${
+          metadata.allRoles
+            ? "border-violet-400 bg-violet-50 text-violet-700"
+            : "border-gray-200 bg-white text-gray-600 hover:border-violet-300"
+        } ${disabled ? "opacity-50 pointer-events-none" : ""}`}>
+          <input
+            type="checkbox"
+            className="w-3.5 h-3.5 accent-violet-600"
+            checked={metadata.allRoles}
+            onChange={(e) => onChange({ ...metadata, allRoles: e.target.checked, accessRoles: [] })}
+            disabled={disabled}
+          />
+          <span className="text-[13px] font-medium">All roles (unrestricted)</span>
+        </label>
+
+        {/* Individual role pills */}
+        {!metadata.allRoles && (
+          <div className="flex flex-wrap gap-1.5 mt-1">
+            {orgRoles.length === 0 && (
+              <p className="text-[12px] text-gray-400">No roles found — create roles first.</p>
+            )}
+            {orgRoles.map((r) => {
+              const selected = metadata.accessRoles.includes(r.name);
+              return (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => toggleRole(r.name)}
+                  disabled={disabled}
+                  className={`px-2.5 py-1 rounded-full text-[12px] font-medium border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    selected
+                      ? "bg-violet-600 border-violet-600 text-white"
+                      : "bg-white border-gray-300 text-gray-600 hover:border-violet-400"
+                  }`}
+                >
+                  {r.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {!metadata.allRoles && (
+          <p className="text-[11.5px] text-gray-400 mt-1.5">
+            Select one or more roles that can access this URL.
+          </p>
+        )}
       </div>
 
       <div>
@@ -120,7 +169,7 @@ function MetadataFields({
       </div>
 
       <div>
-        <label className="flex items-center gap-2.5 cursor-pointer select-none">
+        <label className={`flex items-center gap-2.5 cursor-pointer select-none ${disabled ? "opacity-50 pointer-events-none" : ""}`}>
           <input
             type="checkbox"
             className="w-4 h-4 accent-violet-600"
@@ -191,13 +240,14 @@ function UrlModal({
   orgRoles: OrgRole[];
   currentUserId: string;
   editingUrl: WebUrl | null;
-  onSuccess: () => void;
+  onSuccess: (url: WebUrl) => void;
 }) {
   const [inputUrl, setInputUrl] = useState("");
   const [metadata, setMetadata] = useState<UrlMetadata>({
     docType: "",
     isConfidential: false,
-    role: "",
+    accessRoles: [],
+    allRoles: true,
     description: "",
   });
   const [saving, setSaving] = useState(false);
@@ -208,16 +258,23 @@ function UrlModal({
   // Populate form when editing
   useEffect(() => {
     if (editingUrl) {
+      const rolesRaw = editingUrl.tags?.roles;
+      const savedRoles: string[] = Array.isArray(rolesRaw)
+        ? rolesRaw
+        : typeof rolesRaw === "string" && rolesRaw
+          ? rolesRaw.split(",").map((r) => r.trim()).filter(Boolean)
+          : [];
       setInputUrl(editingUrl.url);
       setMetadata({
         docType: editingUrl.tags?.["doc-type"] || "",
         isConfidential: editingUrl.tags?.confidential === "true",
-        role: editingUrl.tags?.role || "",
+        accessRoles: savedRoles,
+        allRoles: savedRoles.length === 0,
         description: editingUrl.description || "",
       });
     } else {
       setInputUrl("");
-      setMetadata({ docType: "", isConfidential: false, role: "", description: "" });
+      setMetadata({ docType: "", isConfidential: false, accessRoles: [], allRoles: true, description: "" });
     }
     setError(null);
     setSuccess(false);
@@ -231,15 +288,19 @@ function UrlModal({
     if (!inputUrl.trim()) { setError("Please enter a URL"); return; }
     try { new URL(inputUrl); } catch { setError("Please enter a valid URL (include https://)"); return; }
     if (!metadata.docType.trim()) { setError("Document Type is required"); return; }
-    if (!metadata.role) { setError("Please select a Role"); return; }
+    if (!metadata.allRoles && metadata.accessRoles.length === 0) {
+      setError("Select at least one role or choose \"All roles\"");
+      return;
+    }
 
     setError(null);
     setSaving(true);
     try {
-      const tags: Record<string, string> = {
+      const roles = metadata.allRoles ? [] : metadata.accessRoles;
+      const tags: Record<string, unknown> = {
         "doc-type": metadata.docType.trim(),
         confidential: metadata.isConfidential ? "true" : "false",
-        role: metadata.role,
+        roles,
       };
       if (currentUserId) tags["user-id"] = currentUserId;
 
@@ -249,8 +310,11 @@ function UrlModal({
         : await apiFetch("/web-urls", { method: "POST", body });
 
       if (!res.success) throw new Error(res.error || "Failed to save URL");
+      // Extract the saved URL row from the response and immediately surface it.
+      const urlRow = (res.data as { data?: WebUrl })?.data;
+      if (urlRow) onSuccess(urlRow);
       setSuccess(true);
-      setTimeout(() => { handleClose(); onSuccess(); }, 1500);
+      setTimeout(() => handleClose(), 1200);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to save URL");
     } finally {
@@ -331,6 +395,7 @@ export default function WebUrlPage() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const itemsPerPage = 10;
 
   // Permission guard
@@ -346,17 +411,37 @@ export default function WebUrlPage() {
     } catch { router.replace("/dashboard"); }
   }, [router]);
 
-  const fetchUrls = useCallback(async () => {
+  const fetchUrls = useCallback(async (silent = false): Promise<WebUrl[]> => {
+    if (!silent) setLoading(true);
     try {
       const res = await apiFetch<{ data: WebUrl[] }>("/web-urls");
-      if (res.success) setUrls(res.data.data);
+      if (res.success) {
+        setUrls(res.data.data);
+        return res.data.data;
+      }
     } catch { /* no-op */ }
-    finally { setLoading(false); }
+    finally { if (!silent) setLoading(false); }
+    return [];
   }, []);
+
+  const startPollingIfNeeded = useCallback((list: WebUrl[]) => {
+    const inProgress = list.some((u) => u.status === "processing" || u.status === "pending");
+    if (inProgress && !pollingRef.current) {
+      pollingRef.current = setInterval(async () => {
+        const updated = await fetchUrls(true);
+        const stillInProgress = updated.some((u) => u.status === "processing" || u.status === "pending");
+        if (!stillInProgress && pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+        }
+      }, 4000);
+    }
+  }, [fetchUrls]);
 
   useEffect(() => {
     const init = async () => {
-      await fetchUrls();
+      const list = await fetchUrls();
+      startPollingIfNeeded(list);
       try {
         const meRes = await apiFetch<{ data: { id: string } }>("/auth/me");
         if (meRes.success) setCurrentUserId(meRes.data.data.id);
@@ -373,7 +458,8 @@ export default function WebUrlPage() {
       } catch { /* no-op */ }
     };
     init();
-  }, [fetchUrls]);
+    return () => { if (pollingRef.current) clearInterval(pollingRef.current); };
+  }, [fetchUrls, startPollingIfNeeded]);
 
   useEffect(() => { setCurrentPage(1); }, [searchTerm, startDate, endDate]);
 
@@ -389,7 +475,22 @@ export default function WebUrlPage() {
   const openAdd = () => { setEditingUrl(null); setShowModal(true); };
   const openEdit = (u: WebUrl) => { setEditingUrl(u); setShowModal(true); };
   const handleModalClose = () => { setShowModal(false); setEditingUrl(null); };
-  const handleSuccess = () => { setShowModal(false); setEditingUrl(null); fetchUrls(); };
+
+  const handleSuccess = (url: WebUrl) => {
+    // Immediately show the created/updated row without waiting for a network round-trip.
+    setUrls((prev) => {
+      const exists = prev.some((u) => u.id === url.id);
+      return exists ? prev.map((u) => u.id === url.id ? url : u) : [url, ...prev];
+    });
+    startPollingIfNeeded([url]);
+    // Background sync to pick up any server-side changes (e.g. title extracted).
+    fetchUrls(true).then(startPollingIfNeeded);
+  };
+
+  const handleRefresh = async () => {
+    const list = await fetchUrls();
+    startPollingIfNeeded(list);
+  };
 
   // Filter + paginate
   const filteredUrls = urls.filter((u) => {
@@ -414,15 +515,28 @@ export default function WebUrlPage() {
             <h1 className="text-xl font-bold text-gray-900 tracking-tight">Web URLs</h1>
             <p className="text-[13px] text-gray-500 mt-1">Add and manage web pages in your knowledge base.</p>
           </div>
-          <button
-            className="flex items-center gap-1.5 px-4 py-2 bg-[#2f3640] text-white text-[13px] font-medium rounded-md hover:bg-[#1a1f28] transition-colors"
-            onClick={openAdd}
-          >
-            <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
-            </svg>
-            Add URL
-          </button>
+          <div className="flex gap-2 flex-wrap">
+            <button
+              className="flex items-center gap-1.5 px-3 py-2 bg-white text-gray-800 text-[13px] font-medium rounded-md border border-gray-200 hover:bg-gray-50 transition-colors disabled:opacity-60"
+              onClick={handleRefresh}
+              disabled={loading}
+              title="Refresh statuses"
+            >
+              <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24" className={loading ? "animate-spin" : ""}>
+                <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" />
+              </svg>
+              Refresh
+            </button>
+            <button
+              className="flex items-center gap-1.5 px-4 py-2 bg-[#2f3640] text-white text-[13px] font-medium rounded-md hover:bg-[#1a1f28] transition-colors"
+              onClick={openAdd}
+            >
+              <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
+              </svg>
+              Add URL
+            </button>
+          </div>
         </div>
 
         {/* Filters */}
@@ -486,9 +600,21 @@ export default function WebUrlPage() {
                               {isConfidential && (
                                 <span className="inline-block text-[10px] font-semibold bg-red-50 text-red-700 px-1.5 py-0.5 rounded">Confidential</span>
                               )}
-                              {u.tags?.role && (
-                                <span className="inline-block text-[10px] font-medium bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">{u.tags.role}</span>
-                              )}
+                              {(() => {
+                                const rolesRaw = u.tags?.roles;
+                                const roles: string[] = Array.isArray(rolesRaw)
+                                  ? rolesRaw
+                                  : typeof rolesRaw === "string" && rolesRaw
+                                    ? rolesRaw.split(",").map((r) => r.trim()).filter(Boolean)
+                                    : [];
+                                return roles.length > 0
+                                  ? roles.map((r) => (
+                                      <span key={r} className="inline-block text-[10px] font-medium bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">{r}</span>
+                                    ))
+                                  : (
+                                      <span className="inline-block text-[10px] font-medium bg-gray-50 text-gray-400 px-1.5 py-0.5 rounded">All roles</span>
+                                    );
+                              })()}
                             </div>
                           </td>
 
