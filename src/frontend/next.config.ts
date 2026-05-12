@@ -8,16 +8,10 @@ const nextConfig: NextConfig = {
   /**
    * Same-origin `/api`: browser calls Next.js; dev rewrites forward to FastAPI.
    */
+  // API proxying is handled by app/api/[...path]/route.ts at request time,
+  // which reads API_BACKEND_ORIGIN as a runtime env var.
   async rewrites() {
-    /*if (process.env.NODE_ENV !== "development") {
-      return [];
-    } */
-    return [
-      {
-        source: "/api/:path*",
-        destination: `${apiBackendOrigin}/api/:path*`,
-      },
-    ];
+    return [];
   },
 };
  

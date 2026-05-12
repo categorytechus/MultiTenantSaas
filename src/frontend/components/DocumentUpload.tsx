@@ -15,7 +15,7 @@ export default function DocumentUpload({ onUploadComplete }: UploadProps) {
   const [dragging, setDragging] = useState(false);
 
   // Tags state
-  const [tags, setTags] = useState({
+  const [tags, setTags] = useState<Record<string, string>>({
     owner: '',
     category: 'general',
     status: 'active',

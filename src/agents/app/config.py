@@ -2,9 +2,10 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Resolves to the project root regardless of the working directory the worker is
-# launched from (src/agents/ via Makefile).
-_ENV_FILE = Path(__file__).parents[3] / ".env"
+# Resolves to the project root .env when running locally (src/agents/app/ = 3 levels deep).
+# In Docker, /app/app/ only has 2 parent levels, so we skip the file and rely on env vars.
+_parents = Path(__file__).parents
+_ENV_FILE = (_parents[3] / ".env") if len(_parents) > 3 else None
 
 
 class Settings(BaseSettings):

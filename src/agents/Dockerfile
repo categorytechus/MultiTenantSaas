@@ -3,29 +3,16 @@ FROM python:3.12-slim AS builder
 RUN pip install --no-cache-dir uv
 
 WORKDIR /app
+
 COPY pyproject.toml ./
 
+# Install all dependencies from pyproject.toml — single source of truth
 RUN uv venv /opt/venv && \
-    uv pip install --python /opt/venv/bin/python \
-        "arq>=0.26" \
-        "httpx>=0.27" \
-        "langchain>=0.3" \
-        "langchain-aws>=0.2" \
-        "langchain-core>=0.3" \
-        "psycopg[binary]>=3.2" \
-        "pgvector>=0.3" \
-        "redis[hiredis]>=5.0" \
-        "pydantic-settings>=2.5" \
-        "structlog>=24.4" \
-        "openai>=1.50" \
-        "boto3>=1.35" \
-        "aiofiles>=24.1" \
-        "pypdf>=5.0" \
-        "python-docx>=1.1"
+    uv pip install --python /opt/venv/bin/python -r pyproject.toml
 
 FROM python:3.12-slim AS runtime
 
-RUN apt-get update && apt-get install -y --no-install-recommends libpq-dev \
+RUN apt-get update && apt-get install -y --no-install-recommends libpq-dev libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /opt/venv /opt/venv

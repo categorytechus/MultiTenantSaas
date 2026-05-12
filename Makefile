@@ -1,4 +1,4 @@
-.PHONY: help dev server agents frontend migrate migrate-docker install lint clean db-up ecr-login redeploy-ecr
+.PHONY: help dev dev-detach db-up migrate migrate-docker migrate-new install server agents frontend prod prod-detach prod-frontend clean logs-server logs-agents logs-frontend logs-prod-frontend ecr-login redeploy-ecr
 
 PYTHON := python3
 UV := uv
@@ -35,6 +35,11 @@ help:
 	@echo "  make logs-server     FastAPI server logs"
 	@echo "  make logs-agents     Agents worker logs (ingest + chat)"
 	@echo "  make logs-frontend   Next.js frontend logs"
+	@echo ""
+	@echo "Production (EC2 / local prod build):"
+	@echo "  make prod            Build & run all services with production frontend (Docker)"
+	@echo "  make prod-detach     Same, detached"
+	@echo "  make prod-frontend   Build & run production frontend Docker container only"
 	@echo ""
 	@echo "Deploy:"
 	@echo "  make redeploy-ecr    Build + push 3 images to ECR, SSH deploy to EC2"
@@ -74,6 +79,23 @@ ifeq ($(OS),Windows_NT)
 else
 	cd $(FRONTEND_DIR) && AUTH_GATEWAY_PROXY_ORIGIN=http://localhost:8000 npm run dev
 endif
+
+prod-frontend:
+	@echo "Building production frontend image..."
+	docker build -t mtsaas-frontend $(FRONTEND_DIR)
+	@docker rm -f mtsaas-frontend-prod 2>/dev/null || true
+	docker run -d --restart unless-stopped --name mtsaas-frontend-prod \
+		-p 3000:3000 \
+		--add-host=host.docker.internal:host-gateway \
+		-e API_BACKEND_ORIGIN=http://host.docker.internal:8000 \
+		mtsaas-frontend
+	@echo "Production frontend running at http://localhost:3000"
+
+prod:
+	docker compose -f docker-compose.local-prod.yml up --build
+
+prod-detach:
+	docker compose -f docker-compose.local-prod.yml up --build -d
 
 migrate:
 	@if ! nc -z 127.0.0.1 5432 2>/dev/null; then \
@@ -119,6 +141,9 @@ logs-agents:
 
 logs-frontend:
 	docker compose logs -f frontend
+
+logs-prod-frontend:
+	docker logs -f mtsaas-frontend-prod
 
 # ── ECR / prod deploy ─────────────────────────────────────────────────────────
 
