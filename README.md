@@ -183,6 +183,155 @@ Alternatively: `sudo rm -rf src/frontend/node_modules src/frontend/.next && cd s
 
 Compose mounts anonymous volumes on `/app/node_modules` and `/app/.next` for the `frontend` service so Docker installs do not leave root-owned directories on the host.
 
+## Production Deployment (AWS EC2)
+
+### Prerequisites
+
+- [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html) configured with credentials that can manage EC2, RDS, ElastiCache, S3, ECR, VPC, and IAM
+- [Terraform 1.6+](https://developer.hashicorp.com/terraform/install)
+- Docker (for building and pushing images)
+- An EC2 key pair PEM file at `infra/multi-tenant-saas-key.pem` (chmod 400)
+
+### Step 1 — Provision Infrastructure (one-time)
+
+```bash
+cp infra/terraform.tfvars.example infra/terraform.tfvars
+```
+
+Edit `infra/terraform.tfvars`:
+
+| Variable | What to set |
+|---|---|
+| `db_password` | Strong password for RDS |
+| `allowed_ssh_cidrs` | Your IP(s) in CIDR notation, e.g. `["1.2.3.4/32"]` |
+| `key_name` | EC2 key pair name in AWS (must already exist) |
+| `github_org` / `github_repo` | Your GitHub org and repo name (for OIDC) |
+
+```bash
+terraform -chdir=infra init
+terraform -chdir=infra apply
+```
+
+Terraform outputs the RDS endpoint, ElastiCache endpoint, S3 bucket name, and ECR registry URL — note these for the next step.
+
+### Step 2 — Configure Environment on EC2
+
+SSH into the instance (IP is auto-resolved from the `mtsaas-prod-app` tag):
+
+```bash
+ssh -i infra/multi-tenant-saas-key.pem ec2-user@<EC2_IP>
+sudo mkdir -p /opt/app
+sudo tee /opt/app/.env > /dev/null <<'EOF'
+DATABASE_URL=postgresql+asyncpg://appuser:<db_password>@<rds_endpoint>:5432/app
+REDIS_URL=redis://<elasticache_endpoint>:6379/0
+SECRET_KEY=<output of: openssl rand -hex 32>
+ANTHROPIC_API_KEY=<your key>
+OPENAI_API_KEY=<your key>
+S3_BUCKET=<terraform output: s3_bucket_name>
+AWS_DEFAULT_REGION=us-east-1
+EOF
+```
+
+> `SERVER_URL` is not needed in prod — the agents container uses `http://server:8000` (same Compose network).
+
+Docker Compose on EC2 reads `/opt/app/.env` automatically at startup. The `docker-compose.prod.yml` injects these as container environment variables.
+
+### Step 3 — First Deploy
+
+From your local machine (in the repo root):
+
+```bash
+# Ensure AWS CLI is authenticated and region is set
+export AWS_REGION=us-east-1
+
+make redeploy-ecr
+```
+
+This single command:
+1. Logs in to ECR
+2. Builds all three Docker images (`server`, `agents`, `frontend`) tagged with the current git SHA
+3. Pushes them to ECR
+4. SCPs `docker-compose.prod.yml` to `/opt/app/docker-compose.yml` on EC2
+5. SSHs in, pulls the new images, runs `docker compose up -d --remove-orphans`
+6. Runs `alembic upgrade head` inside the running `server` container
+
+### Day-to-day Redeployment
+
+```bash
+make redeploy-ecr
+```
+
+The Makefile auto-resolves `EC2_IP` from the `mtsaas-prod-app` instance tag and tags images with the current git short SHA. Override either at the command line:
+
+```bash
+make redeploy-ecr EC2_IP=1.2.3.4 IMAGE_TAG=v1.2.3
+```
+
+### Useful EC2 Commands
+
+```bash
+ssh -i infra/multi-tenant-saas-key.pem ec2-user@<EC2_IP>
+
+cd /opt/app
+docker compose ps                     # service health
+docker compose logs -f server         # FastAPI logs
+docker compose logs -f agents         # Arq worker logs
+docker compose logs -f frontend       # Next.js logs
+docker compose exec server alembic upgrade head   # manual migration
+docker compose restart agents         # restart a single service
+```
+
+### GitHub Actions CI/CD (optional)
+
+Terraform creates an OIDC IAM role `github-cts` that GitHub Actions can assume — no stored AWS credentials needed.
+
+Add these secrets to your GitHub repository (Settings → Secrets):
+
+| Secret | Value |
+|---|---|
+| `AWS_ROLE_ARN` | ARN of the `github-cts` role (Terraform output) |
+| `EC2_SSH_KEY` | Contents of `infra/multi-tenant-saas-key.pem` |
+
+A minimal workflow (`.github/workflows/deploy.yml`):
+
+```yaml
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Write SSH key
+        run: |
+          echo "${{ secrets.EC2_SSH_KEY }}" > infra/multi-tenant-saas-key.pem
+          chmod 400 infra/multi-tenant-saas-key.pem
+      - name: Deploy
+        run: make redeploy-ecr
+```
+
+### Production Environment Variables Reference
+
+| Variable | Required | Notes |
+|---|---|---|
+| `DATABASE_URL` | Yes | `postgresql+asyncpg://user:pass@host:5432/db` |
+| `REDIS_URL` | Yes | `redis://host:6379/0` |
+| `SECRET_KEY` | Yes | `openssl rand -hex 32` — rotate to invalidate all sessions |
+| `ANTHROPIC_API_KEY` | No | Claude LLM; mock responses if absent |
+| `OPENAI_API_KEY` | No | Embeddings; mock if absent |
+| `S3_BUCKET` | No | Falls back to local filesystem if absent (not suitable for prod) |
+| `AWS_DEFAULT_REGION` | No | Defaults to `us-east-1` |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | No | Only needed if EC2 instance profile is not set |
+
 ## Infrastructure
 
 Terraform in `infra/` provisions the full AWS stack:
@@ -193,7 +342,7 @@ cp infra/terraform.tfvars.example infra/terraform.tfvars
 terraform -chdir=infra init && terraform -chdir=infra apply
 ```
 
-CI deploys automatically to EC2 on push to `dev` via GitHub Actions + OIDC (no stored AWS keys).
+CI deploys automatically to EC2 on push to `main` via GitHub Actions + OIDC (no stored AWS keys).
 
 ## License
 
