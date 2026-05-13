@@ -83,21 +83,23 @@ async def create_web_url(
 
     title = parsed.netloc if "://" in url_stripped else url_stripped
     
-    # Create WebUrl record (for management UI)
-    web_url_row = WebUrl(
-        org_id=ctx.org_id,
-        uploaded_by=ctx.user_id,
-        url=url_stripped,
-        title=title[:500],
-        tags=body.tags or {},
-        description=body.description,
-        status="processing",
-    )
-    session.add(web_url_row)
-    await session.flush()
-    
-    # Create Document record (for ingestion) and enqueue background job
+    # Capture all values we need in plain Python vars BEFORE the session closes.
+    # db_session auto-commits when the `async with` block exits, so by the time
+    # the background task starts, the rows are already committed to the DB.
+    web_url_snapshot: dict = {}
     async with db_session(ctx.org_id) as doc_session:
+        web_url_row = WebUrl(
+            org_id=ctx.org_id,
+            uploaded_by=ctx.user_id,
+            url=url_stripped,
+            title=title[:500],
+            tags=body.tags or {},
+            description=body.description,
+            status="processing",
+        )
+        doc_session.add(web_url_row)
+        await doc_session.flush()
+
         doc = await create_url_document(
             doc_session,
             org_id=ctx.org_id,
@@ -120,6 +122,20 @@ async def create_web_url(
             doc_session, ctx, "web_url.create", "web_url", str(web_url_row.id), 
             {"url": url_stripped}
         )
+        # Snapshot the web_url fields now, while the session is still open,
+        # so we can safely build the response after the session closes.
+        web_url_snapshot = {
+            "id": str(web_url_row.id),
+            "url": web_url_row.url,
+            "title": web_url_row.title or "",
+            "tags": web_url_row.tags or {},
+            "description": web_url_row.description,
+            "status": web_url_row.status,
+            "created_at": web_url_row.created_at.isoformat(),
+            "processing_speed": None,
+        }
+        web_url_id = web_url_row.id
+    # db_session auto-commits here — rows are now durable in the DB
     
     # Enqueue background ingestion task.
     # The import of _ingest_document_bg is intentionally placed here to avoid a circular dependency
@@ -133,12 +149,12 @@ async def create_web_url(
         None,                  # no mime_type
         doc_snapshot["filename"],
         url_stripped,          # source_url → triggers URL fetch branch
-        web_url_row.id,        # mirrors status back to the WebUrl record
+        web_url_id,            # mirrors status back to the WebUrl record
     )
     
     return {
         "success": True,
-        "data": _to_row(web_url_row),
+        "data": web_url_snapshot,
         "document": doc_snapshot,
     }
 

@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     AWS_BEDROCK_REGION: str = "us-east-1"
     OPENAI_API_KEY: str = ""
 
+    # Set to 'gemini' to use Google Gemini instead of AWS Bedrock for chat and
+    # document metadata generation. Set to 'bedrock' (default) to keep using Bedrock.
+    CHAT_MODEL: str = "bedrock"  # 'bedrock' | 'gemini'
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-2.5-flash"
+
     ENVIRONMENT: str = "development"
     # Comma-separated string so pydantic-settings doesn't attempt JSON parsing.
     # Parsed into a list by cors_origins_list below.
@@ -57,6 +63,20 @@ class Settings(BaseSettings):
 
     # Signup links from POST /api/admin/org-admins/invites expire after this many days.
     INVITE_TOKEN_EXPIRE_DAYS: int = 7
+
+    # Google OAuth. GOOGLE_REDIRECT_URI is optional; when empty, the backend
+    # uses {PUBLIC_APP_URL}/api/auth/google/callback so the Next.js proxy can
+    # forward the callback to FastAPI in local and same-origin deployments.
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    GOOGLE_REDIRECT_URI: str = ""
+
+    # Microsoft OAuth / Entra ID. MICROSOFT_TENANT can be "common",
+    # "organizations", "consumers", or a tenant ID.
+    MICROSOFT_CLIENT_ID: str = ""
+    MICROSOFT_CLIENT_SECRET: str = ""
+    MICROSOFT_REDIRECT_URI: str = ""
+    MICROSOFT_TENANT: str = "common"
 
 
 settings = Settings()
