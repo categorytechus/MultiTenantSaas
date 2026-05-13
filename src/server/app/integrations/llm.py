@@ -12,10 +12,12 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-MOCK_RESPONSE = "I am a mock AI assistant. Please set BEDROCK_MODEL_ARN."
+MOCK_RESPONSE = "I am a mock AI assistant. Please set BEDROCK_MODEL_ARN or GEMINI_API_KEY."
 
 
-class LLMClient:
+# ── Bedrock client ─────────────────────────────────────────────────────────────
+
+class BedrockLLMClient:
     """AWS Bedrock Claude LLM client with streaming support."""
 
     def __init__(self) -> None:
@@ -33,9 +35,6 @@ class LLMClient:
                 kwargs["aws_secret_access_key"] = settings.AWS_SECRET_ACCESS_KEY
             if settings.AWS_SESSION_TOKEN:
                 kwargs["aws_session_token"] = settings.AWS_SESSION_TOKEN
-                
-            # Note: Bedrock Runtime doesn't have a native async boto3 client by default
-            # unless using aioboto3. We'll use synchronous boto3 and run in threadpool
             self._client = boto3.client("bedrock-runtime", **kwargs)
         return self._client
 
@@ -119,9 +118,134 @@ class LLMClient:
             return f"[Error: {e}]"
 
 
+# ── Gemini client ──────────────────────────────────────────────────────────────
+
+class GeminiLLMClient:
+    """Google Gemini LLM client (streaming + completion)."""
+
+    def __init__(self) -> None:
+        self._model = None
+
+    def _get_model(self):
+        if not settings.GEMINI_API_KEY:
+            return None
+        if self._model is None:
+            import google.generativeai as genai
+            genai.configure(api_key=settings.GEMINI_API_KEY)
+            self._model = genai.GenerativeModel(settings.GEMINI_MODEL)
+        return self._model
+
+    def _build_contents(self, messages: list[dict]) -> tuple[str | None, list[dict]]:
+        """Split out a system prompt and convert messages to Gemini format."""
+        system_instruction = None
+        contents = []
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if role == "system":
+                system_instruction = content
+            elif role == "assistant":
+                contents.append({"role": "model", "parts": [{"text": content}]})
+            else:
+                contents.append({"role": "user", "parts": [{"text": content}]})
+        return system_instruction, contents
+
+    async def stream(self, messages: list[dict]) -> AsyncIterator[str]:
+        """Stream tokens from Gemini."""
+        import google.generativeai as genai
+
+        model = self._get_model()
+        if model is None:
+            logger.warning("GEMINI_API_KEY not set, returning mock response")
+            for word in MOCK_RESPONSE.split(" "):
+                yield word + " "
+                await asyncio.sleep(0.05)
+            return
+
+        system_instruction, contents = self._build_contents(messages)
+
+        # Re-create model with system instruction if present
+        if system_instruction:
+            genai.configure(api_key=settings.GEMINI_API_KEY)
+            model = genai.GenerativeModel(
+                settings.GEMINI_MODEL,
+                system_instruction=system_instruction,
+            )
+
+        try:
+            loop = asyncio.get_running_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: model.generate_content(contents, stream=True),
+            )
+            for chunk in response:
+                text = chunk.text if hasattr(chunk, "text") else ""
+                if text:
+                    yield text
+        except Exception as e:
+            logger.error(f"Error streaming from Gemini: {e}")
+            yield f"[Error: {e}]"
+
+    async def complete(self, messages: list[dict]) -> str:
+        """Single (non-streaming) completion from Gemini."""
+        import google.generativeai as genai
+
+        model = self._get_model()
+        if model is None:
+            logger.warning("GEMINI_API_KEY not set, returning mock response")
+            return MOCK_RESPONSE
+
+        system_instruction, contents = self._build_contents(messages)
+
+        if system_instruction:
+            genai.configure(api_key=settings.GEMINI_API_KEY)
+            model = genai.GenerativeModel(
+                settings.GEMINI_MODEL,
+                system_instruction=system_instruction,
+            )
+
+        try:
+            loop = asyncio.get_running_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: model.generate_content(contents),
+            )
+            return response.text
+        except Exception as e:
+            logger.error(f"Error invoking Gemini: {e}")
+            return f"[Error: {e}]"
+
+
+# ── Router: picks Bedrock or Gemini based on CHAT_MODEL setting ────────────────
+
+class LLMClient:
+    """
+    Unified LLM client. Routes to Gemini or Bedrock based on the CHAT_MODEL
+    environment variable ('gemini' | 'bedrock').
+    """
+
+    def __init__(self) -> None:
+        self._bedrock = BedrockLLMClient()
+        self._gemini = GeminiLLMClient()
+
+    def _backend(self):
+        if settings.CHAT_MODEL.lower() == "gemini":
+            return self._gemini
+        return self._bedrock
+
+    async def stream(self, messages: list[dict]) -> AsyncIterator[str]:
+        async for token in self._backend().stream(messages):
+            yield token
+
+    async def complete(self, messages: list[dict]) -> str:
+        return await self._backend().complete(messages)
+
+
 # Module-level singleton
 llm = LLMClient()
 
+
+# ── Fallback metadata (no LLM) ─────────────────────────────────────────────────
 
 _STOP_WORDS = {
     "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of",
@@ -167,10 +291,15 @@ def _fallback_metadata(text: str, filename: str) -> dict:
 async def generate_document_metadata(text: str, filename: str) -> dict:
     """
     Generate title, summary, and keywords for a document.
-    Uses Bedrock when BEDROCK_MODEL_ARN is set; falls back to heuristics otherwise.
+    Uses CHAT_MODEL to select Gemini or Bedrock; falls back to heuristics on
+    any failure or if no API credentials are configured.
     Returns {"title": str, "summary": str, "keywords": list[str]}.
     """
-    if not settings.BEDROCK_MODEL_ARN:
+    # Skip LLM if no credentials are configured for the selected backend
+    use_gemini = settings.CHAT_MODEL.lower() == "gemini"
+    if use_gemini and not settings.GEMINI_API_KEY:
+        return _fallback_metadata(text, filename)
+    if not use_gemini and not settings.BEDROCK_MODEL_ARN:
         return _fallback_metadata(text, filename)
 
     snippet = text[:3000]

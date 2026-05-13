@@ -1,8 +1,10 @@
+import asyncio
 import json
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
 from uuid import UUID
+
 
 import httpx
 from bs4 import BeautifulSoup
@@ -112,8 +114,8 @@ async def _ingest_document_bg(
                     ),
                     {"s": s, "id": str(document_id), "ts": datetime.now(timezone.utc)},
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("Failed to update document status", doc_id=str(document_id), error=str(e))
 
     async def _set_web_url_status(s: str) -> None:
         if not web_url_id:
@@ -124,31 +126,43 @@ async def _ingest_document_bg(
                     sa_text("UPDATE web_urls SET status = :s WHERE id = CAST(:id AS uuid)"),
                     {"s": s, "id": str(web_url_id)},
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("Failed to update web url status", web_url_id=str(web_url_id), error=str(e))
 
     try:
         scraped_size = None
         # ── Resolve text from either a web URL or raw file bytes ───────────────
         if source_url:
             logger.info("Fetching URL for ingestion", doc_id=str(document_id), url=source_url)
-            async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=120.0) as client:
                 response = await client.get(source_url, headers={"User-Agent": "Mozilla/5.0"})
                 response.raise_for_status()
-            soup = BeautifulSoup(response.text, "lxml")
-            for tag in soup(["script", "style", "nav", "footer", "header"]):
-                tag.decompose()
-            text = soup.get_text(separator="\n", strip=True)
-            scraped_size = len(text.encode("utf-8"))
+            content_type = response.headers.get("Content-Type", "").lower()
+            if not content_type or "text/html" in content_type or "text/xml" in content_type:
+                soup = BeautifulSoup(response.text, "lxml")
+                for tag in soup(["script", "style", "nav", "footer", "header"]):
+                    tag.decompose()
+                text = soup.get_text(separator="\n", strip=True)
+                scraped_size = len(text.encode("utf-8"))
+            else:
+                mime = content_type.split(";")[0].strip()
+                # parse_document (pypdf) is CPU-bound/sync — run in thread pool
+                # so it doesn't block the async event loop for large PDFs.
+                raw_content = response.content
+                text = await asyncio.to_thread(parse_document, raw_content, mime)
+                scraped_size = len(raw_content)
         else:
-            text = parse_document(body or b"", mime_type)
+            raw_body = body or b""
+            text = await asyncio.to_thread(parse_document, raw_body, mime_type)
 
         if not text.strip():
             logger.warning("Document produced no text", doc_id=str(document_id))
             await _set_status(DocumentStatus.FAILED.value)
+            await _set_web_url_status("failed")
             return
 
-        chunks = chunk_text(text)
+        # chunk_text is also sync — offload it too (for very large documents)
+        chunks = await asyncio.to_thread(chunk_text, text)
         logger.info("Chunked document for ingestion", doc_id=str(document_id), chunk_count=len(chunks))
 
         embeddings, metadata = await _run_parallel(

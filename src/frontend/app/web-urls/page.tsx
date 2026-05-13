@@ -109,11 +109,10 @@ function MetadataFields({
         </label>
 
         {/* All roles toggle */}
-        <label className={`flex items-center gap-2 px-2.5 py-1.5 rounded-md border cursor-pointer select-none mb-2 transition-colors ${
-          metadata.allRoles
+        <label className={`flex items-center gap-2 px-2.5 py-1.5 rounded-md border cursor-pointer select-none mb-2 transition-colors ${metadata.allRoles
             ? "border-violet-400 bg-violet-50 text-violet-700"
             : "border-gray-200 bg-white text-gray-600 hover:border-violet-300"
-        } ${disabled ? "opacity-50 pointer-events-none" : ""}`}>
+          } ${disabled ? "opacity-50 pointer-events-none" : ""}`}>
           <input
             type="checkbox"
             className="w-3.5 h-3.5 accent-violet-600"
@@ -138,11 +137,10 @@ function MetadataFields({
                   type="button"
                   onClick={() => toggleRole(r.name)}
                   disabled={disabled}
-                  className={`px-2.5 py-1 rounded-full text-[12px] font-medium border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                    selected
+                  className={`px-2.5 py-1 rounded-full text-[12px] font-medium border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${selected
                       ? "bg-violet-600 border-violet-600 text-white"
                       : "bg-white border-gray-300 text-gray-600 hover:border-violet-400"
-                  }`}
+                    }`}
                 >
                   {r.name}
                 </button>
@@ -414,10 +412,25 @@ export default function WebUrlPage() {
   const fetchUrls = useCallback(async (silent = false): Promise<WebUrl[]> => {
     if (!silent) setLoading(true);
     try {
-      const res = await apiFetch<{ data: WebUrl[] }>("/web-urls");
+      const res = await apiFetch<{ data: WebUrl[] }>(`/web-urls?_t=${Date.now()}`);
       if (res.success) {
-        setUrls(res.data.data);
-        return res.data.data;
+        const serverData = res.data.data;
+        if (silent) {
+          // During polling: merge server data with existing state.
+          // Update rows that the server knows about, but keep optimistic rows
+          // that haven't been committed to the DB yet (not in server response).
+          setUrls((prev) => {
+            const serverIds = new Set(serverData.map((u) => u.id));
+            // Keep optimistic rows that are still processing and not yet in DB
+            const optimisticOnly = prev.filter(
+              (u) => !serverIds.has(u.id) && (u.status === "processing" || u.status === "pending")
+            );
+            return [...optimisticOnly, ...serverData];
+          });
+        } else {
+          setUrls(serverData);
+        }
+        return serverData;
       }
     } catch { /* no-op */ }
     finally { if (!silent) setLoading(false); }
@@ -429,8 +442,19 @@ export default function WebUrlPage() {
     if (inProgress && !pollingRef.current) {
       pollingRef.current = setInterval(async () => {
         const updated = await fetchUrls(true);
-        const stillInProgress = updated.some((u) => u.status === "processing" || u.status === "pending");
-        if (!stillInProgress && pollingRef.current) {
+        // Check current state (not just last server response) for in-progress items
+        // so we keep polling as long as any row (optimistic or server) is processing.
+        setUrls((prev) => {
+          const stillInProgress = prev.some((u) => u.status === "processing" || u.status === "pending");
+          if (!stillInProgress && pollingRef.current) {
+            clearInterval(pollingRef.current);
+            pollingRef.current = null;
+          }
+          return prev; // no-op state update, just used to read current state
+        });
+        // Also stop if server returned a non-empty list and nothing is processing
+        const stillInProgressServer = updated.some((u) => u.status === "processing" || u.status === "pending");
+        if (!stillInProgressServer && updated.length > 0 && pollingRef.current) {
           clearInterval(pollingRef.current);
           pollingRef.current = null;
         }
@@ -483,8 +507,6 @@ export default function WebUrlPage() {
       return exists ? prev.map((u) => u.id === url.id ? url : u) : [url, ...prev];
     });
     startPollingIfNeeded([url]);
-    // Background sync to pick up any server-side changes (e.g. title extracted).
-    fetchUrls(true).then(startPollingIfNeeded);
   };
 
   const handleRefresh = async () => {
@@ -609,11 +631,11 @@ export default function WebUrlPage() {
                                     : [];
                                 return roles.length > 0
                                   ? roles.map((r) => (
-                                      <span key={r} className="inline-block text-[10px] font-medium bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">{r}</span>
-                                    ))
+                                    <span key={r} className="inline-block text-[10px] font-medium bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">{r}</span>
+                                  ))
                                   : (
-                                      <span className="inline-block text-[10px] font-medium bg-gray-50 text-gray-400 px-1.5 py-0.5 rounded">All roles</span>
-                                    );
+                                    <span className="inline-block text-[10px] font-medium bg-gray-50 text-gray-400 px-1.5 py-0.5 rounded">All roles</span>
+                                  );
                               })()}
                             </div>
                           </td>
