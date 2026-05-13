@@ -75,9 +75,9 @@ agents:
 
 frontend:
 ifeq ($(OS),Windows_NT)
-	cd $(FRONTEND_DIR) && set "AUTH_GATEWAY_PROXY_ORIGIN=http://localhost:8000" && npm run dev
+	cd $(FRONTEND_DIR) && set "API_BACKEND_ORIGIN=http://localhost:8000" && npm run dev
 else
-	cd $(FRONTEND_DIR) && AUTH_GATEWAY_PROXY_ORIGIN=http://localhost:8000 npm run dev
+	cd $(FRONTEND_DIR) && API_BACKEND_ORIGIN=http://localhost:8000 npm run dev
 endif
 
 prod-frontend:

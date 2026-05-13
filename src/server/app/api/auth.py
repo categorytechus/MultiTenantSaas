@@ -1,18 +1,30 @@
+import json
 from typing import Any
+from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.db import get_db
 from app.core.security import hash_password, verify_password
 from app.core.tenancy import get_optional_tenant_context, get_required_context, RequestContext
 from app.core.rbac import Role
 from app.services.auth import (
+    decode_google_oauth_state,
+    decode_microsoft_oauth_state,
+    fetch_google_userinfo,
+    fetch_microsoft_userinfo,
     get_me,
     login_user,
+    login_with_google_profile,
+    login_with_microsoft_profile,
     logout_user,
+    make_google_authorization_url,
+    make_microsoft_authorization_url,
     refresh_tokens,
     register_user,
     revoke_all_refresh_tokens,
@@ -80,6 +92,93 @@ class AuthResponse(BaseModel):
 
 class AuthWithUserResponse(AuthResponse):
     user: UserResponse
+
+
+def _oauth_success_html(access_token: str, refresh_token: str, return_url: str) -> str:
+    access_json = json.dumps(access_token)
+    refresh_json = json.dumps(refresh_token)
+    return_json = json.dumps(return_url)
+    return f"""<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Signing in</title>
+  </head>
+  <body>
+    <script>
+      localStorage.setItem("accessToken", {access_json});
+      localStorage.setItem("refreshToken", {refresh_json});
+      sessionStorage.removeItem("userModules");
+      sessionStorage.removeItem("userModulesUnrestricted");
+      window.location.replace({return_json});
+    </script>
+  </body>
+</html>"""
+
+
+def _oauth_error_redirect(message: str) -> RedirectResponse:
+    signin_url = f"{settings.PUBLIC_APP_URL.rstrip('/')}/auth/signin?oauthError={quote(message)}"
+    return RedirectResponse(signin_url, status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.get("/google")
+async def google_oauth_start(returnUrl: str | None = Query(default=None)) -> RedirectResponse:
+    """Start Google OAuth and preserve a relative frontend return URL in signed state."""
+    return RedirectResponse(make_google_authorization_url(returnUrl))
+
+
+@router.get("/google/callback", response_model=None)
+async def google_oauth_callback(
+    code: str | None = Query(default=None),
+    state: str | None = Query(default=None),
+    error: str | None = Query(default=None),
+    session: AsyncSession = Depends(get_db),
+) -> Any:
+    """Complete Google OAuth and issue the app's JWT/refresh token pair."""
+    if error:
+        return _oauth_error_redirect("Google sign-in was cancelled or denied.")
+    if not code or not state:
+        return _oauth_error_redirect("Google sign-in failed.")
+
+    try:
+        return_url = decode_google_oauth_state(state)
+        profile = await fetch_google_userinfo(code)
+        _user, access_token, refresh_token = await login_with_google_profile(session, profile)
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, str) else "Google sign-in failed."
+        return _oauth_error_redirect(detail)
+
+    return HTMLResponse(_oauth_success_html(access_token, refresh_token, return_url))
+
+
+@router.get("/microsoft")
+async def microsoft_oauth_start(returnUrl: str | None = Query(default=None)) -> RedirectResponse:
+    """Start Microsoft OAuth and preserve a relative frontend return URL in signed state."""
+    return RedirectResponse(make_microsoft_authorization_url(returnUrl))
+
+
+@router.get("/microsoft/callback", response_model=None)
+async def microsoft_oauth_callback(
+    code: str | None = Query(default=None),
+    state: str | None = Query(default=None),
+    error: str | None = Query(default=None),
+    session: AsyncSession = Depends(get_db),
+) -> Any:
+    """Complete Microsoft OAuth and issue the app's JWT/refresh token pair."""
+    if error:
+        return _oauth_error_redirect("Microsoft sign-in was cancelled or denied.")
+    if not code or not state:
+        return _oauth_error_redirect("Microsoft sign-in failed.")
+
+    try:
+        return_url = decode_microsoft_oauth_state(state)
+        profile = await fetch_microsoft_userinfo(code)
+        _user, access_token, refresh_token = await login_with_microsoft_profile(session, profile)
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, str) else "Microsoft sign-in failed."
+        return _oauth_error_redirect(detail)
+
+    return HTMLResponse(_oauth_success_html(access_token, refresh_token, return_url))
 
 
 @router.post("/register", response_model=AuthWithUserResponse, status_code=status.HTTP_201_CREATED)

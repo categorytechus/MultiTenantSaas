@@ -16,6 +16,14 @@ services:
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
       AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
+      MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
+      MICROSOFT_REDIRECT_URI: ${MICROSOFT_REDIRECT_URI:-}
+      MICROSOFT_TENANT: ${MICROSOFT_TENANT:-common}
     ports:
       - "8000:8000"
     healthcheck:
@@ -51,7 +59,7 @@ services:
     image: ${ECR_REGISTRY}/multitenant-saas-web:${IMAGE_TAG:-latest}
     restart: unless-stopped
     environment:
-      AUTH_GATEWAY_PROXY_ORIGIN: http://server:8000
+      API_BACKEND_ORIGIN: http://server:8000
     ports:
       - "3000:3000"
     depends_on:
