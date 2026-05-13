@@ -11,7 +11,7 @@ MultiTenant AI SaaS is a three-service monorepo that provides AI-powered documen
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                          Browser                                │
-│                       localhost:5173                            │
+│                       localhost:3000                            │
 └──────────────────────────────┬──────────────────────────────────┘
                                │  HTTP / SSE
                                ▼
@@ -20,7 +20,8 @@ MultiTenant AI SaaS is a three-service monorepo that provides AI-powered documen
 │                      :8000                                      │
 │                                                                 │
 │  /api/auth/*      /api/chat/*      /api/documents/*             │
-│  /api/users/*     /api/agents/*    /api/organizations/*       │
+│  /api/users/*     /api/agents/*    /api/organizations/*         │
+│  /api/web-urls/*  /api/admin/*                                  │
 │  /internal/*  ◄── agents only, protected by X-Internal-Secret  │
 └────────┬─────────────────────┬───────────────────────────────┬──┘
          │ SQL (async)         │ enqueue job                   │ pub/sub
@@ -60,7 +61,9 @@ MultiTenantSaas/
 │   │   │   │   ├── documents.py   # /api/documents/*
 │   │   │   │   ├── agents.py      # /api/agents/tasks/*
 │   │   │   │   ├── internal.py    # /internal/* (agents→server callbacks)
-│   │   │   │   ├── orgs.py
+│   │   │   │   ├── organizations.py
+│   │   │   │   ├── tenant_org_routes.py  # Role/permission management
+│   │   │   │   ├── web_urls.py    # /api/web-urls/*
 │   │   │   │   ├── users.py
 │   │   │   │   └── admin.py
 │   │   │   ├── core/
@@ -68,7 +71,7 @@ MultiTenantSaas/
 │   │   │   │   ├── db.py          # Engine, get_db, db_session, RLS setter
 │   │   │   │   ├── security.py    # JWT encode/decode, bcrypt
 │   │   │   │   ├── tenancy.py     # RequestContext, subdomain extraction
-│   │   │   │   ├── rbac.py        # Role enum, permissions, authorize()
+│   │   │   │   ├── rbac.py        # Role enum, DB-backed authorize(), static fallback
 │   │   │   │   ├── redis.py       # publish(), subscribe(), task_channel()
 │   │   │   │   ├── logging.py     # structlog setup
 │   │   │   │   └── audit.py       # Audit log helpers
@@ -78,7 +81,13 @@ MultiTenantSaas/
 │   │   │   │   ├── chat.py        # ChatSession, ChatMessage
 │   │   │   │   ├── document.py    # Document, DocumentChunk
 │   │   │   │   ├── agent_task.py  # AgentTask
-│   │   │   │   └── audit_log.py   # AuditLog
+│   │   │   │   ├── audit_log.py   # AuditLog
+│   │   │   │   ├── invite.py      # InviteToken
+│   │   │   │   ├── web_url.py     # WebUrl
+│   │   │   │   ├── rbac.py        # RbacRole, RbacPermission, RolePermission, RoleOrgPermission
+│   │   │   │   ├── master_module.py  # MasterModule
+│   │   │   │   ├── org_module.py  # OrgModule
+│   │   │   │   └── super_admin.py # SuperAdminAllowlist
 │   │   │   ├── services/          # Business logic (no HTTP context)
 │   │   │   │   ├── auth.py
 │   │   │   │   ├── chat.py
@@ -88,7 +97,7 @@ MultiTenantSaas/
 │   │   │   └── integrations/
 │   │   │       ├── llm.py         # Anthropic client (mock if key empty)
 │   │   │       ├── s3.py          # S3 / local filesystem upload/download
-│   │   │       └── embeddings.py  # OpenAI embeddings (mock if key empty)
+│   │   │       └── embeddings.py  # Local 384-dim embeddings (mock if model absent)
 │   │   └── alembic/               # DB migrations
 │   │
 │   ├── agents/                    # Arq worker — ALL AI background work
@@ -104,7 +113,7 @@ MultiTenantSaas/
 │   │       ├── http.py            # httpx calls → /internal/*
 │   │       ├── redis.py           # publish(), task_channel()
 │   │       ├── s3.py              # S3 / local filesystem download
-│   │       └── embeddings.py      # OpenAI embed_batch
+│   │       └── embeddings.py      # Local 384-dim embed_batch
 │   │
 │   └── web/                       # Vite + React 18 + TypeScript
 │       └── src/
@@ -128,48 +137,133 @@ MultiTenantSaas/
 
 ## Data Model
 
+### Core identity & tenancy
+
 ```
 ┌──────────┐         ┌──────────────────┐
 │   User   │────────►│  OAuthIdentity   │
-│          │         └──────────────────┘
-│ id (PK)  │         ┌──────────────────┐
-│ email    │────────►│  RefreshToken    │
-│ name     │         └──────────────────┘
-└─────┬────┘
-      │ many
-      ▼
-┌───────────────┐     ┌──────┐
-│ OrgMembership │────►│ Org  │
-│               │     │      │
-│ user_id (FK)  │     │ id   │
-│ org_id  (FK)  │     │ slug │
-│ role          │     │ name │
-└───────────────┘     └──┬───┘
-                         │ org_id on every tenant table
-          ┌──────────────┼──────────────────────┐
-          ▼              ▼                       ▼
-   ┌─────────────┐  ┌──────────┐        ┌────────────┐
-   │ ChatSession │  │ Document │        │ AgentTask  │
-   │             │  │          │        │            │
-   │ id, org_id  │  │ id       │        │ id         │
-   │ user_id     │  │ org_id   │        │ org_id     │
-   │ title       │  │ s3_key   │        │ user_id    │
-   └──────┬──────┘  │ filename │        │ type       │
-          │         │ mime_type│        │ status     │
-          ▼         │ status   │        │ input JSON │
-   ┌────────────┐   └────┬─────┘        │ output JSON│
-   │ChatMessage │        │              └────────────┘
-   │            │        ▼
-   │ id         │  ┌───────────────┐
-   │ org_id     │  │ DocumentChunk │
-   │ chat_id    │  │               │
-   │ role       │  │ id            │
-   │ content    │  │ org_id        │
-   │ sources    │  │ document_id   │
-   └────────────┘  │ chunk_index   │
-                   │ content       │
-                   │ embedding     │  ← pgvector (1536 dims)
-                   └───────────────┘
+│          │         │  provider        │
+│ id (PK)  │         │  provider_user_id│
+│ email    │         └──────────────────┘
+│ name     │         ┌──────────────────┐
+│ hashed_  │────────►│  RefreshToken    │
+│ password │         │  token_hash      │
+└─────┬────┘         │  expires_at      │
+      │              │  revoked         │
+      │              │  org_id (FK)     │  ← scoped per-org for multi-org sessions
+      │              │  no_org_scope    │
+      │              └──────────────────┘
+      │              ┌──────────────────────┐
+      └─────────────►│  SuperAdminAllowlist │
+                     │  user_id (PK, FK)    │
+                     │  status              │
+                     └──────────────────────┘
+
+┌──────────────────────┐     ┌────────────────────────────────────┐
+│     OrgMembership    │────►│                Org                 │
+│                      │     │                                    │
+│  user_id (FK)        │     │  id, slug, name                    │
+│  org_id  (FK)        │     │  domain                            │
+│  role (string)       │     │  status (active|suspended)         │
+│  UNIQUE(user_id,     │     │  subscription_tier (free|pro|…)    │
+│         org_id)      │     └──────────────────────┬─────────────┘
+└──────────────────────┘                            │
+                     ┌──────────────────────────────┘
+                     │ org_id on every tenant table
+      ┌──────────────┼─────────────────────────────────────┐
+      ▼              ▼              ▼                       ▼
+┌──────────────┐ ┌──────────┐ ┌───────────┐         ┌────────────┐
+│ ChatSession  │ │ Document │ │  WebUrl   │         │ AgentTask  │
+│              │ │          │ │           │         │            │
+│ id, org_id   │ │ id       │ │ id        │         │ id         │
+│ user_id      │ │ org_id   │ │ org_id    │         │ org_id     │
+│ title        │ │ s3_key   │ │ uploaded_by│        │ user_id    │
+└──────┬───────┘ │ source_url│ │ url      │         │ type       │
+       │         │ doc_type  │ │ title    │         │ status     │
+       ▼         │ filename  │ │ tags JSON│         │ input JSON │
+┌────────────┐   │ mime_type │ │ descr.   │         │ output JSON│
+│ChatMessage │   │ size_bytes│ │ status   │         │ error      │
+│            │   │ status    │ └───────────┘         │ completed_at│
+│ id         │   │ uploaded_by│                      └────────────┘
+│ org_id     │   │ extracted_│
+│ chat_id    │   │  title    │
+│ role       │   │ summary   │
+│ content    │   │ keywords  │  ← AI-extracted (JSON)
+│ sources    │   │  (JSON)   │
+└────────────┘   │ tags(JSONB│  ← user-applied, GIN-indexed
+                 │ description│
+                 │ updated_at │
+                 └─────┬──────┘
+                       │
+                       ▼
+                ┌───────────────┐
+                │ DocumentChunk │
+                │               │
+                │ id            │
+                │ org_id        │
+                │ document_id   │
+                │ chunk_index   │
+                │ content       │
+                │ embedding     │  ← pgvector 384-dim (local model)
+                └───────────────┘   HNSW cosine index
+```
+
+### Invite flow
+
+```
+┌──────────────┐
+│ InviteToken  │
+│              │
+│ id           │
+│ token        │  ← opaque, 64-char, unique
+│ email        │
+│ org_id (FK)  │
+│ role (string)│
+│ invited_by   │
+│ expires_at   │
+│ used_at      │
+└──────────────┘
+```
+
+### Module feature flags
+
+```
+┌─────────────────┐       ┌─────────────┐
+│  MasterModule   │       │  OrgModule  │
+│                 │       │             │
+│  id (string PK) │◄──────│  module_id  │
+│  name           │       │  org_id (FK)│
+│  enabled        │       │  assigned_by│
+└─────────────────┘       └─────────────┘
+  Seeded: ai_assistant,     Per-org enablement
+          documents,         by super admin
+          web_urls
+```
+
+### RBAC
+
+```
+┌──────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│   RbacRole   │────►│  RolePermission  │────►│ RbacPermission  │
+│              │     │  (global grants) │     │                 │
+│ id           │     │  role_id (FK)    │     │ id              │
+│ name         │     │  permission_id   │     │ resource        │
+│ description  │     └──────────────────┘     │ action          │
+│ is_system    │                              └─────────────────┘
+│ org_id (FK)  │─────────────────────────────────────┐
+│  (null =     │     ┌───────────────────────┐        │
+│   system)    │────►│ RoleOrgPermission     │────────┘
+└──────────────┘     │ (per-org custom grants│
+                     │  role_id, org_id,     │
+                     │  permission_id)       │
+                     └───────────────────────┘
+
+System roles (seeded, is_system=true, org_id=null):
+  org_admin  →  full document/web_url/user/agent permissions
+  user       →  documents view/create/upload + ai_assistant:chat + agents
+
+Custom roles: org_admin can create per-org roles with scoped permission grants
+  via role_org_permissions.
 ```
 
 **Status values:**
@@ -178,6 +272,30 @@ MultiTenantSaas/
 |---|---|
 | `Document` | `processing` → `ready` / `failed` / `blocked` |
 | `AgentTask` | `pending` → `running` → `succeeded` / `failed` |
+| `WebUrl` | `active` / `inactive` |
+| `Org` | `active` / `suspended` |
+
+**RBAC permission catalog** (seeded in migrations s022 + s023):
+
+| Permission | org_admin | user |
+|---|:---:|:---:|
+| `ai_assistant:chat` | ✓ | ✓ |
+| `documents:view` | ✓ | ✓ |
+| `documents:create` | ✓ | ✓ |
+| `documents:upload` | ✓ | ✓ |
+| `documents:update` | ✓ | |
+| `documents:delete` | ✓ | |
+| `web_urls:view` | ✓ | |
+| `web_urls:create` | ✓ | |
+| `web_urls:update` | ✓ | |
+| `web_urls:delete` | ✓ | |
+| `users:read` | ✓ | |
+| `users:invite` | ✓ | |
+| `users:update` | ✓ | |
+| `agents:read` | ✓ | ✓ |
+| `agents:execute` | ✓ | ✓ |
+| `audit_logs:read` | ✓ | |
+| `tenants:update` | ✓ | |
 
 ---
 
@@ -221,17 +339,12 @@ Browser                  src/server                    Redis          src/agents
   │◄─────────────────────────│◄──────────────────────────│ {"type":"token"│
   │  data: Hello             │  forward as SSE           │  "data":"Hello"│
   │                          │                           │                │
-  │◄─────────────────────────│◄──────────────────────────│ PUBLISH token  │
-  │  data: , how             │                           │                │
-  │  ...                     │                           │    ... more tokens
-  │                          │                           │                │
   │◄─────────────────────────│◄──────────────────────────│ PUBLISH done   │
   │  data: [DONE]            │                           │ {"type":"done"}│
   │                          │                           │                │
   │                          │                           │                │ POST /internal/
   │                          │◄──────────────────────────│────────────────│ chat/{id}/messages
-  │                          │  save assistant reply     │                │ (full text)
-  │                          │                           │                │
+  │                          │  save assistant reply     │                │
   │                          │                           │                │ PATCH /internal/
   │                          │◄──────────────────────────│────────────────│ tasks/{id}
   │                          │  mark task succeeded      │                │ status=succeeded
@@ -280,20 +393,13 @@ Browser           src/server                   Redis           src/agents
   │                   │                           │                  │    other → utf-8
   │                   │                           │                  │ 5. Chunk text
   │                   │                           │                  │    800 chars / 100 overlap
-  │                   │                           │                  │ 6. embed_batch (OpenAI)
-  │                   │                           │                  │    text-embedding-3-small
-  │                   │                           │                  │    1536 dims, batch 64
+  │                   │                           │                  │ 6. embed_batch (local)
+  │                   │                           │                  │    384-dim model
+  │                   │                           │                  │    batch 64
   │                   │                           │                  │ 7. INSERT document_chunks
   │                   │                           │                  │    w/ pgvector embedding
   │                   │                           │                  │ 8. UPDATE document
   │                   │                           │                  │    status=ready
-  │                   │                           │                  │
-  │  GET              │                           │                  │
-  │  /api/documents/  │                           │                  │
-  │  {id}             │                           │                  │
-  │──────────────────►│                           │                  │
-  │◄──────────────────│  {status: "ready",        │                  │
-  │                   │   download_url: ...}      │                  │
 ```
 
 **Retry policy:** 3 retries with delays `[2s, 8s, 32s]`. On final failure, sets `document.status = 'failed'`.
@@ -317,6 +423,7 @@ Browser                        src/server
   │                                │    exp: 15 minutes
   │                                │ 5. Generate opaque refresh token
   │                                │    store bcrypt(token) in refresh_tokens table
+  │                                │    scoped to org_id
   │◄───────────────────────────────│
   │  {access_token, refresh_token} │
   │                                │
@@ -347,6 +454,8 @@ Browser                        src/server
 
 **Frontend auto-refresh:** `apiFetch` in [src/web/src/lib/api.ts](../src/web/src/lib/api.ts) intercepts 401 responses, attempts refresh, and retries the original request transparently.
 
+**Multi-org:** A user may belong to multiple orgs. Each `RefreshToken` is scoped to a specific `org_id`. Switching orgs requires re-authenticating (or a separate token-swap flow). The `no_org_scope` flag on `RefreshToken` allows super-admin tokens without an org context.
+
 ---
 
 ## Multi-Tenancy via Row-Level Security
@@ -371,9 +480,9 @@ await session.execute(
 
 `SET LOCAL` scopes the value to the current transaction — it resets automatically when the transaction ends, so there is no risk of leakage between requests sharing a connection pool connection.
 
-**Tables with RLS:** `documents`, `document_chunks`, `chat_sessions`, `chat_messages`, `agent_tasks`, `audit_logs`, `org_memberships`
+**Tables with RLS:** `documents`, `document_chunks`, `chat_sessions`, `chat_messages`, `agent_tasks`, `audit_logs`, `org_memberships`, `web_urls`
 
-**Tables without RLS:** `users`, `orgs` (accessed via joins, not direct tenant queries), `refresh_tokens` (auth-only, no org context needed)
+**Tables without RLS:** `users`, `orgs`, `refresh_tokens`, `oauth_identities`, `invite_tokens`, `master_modules`, `org_modules`, `super_admin_allowlist`, `roles`, `permissions`, `role_permissions`, `role_org_permissions`
 
 **Nil-UUID fallback:** If org_id is missing from the token, the DB session is set to `00000000-0000-0000-0000-000000000000` — a UUID that matches no tenant — preventing accidental data leakage rather than allowing broad access.
 
@@ -381,21 +490,16 @@ await session.execute(
 
 ## RBAC — Roles and Permissions
 
-| Permission | SUPER_ADMIN | TENANT_ADMIN | USER | VIEWER |
-|---|:---:|:---:|:---:|:---:|
-| `users:read` | ✓ | ✓ | | |
-| `users:invite` | ✓ | ✓ | | |
-| `users:update` | ✓ | ✓ | | |
-| `documents:read` | ✓ | ✓ | ✓ | ✓ |
-| `documents:upload` | ✓ | ✓ | ✓ | |
-| `documents:delete` | ✓ | ✓ | | |
-| `agents:read` | ✓ | ✓ | ✓ | ✓ |
-| `agents:execute` | ✓ | ✓ | ✓ | |
-| `audit_logs:read` | ✓ | ✓ | | |
-| `tenants:update` | ✓ | ✓ | | |
-| (all `*`) | ✓ | | | |
+RBAC is **database-driven**. Role and permission records are seeded by migrations. `authorize("permission:name")` queries the DB on every protected request via `role_permissions_from_db()`, with a static `ROLE_PERMISSIONS` map as fallback if tables are unavailable.
 
-`SUPER_ADMIN` holds the wildcard `{"*"}` — all permission checks pass. Role is embedded in the JWT and re-checked on every request via `authorize("permission:name")`, which returns a FastAPI `Depends`.
+**Resolution order for a request:**
+1. JWT `role` field → find matching system `RbacRole` (`is_system=true`)
+2. `role_permissions` → global grants for that role
+3. `org_memberships.role` → find any matching custom role for this org
+4. `role_org_permissions` → per-org custom grants
+5. Union all permission keys → check against requested permission
+
+**Super admin:** `SuperAdminAllowlist` table gates super-admin access. Super admins bypass all permission checks via the `*` wildcard.
 
 ---
 
@@ -472,7 +576,7 @@ Internet ──► IGW ──► ┌────┴─────────�
 | `SECRET_KEY` | server, agents | Yes | JWT signing + internal API auth. Generate: `openssl rand -hex 32` |
 | `SERVER_URL` | agents | Yes | Where agents call `/internal/*`. `http://server:8000` in Docker |
 | `ANTHROPIC_API_KEY` | agents | No | Mock LLM responses if empty |
-| `OPENAI_API_KEY` | agents | No | Mock zero-vector embeddings if empty |
+| `OPENAI_API_KEY` | agents | No | No longer used for embeddings (now local 384-dim model) |
 | `S3_BUCKET` | server, agents | No | Falls back to `LOCAL_UPLOAD_DIR` (`/tmp/uploads`) if empty |
 | `AWS_ACCESS_KEY_ID` | server, agents | No | Not needed on EC2 with instance profile |
 | `AWS_SECRET_ACCESS_KEY` | server, agents | No | Not needed on EC2 with instance profile |
@@ -488,10 +592,40 @@ make db-up              # Start Postgres + Redis (Docker)
 make migrate            # Run Alembic migrations
 make server             # FastAPI on :8000
 make agents             # Arq worker (ingest + chat)
-make web                # Vite dev server on :5173
+make web                # Vite dev server on :3000
 
 make dev                # All 4 services + DB via Docker Compose
 make redeploy-ecr       # Build, push to ECR, deploy to EC2
 ```
 
 See [Makefile](../Makefile) for all targets.
+
+---
+
+## Schema Analysis — Known Issues & Simplification Opportunities
+
+These are areas where the schema has accumulated complexity or inconsistency worth addressing in a future cleanup migration.
+
+### 1. `web_urls` vs `Document(document_type='url')` — overlapping concepts
+
+`web_urls` tracks URL resources with metadata (title, tags, status). `documents` with `document_type='url'` tracks ingested URL content with chunks. The boundary is unclear: it's not obvious whether ingesting a URL creates a `Document` row, a `WebUrl` row, or both. A unified approach would use `documents` for all ingested content and `web_urls` purely as a pre-ingestion staging/metadata table with a `document_id` FK back to the ingested result.
+
+### 2. `documents.keywords` (JSON) vs `documents.tags` (JSONB) — naming confusion
+
+Both fields store JSON on the `documents` table. `keywords` was added early as AI-extracted metadata; `tags` was added later for user-applied labels. The difference in type (JSON vs JSONB) and the `tags` GIN index suggest they serve different purposes, but the naming is confusing. Renaming `keywords` → `extracted_keywords` would clarify intent.
+
+### 3. `OrgMembership.role` string lacks FK to `roles` table
+
+`org_memberships.role` stores a role name string like `"org_admin"` or `"user"`. The `roles` table is the authoritative source, but there is no foreign key or check constraint ensuring the string matches a valid role. Adding a `role_id UUID FK → roles.id` column (and dropping the string `role`) would enforce referential integrity.
+
+### 4. `OrgModule.module_id` lacks FK to `master_modules`
+
+`org_modules.module_id` is a plain `VARCHAR(50)` with no DB-level constraint to `master_modules.id`. A FK `REFERENCES master_modules(id)` would prevent orphaned module assignments.
+
+### 5. Static `ROLE_PERMISSIONS` map vs DB RBAC — divergent role names
+
+`core/rbac.py` defines roles `SUPER_ADMIN`, `TENANT_ADMIN`, `USER`, `VIEWER`. The DB seeds `org_admin` and `user`. `TENANT_ADMIN` and `VIEWER` have no matching DB rows, so the static fallback path handles them but the DB path never matches. Aligning the `Role` enum values with the seeded DB role names (`org_admin`, `user`) would eliminate the divergence.
+
+### 6. `super_admin_allowlist` — table for a boolean flag
+
+Super admin status is a single `status` string per user. This could be an `is_super_admin: bool` column on `users`, which would simplify the query path. The separate table does provide an audit trail and the ability to suspend super admin access without deleting the row — worth keeping if those properties are intentional.
