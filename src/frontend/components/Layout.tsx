@@ -288,6 +288,7 @@ export default function Layout({ children }: LayoutProps) {
     if (pathname.startsWith("/admin/organizations/")) return { section: "Administration", page: "Edit Organization" };
     if (pathname === "/admin/org-permissions") return { section: "Administration", page: "Org Permissions" };
     if (pathname.startsWith("/admin/org-permissions/")) return { section: "Administration", page: "Manage Org Permissions" };
+    if (pathname === "/api-modules") return { section: "Tools", page: "API Modules" };
     return { section: "Dashboard", page: "Overview" };
   };
 
@@ -378,6 +379,23 @@ export default function Layout({ children }: LayoutProps) {
                 {hasModule("web_urls") && (
                   <NavItem href="/web-urls" active={pathname === "/web-urls"} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>}>Web URLs</NavItem>
                 )}
+              </div>
+            )}
+
+            {isOrgAdmin && (
+              <div>
+                <div className="px-2 mb-1.5 text-[10px] font-semibold text-[#b0aaa0] uppercase tracking-wider">Tools</div>
+                <NavItem
+                  href="/api-modules"
+                  active={pathname === "/api-modules"}
+                  icon={
+                    <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                    </svg>
+                  }
+                >
+                  API Modules
+                </NavItem>
               </div>
             )}
           </div>

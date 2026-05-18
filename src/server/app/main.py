@@ -131,6 +131,8 @@ async def health_check() -> dict[str, Any]:
 
 from app.api.admin import router as admin_router
 from app.api.agents import router as agents_router
+from app.api.api_modules import router as api_modules_router
+from app.api.api_proposals import router as api_proposals_router
 from app.api.auth import router as auth_router
 from app.api.chat import router as chat_router
 from app.api.cost_seg import router as cost_seg_router
@@ -151,4 +153,6 @@ app.include_router(chat_router)
 app.include_router(agents_router)
 app.include_router(cost_seg_router)
 app.include_router(admin_router)
+app.include_router(api_modules_router)
+app.include_router(api_proposals_router)
 app.include_router(internal_router)
