@@ -267,6 +267,8 @@ export default function Layout({ children }: LayoutProps) {
     if (pathname === "/documents") return { section: "Knowledge Base", page: "Documents" };
     if (pathname === "/web-urls") return { section: "Knowledge Base", page: "Web URLs" };
     if (pathname === "/ai_assistant") return { section: "Home", page: "AI Assistant" };
+    if (pathname === "/cost_segregation") return { section: "Tools", page: "Cost Segregation" };
+    if (pathname.startsWith("/cost_segregation/")) return { section: "Cost Segregation", page: "Study Wizard" };
     if (pathname === "/users") return { section: "User Management", page: "Users" };
     if (pathname === "/users/create") return { section: "User Management", page: "Create User" };
     if (pathname.startsWith("/users/")) return { section: "User Management", page: "Edit User" };
@@ -354,6 +356,14 @@ export default function Layout({ children }: LayoutProps) {
                     <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"/><circle cx="18" cy="5" r="3"/></svg>
                   </span>
                   <span className={pathname === "/ai_assistant" ? "bg-gradient-to-r from-violet-600 to-blue-600 bg-clip-text text-transparent font-semibold" : ""}>AI Assistant</span>
+                </Link>
+              )}
+              {hasModule("cost_seg") && (
+                <Link href="/cost_segregation" className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors w-full ${pathname.startsWith("/cost_segregation") ? "bg-gradient-to-r from-emerald-50 to-teal-50 text-emerald-700 shadow-sm" : "text-[#606060] hover:bg-white hover:text-[#1a1a1a]"}`}>
+                  <span className="w-4 h-4 shrink-0 flex items-center justify-center">
+                    <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                  </span>
+                  <span className={pathname.startsWith("/cost_segregation") ? "bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent font-semibold" : ""}>Cost Segregation</span>
                 </Link>
               )}
               <NavItem href="/profile" active={pathname === "/profile"} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>}>My Profile</NavItem>

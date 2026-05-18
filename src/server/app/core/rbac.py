@@ -28,14 +28,19 @@ ROLE_PERMISSIONS: dict[Role, Set[str]] = {
         "agents:read",
         "audit_logs:read",
         "tenants:update",
+        "cost_seg:read",
+        "cost_seg:create",
+        "cost_seg:delete",
     },
     Role.USER: {
         "documents:upload",
         "documents:read",
         "agents:execute",
         "agents:read",
+        "cost_seg:read",
+        "cost_seg:create",
     },
-    Role.VIEWER: {"documents:read", "agents:read"},
+    Role.VIEWER: {"documents:read", "agents:read", "cost_seg:read"},
 }
 
 

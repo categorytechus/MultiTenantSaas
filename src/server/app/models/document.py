@@ -7,7 +7,7 @@ import sqlalchemy as sa
 import sqlalchemy.dialects.postgresql  # noqa: F401  — needed for JSONB
 from pgvector.sqlalchemy import Vector
 from sqlmodel import Column, Field, SQLModel
-from sqlalchemy import JSON
+from sqlalchemy import JSON, ForeignKey
 
 
 class DocumentStatus(str, Enum):
@@ -37,6 +37,12 @@ class Document(SQLModel, table=True):
     keywords: Optional[Any] = Field(default=None, sa_column=Column(JSON, nullable=True))
     tags: Optional[Any] = Field(default=None, sa_column=Column(sa.dialects.postgresql.JSONB, nullable=True))
     description: str | None = Field(default=None, sa_column=Column(sa.Text, nullable=True))
+    # Nullable FK to workflow_sessions — set when a document belongs to a workflow
+    # (e.g. cost_seg project uploads). Null for standalone RAG/knowledge-base docs.
+    session_id: UUID | None = Field(
+        default=None,
+        sa_column=Column(sa.UUID(), ForeignKey("workflow_sessions.id"), nullable=True),
+    )
 
 
 class DocumentChunk(SQLModel, table=True):

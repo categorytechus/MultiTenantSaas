@@ -133,6 +133,7 @@ from app.api.admin import router as admin_router
 from app.api.agents import router as agents_router
 from app.api.auth import router as auth_router
 from app.api.chat import router as chat_router
+from app.api.cost_seg import router as cost_seg_router
 from app.api.documents import router as documents_router
 from app.api.internal import router as internal_router
 from app.api.organizations import router as organizations_router
@@ -148,5 +149,6 @@ app.include_router(documents_router)
 app.include_router(web_urls_router)
 app.include_router(chat_router)
 app.include_router(agents_router)
+app.include_router(cost_seg_router)
 app.include_router(admin_router)
 app.include_router(internal_router)
