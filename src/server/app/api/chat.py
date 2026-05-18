@@ -180,12 +180,14 @@ async def stream_chat(
                 "run_chat",
                 task_id=task_id,
                 org_id=org_id,
+                user_id=str(ctx.user_id),
                 session_id=session_id,
                 message=message,
                 user_role=ctx.role.value if ctx.role else "",
             )
             await arq.aclose()
-
+        
+            waiting_for_execution = False
             async for raw in pubsub.listen():
                 if await request.is_disconnected():
                     break
@@ -202,9 +204,29 @@ async def stream_chat(
                     token = event["data"]
                     lines = "\n".join(f"data: {line}" for line in token.split("\n"))
                     yield f"{lines}\n\n"
+                elif event_type == "heartbeat":
+                    # SSE comment — browsers ignore it but it keeps the connection alive
+                    # during silent API-tool-mode LLM generation.
+                    yield ": heartbeat\n\n"
+                elif event_type in (
+                    "api_task_proposal",
+                    "api_execution_started",
+                    "api_execution_completed",
+                    "api_execution_failed",
+                    "api_execution_declined",
+                ):
+                    if event_type in ("api_task_proposal", "api_execution_started"):
+                        waiting_for_execution = True
+                        
+                    yield f"event: {event_type}\ndata: {json.dumps(event)}\n\n"
+
+                    if event_type in ("api_execution_completed", "api_execution_failed", "api_execution_declined"):
+                        yield "data: [DONE]\n\n"
+                        break
                 elif event_type == "done":
-                    yield "data: [DONE]\n\n"
-                    break
+                    if not waiting_for_execution:
+                        yield "data: [DONE]\n\n"
+                        break
                 elif event_type == "error":
                     yield f"data: [ERROR] {event.get('data', 'Unknown error')}\n\n"
                     break
