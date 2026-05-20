@@ -267,6 +267,8 @@ export default function Layout({ children }: LayoutProps) {
     if (pathname === "/documents") return { section: "Knowledge Base", page: "Documents" };
     if (pathname === "/web-urls") return { section: "Knowledge Base", page: "Web URLs" };
     if (pathname === "/ai_assistant") return { section: "Home", page: "AI Assistant" };
+    if (pathname === "/cost_segregation") return { section: "Tools", page: "Cost Segregation" };
+    if (pathname.startsWith("/cost_segregation/")) return { section: "Cost Segregation", page: "Study Wizard" };
     if (pathname === "/users") return { section: "User Management", page: "Users" };
     if (pathname === "/users/create") return { section: "User Management", page: "Create User" };
     if (pathname.startsWith("/users/")) return { section: "User Management", page: "Edit User" };
@@ -286,6 +288,7 @@ export default function Layout({ children }: LayoutProps) {
     if (pathname.startsWith("/admin/organizations/")) return { section: "Administration", page: "Edit Organization" };
     if (pathname === "/admin/org-permissions") return { section: "Administration", page: "Org Permissions" };
     if (pathname.startsWith("/admin/org-permissions/")) return { section: "Administration", page: "Manage Org Permissions" };
+    if (pathname === "/api-modules") return { section: "Tools", page: "API Modules" };
     return { section: "Dashboard", page: "Overview" };
   };
 
@@ -356,6 +359,14 @@ export default function Layout({ children }: LayoutProps) {
                   <span className={pathname === "/ai_assistant" ? "bg-gradient-to-r from-violet-600 to-blue-600 bg-clip-text text-transparent font-semibold" : ""}>AI Assistant</span>
                 </Link>
               )}
+              {hasModule("cost_seg") && (
+                <Link href="/cost_segregation" className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors w-full ${pathname.startsWith("/cost_segregation") ? "bg-gradient-to-r from-emerald-50 to-teal-50 text-emerald-700 shadow-sm" : "text-[#606060] hover:bg-white hover:text-[#1a1a1a]"}`}>
+                  <span className="w-4 h-4 shrink-0 flex items-center justify-center">
+                    <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                  </span>
+                  <span className={pathname.startsWith("/cost_segregation") ? "bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent font-semibold" : ""}>Cost Segregation</span>
+                </Link>
+              )}
               <NavItem href="/profile" active={pathname === "/profile"} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>}>My Profile</NavItem>
             </div>
 
@@ -368,6 +379,23 @@ export default function Layout({ children }: LayoutProps) {
                 {hasModule("web_urls") && (
                   <NavItem href="/web-urls" active={pathname === "/web-urls"} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>}>Web URLs</NavItem>
                 )}
+              </div>
+            )}
+
+            {isOrgAdmin && (
+              <div>
+                <div className="px-2 mb-1.5 text-[10px] font-semibold text-[#b0aaa0] uppercase tracking-wider">Tools</div>
+                <NavItem
+                  href="/api-modules"
+                  active={pathname === "/api-modules"}
+                  icon={
+                    <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                    </svg>
+                  }
+                >
+                  API Modules
+                </NavItem>
               </div>
             )}
           </div>

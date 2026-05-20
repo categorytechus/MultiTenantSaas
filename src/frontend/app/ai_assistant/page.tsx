@@ -9,7 +9,7 @@ import { apiFetch } from '../../src/lib/api';
 import { PERMISSION_MODULE_ENABLED } from '../../src/lib/permissions';
 import {
   Plus, Search, Pencil, Trash2, Check, X, MessageSquare,
-  SendHorizonal, Loader2,
+  SendHorizonal, Loader2, Zap, CheckCircle2, XCircle,
 } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -27,6 +27,15 @@ interface Message {
   content: string;
   streaming?: boolean;
   isNew?: boolean; // true only for messages created in this session (not loaded from history)
+  proposal?: ApiProposal; // If present, this message needs a permission decision
+}
+
+interface ApiProposal {
+  proposal_id: string;
+  title: string;
+  description?: string;
+  api_module_name: string;
+  input_payload: Record<string, unknown>;
 }
 
 // ── Typewriter hook ────────────────────────────────────────────────────────────
@@ -243,6 +252,8 @@ function ThinkingDots() {
   );
 }
 
+
+
 // ── Main Page ──────────────────────────────────────────────────────────────────
 
 const LOCAL_SESSION_ID = '__local__';
@@ -263,9 +274,14 @@ export default function AIAssistantPage() {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [search, setSearch] = useState('');
 
+  // API proposal state
+  const [proposalLoadingId, setProposalLoadingId] = useState<string | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const esRef = useRef<EventSource | null>(null);
+  // Track the assistantId for the current stream so SSE handlers can close over it
+  const assistantIdRef = useRef<string>('');
 
   // Permission guard
   useEffect(() => {
@@ -277,7 +293,9 @@ export default function AIAssistantPage() {
       try {
         const modules: string[] = JSON.parse(raw);
         if (!modules.includes('ai_assistant')) router.replace('/dashboard');
-      } catch { /* ignore */ }
+      } catch (err) {
+        console.warn('Failed to parse userModules from sessionStorage', err);
+      }
     }
   }, [router]);
 
@@ -396,6 +414,7 @@ export default function AIAssistantPage() {
 
     // Add placeholder assistant message
     const assistantId = `a-${Date.now()}`;
+    assistantIdRef.current = assistantId;
     setMessages((prev) => [
       ...prev,
       { id: assistantId, role: 'assistant', content: '', streaming: true, isNew: true },
@@ -408,6 +427,7 @@ export default function AIAssistantPage() {
     const es = new EventSource(url);
     esRef.current = es;
 
+    // ── Default message event (tokens) ───────────────────────────────────────
     es.onmessage = (event) => {
       const data = event.data as string;
 
@@ -416,7 +436,9 @@ export default function AIAssistantPage() {
         esRef.current = null;
         setStreaming(false);
         setMessages((prev) =>
-          prev.map((m) => m.id === assistantId ? { ...m, streaming: false } : m),
+          prev
+            .map((m) => m.id === assistantId ? { ...m, streaming: false } : m)
+            .filter((m) => m.id !== assistantId || m.content.trim() !== ''),
         );
         return;
       }
@@ -443,18 +465,233 @@ export default function AIAssistantPage() {
       );
     };
 
+    // ── Named SSE: api_task_proposal ──────────────────────────────────────────
+    es.addEventListener('api_task_proposal', (event) => {
+      try {
+        const proposal = JSON.parse((event as MessageEvent).data) as ApiProposal;
+        // Stop the streaming state and attach the proposal to the current assistant message
+        setStreaming(false);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantIdRef.current
+              ? {
+                  ...m,
+                  streaming: false,
+                  content: `I need your permission to proceed: **${proposal.description || proposal.title}**`,
+                  proposal,
+                }
+              : m,
+          ),
+        );
+      } catch (err) {
+        console.warn('[SSE] Failed to parse api_task_proposal event:', err, (event as MessageEvent).data);
+        setStreaming(false);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `proposal-parse-err-${Date.now()}`,
+            role: 'assistant' as const,
+            content: '⚠️ An API action was proposed but could not be displayed. Please try again.',
+            isNew: true,
+          },
+        ]);
+      }
+    });
+
+    // ── Named SSE: api_execution_completed ────────────────────────────────────
+    es.addEventListener('api_execution_completed', (event) => {
+      try {
+        const ev = JSON.parse((event as MessageEvent).data) as {
+          execution_id: string; summary?: string;
+        };
+        setMessages((prev) => {
+          const hasEmptyPlaceholder = prev.some(
+            (m) => m.id === assistantIdRef.current && m.content.trim() === ''
+          );
+          if (hasEmptyPlaceholder) {
+            return prev.map((m) =>
+              m.id === assistantIdRef.current
+                ? {
+                    ...m,
+                    id: `exec-ok-${ev.execution_id}`,
+                    streaming: false,
+                    content: ev.summary || '✅ API action completed.',
+                  }
+                : m
+            );
+          } else {
+            return [
+              ...prev,
+              {
+                id: `exec-ok-${ev.execution_id}`,
+                role: 'assistant' as const,
+                content: ev.summary || '✅ API action completed.',
+                isNew: true,
+              },
+            ];
+          }
+        });
+      } catch (err) {
+        console.warn('[SSE] Failed to parse api_execution_completed event:', err, (event as MessageEvent).data);
+        setMessages((prev) => {
+          const hasEmptyPlaceholder = prev.some(
+            (m) => m.id === assistantIdRef.current && m.content.trim() === ''
+          );
+          if (hasEmptyPlaceholder) {
+            return prev.map((m) =>
+              m.id === assistantIdRef.current
+                ? {
+                    ...m,
+                    id: `exec-ok-parse-err-${Date.now()}`,
+                    streaming: false,
+                    content: '✅ API action completed (result unavailable).',
+                  }
+                : m
+            );
+          } else {
+            return [
+              ...prev,
+              {
+                id: `exec-ok-parse-err-${Date.now()}`,
+                role: 'assistant' as const,
+                content: '✅ API action completed (result unavailable).',
+                isNew: true,
+              },
+            ];
+          }
+        });
+      }
+    });
+
+    // ── Named SSE: api_execution_failed ───────────────────────────────────────
+    es.addEventListener('api_execution_failed', (event) => {
+      try {
+        const ev = JSON.parse((event as MessageEvent).data) as {
+          execution_id: string; error?: string;
+        };
+        setMessages((prev) => {
+          const hasEmptyPlaceholder = prev.some(
+            (m) => m.id === assistantIdRef.current && m.content.trim() === ''
+          );
+          if (hasEmptyPlaceholder) {
+            return prev.map((m) =>
+              m.id === assistantIdRef.current
+                ? {
+                    ...m,
+                    id: `exec-err-${ev.execution_id}`,
+                    streaming: false,
+                    content: `❌ API action failed: ${ev.error || 'Unknown error'}`,
+                  }
+                : m
+            );
+          } else {
+            return [
+              ...prev,
+              {
+                id: `exec-err-${ev.execution_id}`,
+                role: 'assistant' as const,
+                content: `❌ API action failed: ${ev.error || 'Unknown error'}`,
+                isNew: true,
+              },
+            ];
+          }
+        });
+      } catch (err) {
+        console.warn('[SSE] Failed to parse api_execution_failed event:', err, (event as MessageEvent).data);
+        setMessages((prev) => {
+          const hasEmptyPlaceholder = prev.some(
+            (m) => m.id === assistantIdRef.current && m.content.trim() === ''
+          );
+          if (hasEmptyPlaceholder) {
+            return prev.map((m) =>
+              m.id === assistantIdRef.current
+                ? {
+                    ...m,
+                    id: `exec-err-parse-err-${Date.now()}`,
+                    streaming: false,
+                    content: '❌ API action failed (details unavailable).',
+                  }
+                : m
+            );
+          } else {
+            return [
+              ...prev,
+              {
+                id: `exec-err-parse-err-${Date.now()}`,
+                role: 'assistant' as const,
+                content: '❌ API action failed (details unavailable).',
+                isNew: true,
+              },
+            ];
+          }
+        });
+      }
+    });
+
+    // ── Named SSE: api_execution_declined ─────────────────────────────────────
+    es.addEventListener('api_execution_declined', (event) => {
+      try {
+        const ev = JSON.parse((event as MessageEvent).data) as { title: string };
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `exec-declined-${Date.now()}`,
+            role: 'assistant' as const,
+            content: `The API action **"${ev.title}"** was declined. Let me know if you need anything else.`,
+            isNew: true,
+          },
+        ]);
+      } catch (err) {
+        console.warn('[SSE] Failed to parse api_execution_declined event:', err, (event as MessageEvent).data);
+      }
+    });
+
     es.onerror = () => {
       es.close();
       esRef.current = null;
       setStreaming(false);
       setMessages((prev) =>
         prev.map((m) =>
-          m.id === assistantId && m.streaming
+          m.id === assistantIdRef.current && m.streaming
             ? { ...m, content: m.content || 'Connection lost. Please try again.', streaming: false }
             : m,
         ),
       );
     };
+  };
+
+  // ── Proposal accept / decline ───────────────────────────────────────────────
+
+  const handleAcceptProposal = async (proposalId: string, messageId: string) => {
+    setProposalLoadingId(proposalId);
+    const res = await apiFetch(
+      `/api-task-proposals/${proposalId}/accept`,
+      {
+        method: 'POST',
+      },
+    );
+    setProposalLoadingId(null);
+    if (res.success) {
+      // Clear the proposal from the message so the buttons disappear
+      setMessages((prev) => prev.map((m) => m.id === messageId ? { ...m, proposal: undefined } : m));
+    } else {
+      setMessages((prev) => [
+        ...prev,
+        { id: `accept-err-${Date.now()}`, role: 'assistant', content: '❌ Failed to accept the API action. Please try again.' },
+      ]);
+    }
+  };
+
+  const handleDeclineProposal = async (proposalId: string, messageId: string) => {
+    setProposalLoadingId(proposalId);
+    const res = await apiFetch(
+      `/api-task-proposals/${proposalId}/decline`,
+      { method: 'POST' },
+    );
+    setProposalLoadingId(null);
+    if (res.success) {
+      setMessages((prev) => prev.map((m) => m.id === messageId ? { ...m, proposal: undefined } : m));
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -477,6 +714,8 @@ export default function AIAssistantPage() {
   return (
     <Layout>
       <div className="flex flex-1 h-full overflow-hidden bg-[#fafaf9]">
+
+
         {/* ── Sidebar ─────────────────────────────────────────────────────────── */}
         <aside className="w-60 shrink-0 flex flex-col bg-[#f4f3f0] border-r border-[#e8e6e2] hidden md:flex">
           {/* Sidebar header */}
@@ -575,7 +814,28 @@ export default function AIAssistantPage() {
                         {msg.streaming && !msg.content ? (
                           <ThinkingDots />
                         ) : (
-                          <StreamingMarkdown content={msg.content} streaming={msg.streaming} isNew={msg.isNew} />
+                          <>
+                            <StreamingMarkdown content={msg.content} streaming={msg.streaming} isNew={msg.isNew} />
+                            {msg.proposal && (
+                              <div className="mt-4 flex flex-wrap gap-2 border-t border-gray-100 pt-4">
+                                <button
+                                  onClick={() => handleAcceptProposal(msg.proposal!.proposal_id, msg.id)}
+                                  disabled={proposalLoadingId === msg.proposal.proposal_id}
+                                  className="px-3.5 py-1.5 bg-gray-900 text-white rounded-lg text-[12.5px] font-medium hover:bg-gray-700 disabled:opacity-50 transition-colors flex items-center gap-1.5"
+                                >
+                                  {proposalLoadingId === msg.proposal.proposal_id ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+                                  Accept
+                                </button>
+                                <button
+                                  onClick={() => handleDeclineProposal(msg.proposal!.proposal_id, msg.id)}
+                                  disabled={proposalLoadingId === msg.proposal.proposal_id}
+                                  className="px-3.5 py-1.5 bg-white text-gray-600 border border-gray-200 rounded-lg text-[12.5px] font-medium hover:bg-gray-50 disabled:opacity-50 transition-colors flex items-center gap-1.5"
+                                >
+                                  Decline
+                                </button>
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
                     )}

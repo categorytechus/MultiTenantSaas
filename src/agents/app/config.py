@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "change-me-in-production"
     CHAT_MODEL: str = "gemini"  # "gemini" or "bedrock"
     GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-2.5-flash"
     BEDROCK_MODEL_ARN: str = ""
     BEDROCK_MODEL_PROVIDER: str = "anthropic"
     AWS_BEDROCK_REGION: str = "us-east-1"

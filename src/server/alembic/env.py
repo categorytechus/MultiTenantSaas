@@ -9,12 +9,7 @@ from alembic import context
 from sqlmodel import SQLModel
 
 # Import all models so their metadata is registered
-import app.models.user  # noqa: F401
-import app.models.org  # noqa: F401
-import app.models.chat  # noqa: F401
-import app.models.document  # noqa: F401
-import app.models.agent_task  # noqa: F401
-import app.models.audit_log  # noqa: F401
+import app.models  # noqa: F401
 
 config = context.config
 
