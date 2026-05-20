@@ -2,7 +2,7 @@ from typing import Any
 from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, File, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +22,9 @@ from app.models.super_admin import SuperAdminAllowlist
 from app.models.user import User
 from app.core.security import hash_password
 from app.services.invite_service import create_invite_record, link_query_role
+from app.models.irs_rule import IrsRule
+from app.integrations.s3 import upload as s3_upload
+from arq.connections import RedisSettings, create_pool
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 def _public_app_base(request: Request) -> str:
@@ -654,3 +657,57 @@ async def list_audit_logs(
             for log in logs
         ],
     }
+
+
+@router.post("/irs-rules/upload", status_code=202)
+async def upload_irs_rule(
+    file: UploadFile = File(...),
+    ctx: RequestContext = Depends(require_super_admin_user),
+    session: AsyncSession = Depends(get_db),
+):
+    body = await file.read()
+    MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+    if len(body) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail="File too large. Maximum size is 50MB.",
+        )
+
+    filename = file.filename or "irs_rule.pdf"
+    ext = filename.rsplit(".", 1)[-1] if "." in filename else "pdf"
+
+    rule = IrsRule(
+        filename=filename,
+        title=filename.rsplit(".", 1)[0],
+        size_bytes=len(body),
+        status="processing",
+    )
+    session.add(rule)
+    await session.flush()
+
+    s3_key = f"global/irs-rules/{rule.id}.{ext}"
+    rule.s3_key = s3_key
+    session.add(rule)
+    await session.flush()
+
+    # Upload to S3/local fallback
+    await s3_upload(s3_key, body)
+
+    # Enqueue Arq background task for ingestion
+    arq = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
+    await arq.enqueue_job("ingest_irs_rule", irs_rule_id=str(rule.id))
+    await arq.aclose()
+
+    return {
+        "success": True,
+        "irs_rule": {
+            "id": str(rule.id),
+            "filename": rule.filename,
+            "title": rule.title,
+            "size_bytes": rule.size_bytes,
+            "status": rule.status,
+            "s3_key": rule.s3_key,
+            "created_at": rule.created_at.isoformat(),
+        }
+    }
+

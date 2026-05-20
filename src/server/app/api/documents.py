@@ -281,6 +281,63 @@ async def upload_document(
     ext = filename.rsplit(".", 1)[-1] if "." in filename else "bin"
 
     roles_list = [r.strip() for r in access_roles.split(",") if r.strip()]
+    
+    # Intercept IRS rule document types
+    if doc_type.strip().lower() in ("irs_rule", "irs_rules"):
+        if ctx.role != "super_admin":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only super admins can upload IRS rules.",
+            )
+
+        from app.models.irs_rule import IrsRule
+        from app.core.config import settings
+        from arq.connections import RedisSettings, create_pool
+
+        async with db_session(ctx.org_id) as session:
+            rule = IrsRule(
+                filename=filename,
+                title=filename.rsplit(".", 1)[0],
+                size_bytes=size_bytes,
+                status="processing",
+            )
+            session.add(rule)
+            await session.flush()
+
+            s3_key = f"global/irs-rules/{rule.id}.{ext}"
+            rule.s3_key = s3_key
+            session.add(rule)
+            await session.flush()
+            
+            rule_id = rule.id
+            rule_snapshot = {
+                "id": str(rule.id),
+                "filename": rule.filename,
+                "mime_type": "application/pdf",
+                "file_size": rule.size_bytes,
+                "status": rule.status,
+                "s3_key": rule.s3_key,
+                "source_url": None,
+                "document_type": "file",
+                "upload_source": "file",
+                "created_at": rule.created_at.isoformat(),
+                "updated_at": None,
+                "download_url": None,
+                "extracted_title": rule.title,
+                "summary": None,
+                "keywords": None,
+                "tags": {"doc-type": doc_type.strip()},
+                "description": None,
+            }
+
+        await upload(s3_key, body)
+
+        # Enqueue the background task for ingest_irs_rule
+        arq = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
+        await arq.enqueue_job("ingest_irs_rule", irs_rule_id=str(rule_id))
+        await arq.aclose()
+
+        return {"task_id": None, "document": rule_snapshot}
     tags: dict = {
         "roles": roles_list,
         "doc-type": doc_type.strip(),
@@ -368,8 +425,42 @@ async def get_doc(
     session: AsyncSession = Depends(get_db),
 ) -> Any:
     doc = await get_document(session, doc_id)
-    download_url = await presigned_get(doc.s3_key) if doc.s3_key else None
+    if doc.s3_key:
+        from app.integrations.s3 import _is_local_mode
+        if _is_local_mode():
+            download_url = f"/api/documents/{doc.id}/download"
+        else:
+            download_url = await presigned_get(doc.s3_key)
+    else:
+        download_url = None
     return _doc_to_response(doc, download_url)
+
+
+@router.get("/{doc_id}/download")
+async def download_doc_file(
+    doc_id: UUID,
+    ctx: RequestContext = authorize("documents:read"),
+    session: AsyncSession = Depends(get_db),
+):
+    from fastapi.responses import FileResponse, RedirectResponse
+    from app.integrations.s3 import _is_local_mode, _local_path
+    
+    doc = await get_document(session, doc_id)
+    if not doc or not doc.s3_key:
+        raise HTTPException(status_code=404, detail="Document file not found")
+        
+    if _is_local_mode():
+        local_path = _local_path(doc.s3_key)
+        if not local_path.exists():
+            raise HTTPException(status_code=404, detail=f"Local file not found at {local_path}")
+        return FileResponse(
+            path=str(local_path),
+            filename=doc.filename,
+            media_type=doc.mime_type or "application/octet-stream"
+        )
+    else:
+        url = await presigned_get(doc.s3_key)
+        return RedirectResponse(url)
 
 
 @router.delete("/{doc_id}", status_code=204)

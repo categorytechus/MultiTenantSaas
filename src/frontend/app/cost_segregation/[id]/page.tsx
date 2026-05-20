@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Layout from '../../../components/Layout';
-import { apiFetch } from '../../../src/lib/api';
+import { apiFetch, triggerCostSegPipeline } from '../../../src/lib/api';
 import {
   ChevronLeft, ChevronRight, Check, Upload, Loader2, Plus, Trash2,
   Pencil, X, AlertTriangle, Download, Building2, FileText,
@@ -358,17 +358,25 @@ function Step3({
   projectId,
   docs,
   analyzing,
+  sseProgress,
+  taskCompleted,
+  pdfDownloadUrl,
   onUpload,
   onDelete,
   onAnalyze,
+  onNext,
   onBack,
 }: {
   projectId: string;
   docs: CostSegDoc[];
   analyzing: boolean;
+  sseProgress: string;
+  taskCompleted: boolean;
+  pdfDownloadUrl: string | null;
   onUpload: (files: FileList) => Promise<void>;
   onDelete: (docId: string) => Promise<void>;
   onAnalyze: () => Promise<void>;
+  onNext: () => void;
   onBack: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -447,9 +455,52 @@ function Step3({
       )}
 
       {analyzing && (
-        <div className="flex items-center gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl text-[13px] text-amber-800">
-          <Loader2 size={16} className="animate-spin shrink-0" />
-          <span>AI is analyzing your documents and extracting line items… This may take a minute.</span>
+        <div className="p-5 bg-gradient-to-br from-amber-50/50 to-orange-50/50 border border-amber-200/60 rounded-xl shadow-sm space-y-3">
+          <div className="flex items-center gap-3 text-[13px] text-amber-800 font-medium">
+            <Loader2 size={16} className="animate-spin shrink-0 text-amber-600" />
+            <span>{sseProgress || 'AI is analyzing your documents and extracting line items… This may take a minute.'}</span>
+          </div>
+          <div className="w-full bg-amber-200/40 h-1.5 rounded-full overflow-hidden">
+            <div className="bg-amber-600 h-full rounded-full transition-all duration-500" style={{
+              width: sseProgress.toLowerCase().includes('pdf') ? '90%' :
+                     sseProgress.toLowerCase().includes('report') ? '80%' :
+                     sseProgress.toLowerCase().includes('class') ? '60%' :
+                     sseProgress.toLowerCase().includes('extract') ? '30%' : '15%'
+            }} />
+          </div>
+        </div>
+      )}
+
+      {taskCompleted && pdfDownloadUrl && (
+        <div className="p-5 bg-emerald-50 border border-emerald-200 rounded-xl shadow-sm space-y-4">
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
+              <Check size={16} />
+            </div>
+            <div>
+              <h4 className="text-[14px] font-bold text-[#1a1a1a]">Pipeline Completed Successfully</h4>
+              <p className="text-[12px] text-emerald-800 mt-0.5">
+                The extraction, classification, and depreciation report have been fully processed.
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2.5">
+            <a
+              href={pdfDownloadUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-[12px] font-semibold hover:bg-emerald-700 transition-colors shadow-sm"
+            >
+              <Download size={14} />
+              Download PDF Report
+            </a>
+            <button
+              onClick={onNext}
+              className="inline-flex items-center gap-2 px-4 py-2 border border-[#e5e7eb] rounded-lg text-[12px] font-semibold text-[#374151] hover:bg-[#f9f9f8] transition-colors"
+            >
+              Review Line Items <ChevronRight size={14} />
+            </button>
+          </div>
         </div>
       )}
 
@@ -782,9 +833,11 @@ function Step5({
 
 function Step6({
   projectId,
+  pdfDownloadUrl,
   onBack,
 }: {
   projectId: string;
+  pdfDownloadUrl: string | null;
   onBack: () => void;
 }) {
   const [generating, setGenerating] = useState(false);
@@ -819,10 +872,8 @@ function Step6({
   };
 
   const openPreview = () => {
-    if (!html) return;
-    const blob = new Blob([html], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    window.open(url, '_blank');
+    const token = localStorage.getItem('accessToken');
+    window.open(`/api/cost-seg/projects/${projectId}/report/preview?token=${token ?? ''}`, '_blank');
   };
 
   return (
@@ -833,7 +884,7 @@ function Step6({
         </div>
         <h3 className="text-[16px] font-bold text-[#1a1a1a] mb-1">Your report is ready</h3>
         <p className="text-[13px] text-[#6b7280] mb-5">
-          Generate your IRS MACRS cost segregation report. Download the HTML file to view, print, or share with your tax advisor.
+          Generate your IRS MACRS cost segregation report. Download the PDF report or the HTML file to view, print, or share with your tax advisor.
         </p>
 
         {error && (
@@ -842,38 +893,55 @@ function Step6({
           </div>
         )}
 
-        {!html ? (
-          <button
-            onClick={generate}
-            disabled={generating}
-            className="w-full py-3 bg-[#1a1a1a] text-white rounded-xl text-[13px] font-semibold hover:bg-[#333] disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
-          >
-            {generating ? <Loader2 size={15} className="animate-spin" /> : <BarChart3 size={15} />}
-            {generating ? 'Generating Report…' : 'Generate Report'}
-          </button>
-        ) : (
-          <div className="space-y-3">
+        {pdfDownloadUrl && (
+          <div className="mb-4 space-y-3">
             <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2.5 text-[12px] text-emerald-800 flex items-center gap-2">
-              <Check size={14} className="shrink-0" />
-              Report generated successfully!
+              <Check size={14} className="shrink-0 text-emerald-600" />
+              PDF Report is generated and ready.
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <button onClick={openPreview}
-                className="py-2.5 border border-[#e5e7eb] rounded-xl text-[13px] font-medium text-[#374151] hover:bg-[#f9f9f8] transition-colors">
-                Preview
-              </button>
-              <button onClick={downloadHtml}
-                className="py-2.5 bg-[#1a1a1a] text-white rounded-xl text-[13px] font-semibold hover:bg-[#333] transition-colors flex items-center justify-center gap-2">
-                <Download size={13} />
-                Download HTML
-              </button>
-            </div>
-            <button onClick={generate} disabled={generating}
-              className="w-full py-2 text-[12px] text-[#9ca3af] hover:text-[#374151] transition-colors flex items-center justify-center gap-1.5">
-              <RefreshCw size={11} /> Regenerate
-            </button>
+            <a
+              href={pdfDownloadUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full py-3 bg-emerald-600 text-white rounded-xl text-[13px] font-semibold hover:bg-emerald-700 transition-colors flex items-center justify-center gap-2 shadow-sm"
+            >
+              <Download size={15} />
+              Download PDF Report
+            </a>
           </div>
         )}
+
+        <div className="border-t border-[#f3f4f6] pt-4">
+          <p className="text-[11px] text-[#9ca3af] mb-3 uppercase tracking-wider">Report Options</p>
+          <div className="space-y-3">
+            <button onClick={openPreview}
+              className="w-full py-2.5 border border-[#e5e7eb] rounded-xl text-[13px] font-medium text-[#374151] hover:bg-[#f9f9f8] transition-colors">
+              Preview Report in Browser
+            </button>
+            {!html ? (
+              <button
+                onClick={generate}
+                disabled={generating}
+                className="w-full py-2.5 bg-[#f9f9f8] border border-[#e5e7eb] rounded-xl text-[13px] font-semibold hover:bg-[#f3f4f6] disabled:opacity-50 transition-colors flex items-center justify-center gap-2 text-[#374151]"
+              >
+                {generating ? <Loader2 size={14} className="animate-spin" /> : <BarChart3 size={14} />}
+                {generating ? 'Generating HTML…' : 'Generate Downloadable HTML'}
+              </button>
+            ) : (
+              <div className="space-y-2">
+                <button onClick={downloadHtml}
+                  className="w-full py-2.5 bg-[#1a1a1a] text-white rounded-xl text-[13px] font-semibold hover:bg-[#333] transition-colors flex items-center justify-center gap-2">
+                  <Download size={13} />
+                  Download HTML
+                </button>
+                <button onClick={generate} disabled={generating}
+                  className="w-full py-2 text-[12px] text-[#9ca3af] hover:text-[#374151] transition-colors flex items-center justify-center gap-1.5">
+                  <RefreshCw size={11} /> Regenerate HTML
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       <button onClick={onBack} className="flex items-center gap-2 px-4 py-2.5 border border-[#e5e7eb] rounded-lg text-[13px] font-medium text-[#6b7280] hover:bg-[#f9f9f8] transition-colors">
@@ -900,7 +968,73 @@ export default function CostSegWizardPage() {
   const [saving, setSaving] = useState(false);
   const [paying, setPaying] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  
+  const [sseProgress, setSseProgress] = useState<string>('');
+  const [taskCompleted, setTaskCompleted] = useState<boolean>(false);
+  const [generatedDocId, setGeneratedDocId] = useState<string | null>(null);
+  const [pdfDownloadUrl, setPdfDownloadUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const esRef = useRef<EventSource | null>(null);
+
+  const startSseStream = useCallback((taskId: string) => {
+    if (esRef.current) {
+      esRef.current.close();
+    }
+    setTaskCompleted(false);
+    setSseProgress('Starting cost segregation agent pipeline...');
+    
+    const token = localStorage.getItem('accessToken');
+    const url = `/api/agents/tasks/${taskId}/stream?token=${token ?? ''}`;
+    const es = new EventSource(url);
+    esRef.current = es;
+
+    es.onmessage = async (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload.type === 'progress') {
+          setSseProgress(payload.message || '');
+        } else if (payload.type === 'done') {
+          es.close();
+          esRef.current = null;
+          setTaskCompleted(true);
+          setAnalyzing(false);
+          
+          const taskRes = await apiFetch<{ status: string; output?: { document_id?: string } }>(`/agents/tasks/${taskId}`);
+          if (taskRes.success) {
+            const taskData = (taskRes.data as any).data || taskRes.data;
+            const docId = taskData?.output?.document_id;
+            if (docId) {
+              setGeneratedDocId(docId);
+              const docRes = await apiFetch<{ download_url?: string }>(`/documents/${docId}`);
+              if (docRes.success) {
+                const docData = (docRes.data as any).data || docRes.data;
+                if (docData?.download_url) {
+                  setPdfDownloadUrl(docData.download_url);
+                }
+              }
+            }
+          }
+          await loadAll();
+        } else if (payload.type === 'error') {
+          es.close();
+          esRef.current = null;
+          setAnalyzing(false);
+          setSseProgress(`Error: ${payload.data || 'Agent pipeline failed.'}`);
+          await loadAll();
+        }
+      } catch (err) {
+        console.error('Failed to parse SSE payload', err);
+      }
+    };
+
+    es.onerror = () => {
+      es.close();
+      esRef.current = null;
+      setAnalyzing(false);
+      setSseProgress('Connection lost to agent pipeline.');
+    };
+  }, []);
 
   const loadAll = useCallback(async () => {
     const [projRes, propRes, docsRes, itemsRes, catsRes] = await Promise.all([
@@ -923,7 +1057,20 @@ export default function CostSegWizardPage() {
       setProperty(pd ?? {});
     }
     if (docsRes.success) {
-      setDocs((docsRes.data as { data: CostSegDoc[] }).data ?? []);
+      const docsList = (docsRes.data as { data: CostSegDoc[] }).data ?? [];
+      setDocs(docsList);
+      
+      const pdfDoc = docsList.find(d => d.mime_type === 'application/pdf' && d.filename.endsWith('_cost_seg_report.pdf'));
+      if (pdfDoc) {
+        setGeneratedDocId(pdfDoc.id);
+        const docRes = await apiFetch<{ download_url?: string }>(`/documents/${pdfDoc.id}`);
+        if (docRes.success) {
+          const docData = (docRes.data as any).data || docRes.data;
+          if (docData?.download_url) {
+            setPdfDownloadUrl(docData.download_url);
+          }
+        }
+      }
     }
     if (itemsRes.success) {
       setItems((itemsRes.data as { data: LineItem[] }).data ?? []);
@@ -931,10 +1078,38 @@ export default function CostSegWizardPage() {
     if (catsRes.success) {
       setCategories((catsRes.data as { data: Category[] }).data ?? []);
     }
+    
+    if (proj.status === 'analyzing') {
+      setAnalyzing(true);
+      const tasksRes = await apiFetch<{ id: string; type: string; status: string; input?: { project_id?: string } }[]>('/agents/tasks');
+      if (tasksRes.success) {
+        const list = (tasksRes.data as any).data || tasksRes.data;
+        const runningTask = list.find((t: any) => 
+          (t.type === 'cost_seg_extraction' || t.type === 'cost_seg_classification' || t.type === 'cost_seg_report') &&
+          (t.status === 'pending' || t.status === 'running') &&
+          t.input?.project_id === projectId
+        );
+        if (runningTask) {
+          startSseStream(runningTask.id);
+        } else {
+          setSseProgress('Agent pipeline running in background...');
+        }
+      } else {
+        setSseProgress('Agent pipeline running in background...');
+      }
+    }
     setLoading(false);
-  }, [projectId, router]);
+  }, [projectId, router, startSseStream]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
+
+  useEffect(() => {
+    return () => {
+      if (esRef.current) {
+        esRef.current.close();
+      }
+    };
+  }, []);
 
   // Poll while analyzing
   useEffect(() => {
@@ -1006,10 +1181,14 @@ export default function CostSegWizardPage() {
   };
 
   const handleAnalyze = async () => {
-    const res = await apiFetch(`/cost-seg/projects/${projectId}/analyze`, { method: 'POST' });
+    const res = await triggerCostSegPipeline(projectId);
     if (res.success) {
+      const taskData = (res.data as any).data || res.data;
       setAnalyzing(true);
       setProject((p) => p ? { ...p, status: 'analyzing' } : p);
+      startSseStream(taskData.id);
+    } else {
+      setError(res.error || 'Failed to start agent pipeline.');
     }
   };
 
@@ -1083,9 +1262,13 @@ export default function CostSegWizardPage() {
             projectId={projectId}
             docs={docs}
             analyzing={analyzing}
+            sseProgress={sseProgress}
+            taskCompleted={taskCompleted}
+            pdfDownloadUrl={pdfDownloadUrl}
             onUpload={handleUpload}
             onDelete={handleDeleteDoc}
             onAnalyze={handleAnalyze}
+            onNext={() => setCurrentStep(4)}
             onBack={() => setCurrentStep(2)}
           />
         );
@@ -1104,7 +1287,7 @@ export default function CostSegWizardPage() {
       case 5:
         return <Step5 onPay={handlePay} paying={paying} onBack={() => setCurrentStep(4)} />;
       case 6:
-        return <Step6 projectId={projectId} onBack={() => setCurrentStep(5)} />;
+        return <Step6 projectId={projectId} pdfDownloadUrl={pdfDownloadUrl} onBack={() => setCurrentStep(5)} />;
       default:
         return null;
     }

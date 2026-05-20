@@ -3,6 +3,9 @@ Document ingest job — self-contained, no SQLModel ORM.
 Uses raw psycopg for DB access with RLS context set via SET LOCAL.
 """
 import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 import io
 import uuid
 from typing import Any
@@ -160,11 +163,92 @@ async def ingest_document(
                     async with conn.transaction():
                         await _set_rls(conn, org_id)
                         await _set_status(conn, document_id, "failed")
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Failed to update status to failed for document %s: %s", document_id, exc)
         else:
             await asyncio.sleep(RETRY_DELAYS[min(job_try - 1, len(RETRY_DELAYS) - 1)])
         raise
 
 
 ingest_document.retry = 3  # type: ignore[attr-defined]
+
+
+async def ingest_irs_rule(
+    ctx: dict[str, Any],
+    *,
+    irs_rule_id: str,
+) -> dict[str, Any]:
+    """Arq job: download IRS rule file, parse, chunk, embed, store, mark ready."""
+    job_try = ctx.get("job_try", 1)
+
+    try:
+        # Use a raw DATABASE_URL without the +psycopg dialect prefix
+        db_url = settings.DATABASE_URL.replace("postgresql+psycopg://", "postgresql://")
+
+        async with await psycopg.AsyncConnection.connect(db_url) as conn:
+            await register_vector_async(conn)
+
+            async with conn.transaction():
+                # Since there's no RLS on irs_rules, no need to call _set_rls!
+                
+                # Fetch irs_rule details
+                cur = await conn.execute(
+                    "SELECT id, s3_key, filename FROM irs_rules WHERE id = %s",
+                    [irs_rule_id],
+                )
+                rule = cur.fetchone()
+                if not rule:
+                    raise ValueError(f"IRS Rule {irs_rule_id} not found")
+
+                _, s3_key, filename = rule
+                mime_type = "application/pdf"
+
+                # Download S3 file
+                body = await s3_download(s3_key)
+                text = parse_document(body, mime_type)
+
+                if not text.strip():
+                    await conn.execute(
+                        "UPDATE irs_rules SET status = %s WHERE id = %s",
+                        ["failed", irs_rule_id],
+                    )
+                    return {"status": "no_text", "irs_rule_id": irs_rule_id}
+
+                chunks = chunk_text(text)
+                embeddings = await embed_batch(chunks)
+
+                # Insert chunks
+                for i, (content, embedding) in enumerate(zip(chunks, embeddings)):
+                    await conn.execute(
+                        """INSERT INTO irs_rule_chunks (id, irs_rule_id, chunk_index, content, embedding)
+                           VALUES (%s, %s::uuid, %s, %s, %s)""",
+                        [str(uuid.uuid4()), irs_rule_id, i, content, embedding],
+                    )
+
+                # Set status to ready
+                await conn.execute(
+                    "UPDATE irs_rules SET status = %s WHERE id = %s",
+                    ["ready", irs_rule_id],
+                )
+
+        return {"status": "success", "irs_rule_id": irs_rule_id, "chunks": len(chunks)}
+
+    except Exception as e:
+        if job_try >= len(RETRY_DELAYS) + 1:
+            try:
+                db_url = settings.DATABASE_URL.replace("postgresql+psycopg://", "postgresql://")
+                async with await psycopg.AsyncConnection.connect(db_url) as conn:
+                    async with conn.transaction():
+                        await conn.execute(
+                            "UPDATE irs_rules SET status = %s WHERE id = %s",
+                            ["failed", irs_rule_id],
+                        )
+            except Exception as exc:
+                logger.warning("Failed to update status to failed for irs_rule %s: %s", irs_rule_id, exc)
+        else:
+            await asyncio.sleep(RETRY_DELAYS[min(job_try - 1, len(RETRY_DELAYS) - 1)])
+        raise
+
+
+ingest_irs_rule.retry = 3  # type: ignore[attr-defined]
+
