@@ -10,6 +10,10 @@ from sqlmodel import Column, Field, SQLModel
 class AgentTaskType(str, Enum):
     CHAT = "chat"
     TEXT_TO_SQL = "text_to_sql"
+    COST_SEG_EXTRACTION = "cost_seg_extraction"
+    COST_SEG_CLASSIFICATION = "cost_seg_classification"
+    COST_SEG_REPORT = "cost_seg_report"
+
 
 
 class AgentTaskStatus(str, Enum):

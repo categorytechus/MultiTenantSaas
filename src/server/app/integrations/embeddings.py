@@ -5,11 +5,12 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from typing import Any
 
+from app.core.config import settings
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
+EMBEDDING_MODEL = settings.EMBEDDING_MODEL
 EMBEDDING_DIMS = 384
 BATCH_SIZE = 64
 

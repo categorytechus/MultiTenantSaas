@@ -28,3 +28,14 @@ async def download(key: str) -> bytes:
         async with aiofiles.open(_local(key), "rb") as f:
             return await f.read()
     return _client().get_object(Bucket=settings.S3_BUCKET, Key=key)["Body"].read()
+
+
+async def upload(key: str, body: bytes) -> None:
+    if not settings.S3_BUCKET:
+        local_path = _local(key)
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        async with aiofiles.open(local_path, "wb") as f:
+            await f.write(body)
+        return
+    _client().put_object(Bucket=settings.S3_BUCKET, Key=key, Body=body)
+
