@@ -394,6 +394,32 @@ async def process_payment(
         project = await svc.get_project(sess, project_id)
         await svc.update_project(sess, project, status="paid")
         await log_action(sess, ctx, "cost_seg.payment", "workflow_session", str(project_id))
+
+        # Enqueue the PDF generation task automatically after payment
+        try:
+            from app.core.config import settings
+            from arq.connections import create_pool, RedisSettings
+            from app.services.agent_tasks import create_task
+            from app.models.agent_task import AgentTaskType
+
+            task = await create_task(
+                sess,
+                org_id=ctx.org_id,
+                user_id=ctx.user_id,
+                task_type=AgentTaskType.COST_SEG_REPORT,
+                input_data={"project_id": str(project_id)},
+            )
+            
+            redis_conn = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
+            await redis_conn.enqueue_job(
+                "run_report",
+                task_id=str(task.id),
+                org_id=str(ctx.org_id),
+                project_id=str(project_id),
+            )
+            await redis_conn.aclose()
+        except Exception as e:
+            logger.error(f"Failed to enqueue report generation task after payment: {e}", exc_info=True)
     return {"message": "Payment processed (test mode)", "status": "paid"}
 
 

@@ -81,6 +81,9 @@ async def run_extraction(
         await publish(redis, channel, {"type": "progress", "message": "Fetching project documents..."})
         db_url = settings.DATABASE_URL.replace("postgresql+psycopg://", "postgresql://")
         
+        # Immediately set status to analyzing so frontend polling doesn't abort
+        await _set_project_status(db_url, org_id, project_id, "analyzing")
+
         docs = []
         chunks = []
         async with await psycopg.AsyncConnection.connect(db_url) as conn:
@@ -329,26 +332,10 @@ async def run_classification(
             channel,
             {
                 "type": "progress",
-                "message": "Classification complete. Enqueueing report generation...",
+                "message": "Classification complete. Ready for user review.",
             },
         )
-        
-        # Enqueue Phase 3: run_report
-        try:
-            redis_conn = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
-            await redis_conn.enqueue_job(
-                "run_report",
-                task_id=task_id,
-                org_id=org_id,
-                project_id=project_id,
-            )
-            await redis_conn.aclose()
-            logger.info("Enqueued next job 'run_report' successfully.")
-        except Exception as enqueue_err:
-            logger.error(f"Failed to enqueue report job: {enqueue_err}", exc_info=True)
-            await update_task(http, task_id, org_id, "failed", error=str(enqueue_err))
-            await publish(redis, channel, {"type": "error", "data": f"Failed to enqueue report: {enqueue_err}"})
-            raise
+        await publish(redis, channel, {"type": "done"})
 
     except Exception as exc:
         logger.error(f"Classification failed: {exc}", exc_info=True)

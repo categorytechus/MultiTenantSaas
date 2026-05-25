@@ -893,14 +893,14 @@ function Step6({
           </div>
         )}
 
-        {pdfDownloadUrl && (
+        {pdfDownloadUrl ? (
           <div className="mb-4 space-y-3">
             <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2.5 text-[12px] text-emerald-800 flex items-center gap-2">
               <Check size={14} className="shrink-0 text-emerald-600" />
               PDF Report is generated and ready.
             </div>
             <a
-              href={pdfDownloadUrl}
+              href={pdfDownloadUrl.startsWith('/api/') ? `${pdfDownloadUrl}${pdfDownloadUrl.includes('?') ? '&' : '?'}token=${typeof window !== 'undefined' ? localStorage.getItem('accessToken') : ''}` : pdfDownloadUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="w-full py-3 bg-emerald-600 text-white rounded-xl text-[13px] font-semibold hover:bg-emerald-700 transition-colors flex items-center justify-center gap-2 shadow-sm"
@@ -908,6 +908,13 @@ function Step6({
               <Download size={15} />
               Download PDF Report
             </a>
+          </div>
+        ) : (
+          <div className="mb-4 space-y-3">
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 text-[12px] text-amber-800 flex items-center gap-2">
+              <Loader2 size={14} className="shrink-0 animate-spin" />
+              Generating PDF report in the background... This may take a moment.
+            </div>
           </div>
         )}
 
@@ -1111,15 +1118,21 @@ export default function CostSegWizardPage() {
     };
   }, []);
 
-  // Poll while analyzing
+  // Poll while analyzing or waiting for PDF
+  const shouldPoll = analyzing || (currentStep === 6 && !pdfDownloadUrl);
+
   useEffect(() => {
-    if (!analyzing) { if (pollRef.current) clearTimeout(pollRef.current); return; }
+    if (!shouldPoll) { if (pollRef.current) clearTimeout(pollRef.current); return; }
     const poll = async () => {
       const res = await apiFetch<{ data: Project }>(`/cost-seg/projects/${projectId}`);
       if (res.success) {
         const proj = (res.data as { data: Project }).data;
-        if (proj.status !== 'analyzing') {
+        if (analyzing && proj.status !== 'analyzing') {
           setAnalyzing(false);
+          await loadAll();
+          return;
+        }
+        if (!analyzing && proj.status === 'report_ready') {
           await loadAll();
           return;
         }
@@ -1128,7 +1141,7 @@ export default function CostSegWizardPage() {
     };
     pollRef.current = setTimeout(poll, 4000);
     return () => { if (pollRef.current) clearTimeout(pollRef.current); };
-  }, [analyzing, projectId, loadAll]);
+  }, [shouldPoll, analyzing, projectId, loadAll, currentStep, pdfDownloadUrl]);
 
   // ── Step handlers ────────────────────────────────────────────────────────────
 
