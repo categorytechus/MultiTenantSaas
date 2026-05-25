@@ -16,56 +16,8 @@ from dataclasses import dataclass, field
 
 import redis.asyncio as aioredis
 from app.config import settings
+from app.prompts import get_prompt, trace_generation
 
-_CORE_INSTRUCTIONS = """
-
-## Capabilities & Constraints
-- You can communicate in natural language.
-- You do NOT have direct access to execute or trigger external API actions, database operations, or third-party webhooks yourself.
-- If the user asks you to perform an action (e.g., creating a ticket, triggering a webhook, changing settings, executing a task):
-  * If a matching action is listed under the "Available API Actions" section, you MUST propose that action using the structured JSON format (Format 2).
-  * If NO matching action is listed under the "Available API Actions" section (or if the section is missing entirely), you MUST NOT pretend, assume, role-play, or claim that you have executed or completed the action. Instead, politely inform the user that the required API tool is not currently configured or is unavailable.
-"""
-
-_SYSTEM_WITH_CONTEXT = """\
-You are a helpful AI assistant. Answer the user's question using the context below, \
-which was retrieved from their uploaded documents. \
-If the answer cannot be found in the context, say so clearly rather than guessing.
-
-## Retrieved context
-{context}
-""" + _CORE_INSTRUCTIONS
-
-_SYSTEM_NO_CONTEXT = "You are a helpful AI assistant." + _CORE_INSTRUCTIONS
-
-_API_TOOLS_APPENDIX = """
-
-## Available API Actions
-You have access to the following API actions that you can propose when the user's \
-request clearly requires one. Only propose an action when ALL required fields from \
-the schema are present in the conversation. If any field is missing, ask the user \
-for it normally instead of proposing.
-
-Available actions:
-{modules_json}
-
-## Response format
-You MUST respond with a single JSON object in one of two formats:
-
-Format 1 — normal response:
-{{"type": "chat_response", "message": "Your response here"}}
-
-Format 2 — propose an API action:
-{{"type": "api_task_proposal", "api_module_id": "<uuid>", \
-"title": "<short title>", "description": "<what this will do>", \
-"input_payload": {{<field: value pairs from the schema>}}}}
-
-Important rules:
-- Respond ONLY with the JSON object. No surrounding text.
-- For Format 2, input_payload must include every field from the module's request_schema.
-- Never guess field values — if information is missing, use Format 1 to ask.
-- Never include auth credentials, tokens, or URLs in your response.
-"""
 
 
 # ── Result dataclass ──────────────────────────────────────────────────────────
@@ -232,6 +184,8 @@ async def run_agent(
     api_modules: list[dict],
     redis: aioredis.Redis,
     channel: str,
+    workflow: str | None = None,
+    trace_id: str | None = None,
 ) -> AgentResult:
     """
     Stream a Bedrock (or Gemini) response and return an AgentResult.
@@ -245,14 +199,15 @@ async def run_agent(
         context = "\n\n---\n\n".join(
             f"[{c['filename']}]\n{c['content']}" for c in context_chunks
         )
-        system_prompt = _SYSTEM_WITH_CONTEXT.format(context=context)
+        system_prompt = get_prompt("chat", "with-context", workflow, context=context)
     else:
-        system_prompt = _SYSTEM_NO_CONTEXT
+        system_prompt = get_prompt("chat", "no-context", workflow)
 
     has_api_modules = bool(api_modules)
     if has_api_modules:
-        system_prompt += _API_TOOLS_APPENDIX.format(
-            modules_json=json.dumps(api_modules, indent=2)
+        system_prompt += get_prompt(
+            "chat", "api-tools", workflow,
+            modules_json=json.dumps(api_modules, indent=2),
         )
 
     # Run the LLM
@@ -269,6 +224,10 @@ async def run_agent(
         raw = f"[Mock response — CHAT_MODEL '{settings.CHAT_MODEL}' unknown]"
         if not has_api_modules:
             await redis.publish(channel, json.dumps({"type": "token", "data": raw}))
+
+    # Trace to Langfuse if a trace_id was provided
+    if trace_id:
+        trace_generation(trace_id, f"chat/{workflow or 'default'}", conversation, raw)
 
     # If no API modules were available, raw is already streamed — return plain result
     if not has_api_modules:

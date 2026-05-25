@@ -28,6 +28,7 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "lxml>=5.0",
     "reportlab>=4.2.0",
+    "langfuse>=4.0",
 ]
 
 [tool.hatch.build.targets.wheel]

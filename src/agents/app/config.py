@@ -38,5 +38,13 @@ class Settings(BaseSettings):
     AWS_SESSION_TOKEN: str = ""
     LOCAL_UPLOAD_DIR: str = "/tmp/uploads"
 
+    # Prompt management
+    DEFAULT_PROMPT_WORKFLOW: str = "default"
+
+    # Langfuse — optional, for LLM call tracing only
+    LANGFUSE_PUBLIC_KEY: str = ""
+    LANGFUSE_SECRET_KEY: str = ""
+    LANGFUSE_HOST: str = "https://cloud.langfuse.com"
+
 
 settings = Settings()

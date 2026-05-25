@@ -4,11 +4,18 @@ Arq jobs for Cost Segregation Agent.
 Phase 1: run_extraction extracts raw cost line items.
 Phase 2: run_classification enriches those items with IRS/MACRS classes.
 """
-from typing import Any
+import asyncio
+import datetime
 import json
-import re
 import logging
+import re
+import uuid
+from typing import Any
+from arq.connections import create_pool, RedisSettings
+from bs4 import BeautifulSoup
 import httpx
+import numpy as np
+from pgvector.psycopg import register_vector_async
 import psycopg
 from psycopg.types.json import Jsonb
 
@@ -36,11 +43,9 @@ logger = logging.getLogger(__name__)
 
 ITEM_TYPE = "line_item"
 
-# Import parse_document from ingest.py
 from app.jobs.ingest import parse_document
-# Import s3_download
-from app.s3 import download as s3_download
-
+from app.s3 import download as s3_download, upload as s3_upload
+from app.jobs.pdf_gen import PDFGenerator
 
 def _clean_json(raw: str) -> Any:
     cleaned = raw.strip()
@@ -126,7 +131,6 @@ async def run_extraction(
                         async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
                             response = await client.get(src_url, headers={"User-Agent": "Mozilla/5.0"})
                             response.raise_for_status()
-                        from bs4 import BeautifulSoup
                         soup = BeautifulSoup(response.text, "lxml")
                         for tag in soup(["script", "style", "nav", "footer", "header"]):
                             tag.decompose()
@@ -152,7 +156,7 @@ async def run_extraction(
             raise ValueError("Could not extract any text from the project documents.")
 
         # 3. Call robust server LLM for raw line-item extraction
-        await publish(redis, channel, {"type": "progress", "message": "Sending documents to Claude for cost extraction..."})
+        await publish(redis, channel, {"type": "progress", "message": "Sending documents to AI for cost extraction..."})
 
         system_prompt = (
             "You are an expert cost segregation and data extraction assistant.\n"
@@ -193,8 +197,8 @@ async def run_extraction(
             if not isinstance(line_items, list):
                 raise ValueError("Expected a list of line items.")
         except Exception as e:
-            logger.error(f"Failed to parse Claude output: {cleaned}. Error: {e}")
-            raise ValueError(f"Invalid JSON response from Claude: {e}")
+            logger.error(f"Failed to parse AI output: {cleaned}. Error: {e}")
+            raise ValueError(f"Invalid JSON response from AI: {e}")
 
         # Validate line items structure
         valid_items = []
@@ -222,7 +226,6 @@ async def run_extraction(
 
         # 6. Enqueue the next job
         try:
-            from arq.connections import create_pool, RedisSettings
             redis_conn = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
             await redis_conn.enqueue_job(
                 "run_classification",
@@ -276,28 +279,46 @@ async def run_classification(
 
         await _set_project_status(db_url, org_id, project_id, "analyzing")
 
-        import asyncio
-        sem = asyncio.Semaphore(5)  # classify up to 5 items concurrently
-        enriched: list[dict[str, Any]] = [None] * len(line_items)  # type: ignore[list-item]
+        # Step 1: Load ALL IRS rule chunks from DB in a single query
+        await publish(redis, channel, {"type": "progress", "message": "Loading IRS rule library into memory..."})
+        irs_chunks = await _load_all_irs_chunks(db_url)
+        
+        if not irs_chunks:
+            logger.info("No IRS rule files found in the system. AI will fall back to general GDS MACRS classification.")
+        else:
+            logger.info(f"Loaded {len(irs_chunks)} IRS rule chunks from PDFs. Classification will be guided by these documents.")
 
-        async def _classify_one(index: int, item: dict[str, Any]) -> None:
-            async with sem:
-                await publish(
-                    redis,
-                    channel,
-                    {
-                        "type": "progress",
-                        "message": f"Classifying item {index} of {len(line_items)}: {item['description'][:80]}",
-                    },
-                )
-                context = await _retrieve_irs_context(db_url, item)
-                classified = await _classify_line_item(item, context)
-                enriched[index - 1] = classified
-
-        await asyncio.gather(*[
-            _classify_one(i, item)
-            for i, item in enumerate(line_items, start=1)
+        # Step 2: Embed all item descriptions concurrently in one shot
+        await publish(redis, channel, {"type": "progress", "message": f"Embedding {len(line_items)} item descriptions..."})
+        item_vectors = await asyncio.gather(*[
+            embed_query(f"{item['description']} cost segregation MACRS recovery period asset class")
+            for item in line_items
         ])
+
+        # Step 3: Compute top-5 IRS context for each item in-memory (numpy, no further DB calls)
+        contexts = [
+            _get_top_k_chunks(vector, irs_chunks, top_k=5)
+            for vector in item_vectors
+        ]
+
+        # Step 4: Classify in batches of 30 (bounded by LLM output token limit)
+        BATCH_SIZE = 30
+        enriched: list[dict[str, Any]] = []
+        total_batches = (len(line_items) + BATCH_SIZE - 1) // BATCH_SIZE
+
+        for batch_num, start in enumerate(range(0, len(line_items), BATCH_SIZE), start=1):
+            batch_items = line_items[start:start + BATCH_SIZE]
+            batch_contexts = contexts[start:start + BATCH_SIZE]
+            await publish(
+                redis,
+                channel,
+                {
+                    "type": "progress",
+                    "message": f"Classifying batch {batch_num} of {total_batches} ({len(batch_items)} items)...",
+                },
+            )
+            batch_results = await _classify_items_batch(batch_items, batch_contexts)
+            enriched.extend(batch_results)
 
         await publish(redis, channel, {"type": "progress", "message": "Saving classified line items..."})
         await _save_workflow_items(db_url, org_id, project_id, enriched)
@@ -313,7 +334,6 @@ async def run_classification(
         )
         
         # Enqueue Phase 3: run_report
-        from arq.connections import create_pool, RedisSettings
         try:
             redis_conn = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
             await redis_conn.enqueue_job(
@@ -380,29 +400,19 @@ def _normalize_line_items(line_items: list[dict[str, Any]]) -> list[dict[str, An
     return normalized
 
 
-async def _retrieve_irs_context(db_url: str, item: dict[str, Any], top_k: int = 5) -> list[dict[str, Any]]:
-    query = f"{item['description']} cost segregation MACRS recovery period asset class"
-    vector = await embed_query(query)
+async def _load_all_irs_chunks(db_url: str) -> list[dict[str, Any]]:
+    """Load all ready IRS rule chunks with embeddings from DB in a single query."""
     async with await psycopg.AsyncConnection.connect(db_url) as conn:
-        from pgvector.psycopg import register_vector_async
         await register_vector_async(conn)
         async with conn.transaction():
             cur = await conn.execute(
                 """
-                SELECT c.id,
-                       c.irs_rule_id,
-                       r.title,
-                       r.filename,
-                       c.content,
-                       1 - (c.embedding <=> %s::vector) AS score
+                SELECT c.id, c.irs_rule_id, r.title, r.filename, c.content, c.embedding
                 FROM irs_rule_chunks c
                 JOIN irs_rules r ON r.id = c.irs_rule_id
                 WHERE r.status = 'ready'
                   AND c.embedding IS NOT NULL
-                ORDER BY c.embedding <=> %s::vector
-                LIMIT %s
                 """,
-                [vector, vector, top_k],
             )
             rows = await cur.fetchall()
     return [
@@ -412,97 +422,137 @@ async def _retrieve_irs_context(db_url: str, item: dict[str, Any], top_k: int = 
             "title": row[2],
             "filename": row[3],
             "content": row[4],
-            "score": float(row[5]) if row[5] is not None else None,
+            "embedding": np.array(row[5], dtype=np.float32),
         }
         for row in rows
     ]
 
 
-async def _classify_line_item(item: dict[str, Any], context: list[dict[str, Any]]) -> dict[str, Any]:
-    context_text = "\n\n---\n\n".join(
-        f"Source: {c.get('title') or c.get('filename')}\nSimilarity: {c.get('score')}\n{c.get('content')}"
-        for c in context
-    ) or "No IRS rule chunks were retrieved. Determine classification using general GDS MACRS guidelines."
+def _get_top_k_chunks(
+    item_vector: list[float],
+    irs_chunks: list[dict[str, Any]],
+    top_k: int = 5,
+) -> list[dict[str, Any]]:
+    """Compute cosine similarity in-memory (numpy) and return the top-k IRS chunks."""
+    if not irs_chunks:
+        return []
+    query = np.array(item_vector, dtype=np.float32)
+    query_norm = query / (np.linalg.norm(query) + 1e-10)
+    embeddings = np.stack([c["embedding"] for c in irs_chunks])  # shape (M, D)
+    norms = np.linalg.norm(embeddings, axis=1, keepdims=True) + 1e-10
+    scores = (embeddings / norms) @ query_norm  # shape (M,)
+    top_indices = np.argsort(scores)[::-1][:top_k]
+    return [
+        {
+            "chunk_id": irs_chunks[idx]["chunk_id"],
+            "rule_id": irs_chunks[idx]["rule_id"],
+            "title": irs_chunks[idx]["title"],
+            "filename": irs_chunks[idx]["filename"],
+            "content": irs_chunks[idx]["content"],
+            "score": float(scores[idx]),
+        }
+        for idx in top_indices
+    ]
+
+
+async def _classify_items_batch(
+    items: list[dict[str, Any]],
+    contexts: list[list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    """Classify a batch of items (up to 30) in a single LLM call, returning a list of classified dicts."""
+    items_sections = []
+    for i, (item, context) in enumerate(zip(items, contexts)):
+        context_text = "\n\n---\n\n".join(
+            f"Source: {c.get('title') or c.get('filename')}\nSimilarity: {c.get('score')}\n{c.get('content')}"
+            for c in context
+        ) or "No IRS rule chunks retrieved. Apply general GDS MACRS guidelines."
+        items_sections.append(
+            f"ITEM INDEX {i}:\n"
+            f"Line item: {json.dumps(item)}\n\n"
+            f"IRS context:\n{context_text}"
+        )
+
+    combined = ("\n\n" + "=" * 60 + "\n\n").join(items_sections)
 
     system_prompt = (
         "You are an expert tax and cost segregation classification agent.\n"
-        "Your task is to classify a single construction cost line item by comparing it "
-        "against the retrieved IRS MACRS guideline chunks (IRS context).\n\n"
-        "Analyze the provided IRS context carefully. Extract the appropriate asset class, recovery period, "
-        "and GDS category based on the matches. If no specific match is found, apply general GDS guidelines.\n\n"
-        "Respond ONLY with a valid JSON object (no markdown, no surrounding text) containing these keys:\n"
+        "Your task is to classify a batch of construction cost line items. "
+        "Each item is provided with retrieved IRS MACRS guideline context.\n\n"
+        "Respond ONLY with a valid JSON array (no markdown, no surrounding text). "
+        f"The array MUST contain EXACTLY {len(items)} elements in the same order as the input (index 0, 1, 2, ...). "
+        "Each element must be a JSON object with these keys:\n"
         "- 'description': the original or a slightly clarified description of the item.\n"
-        "- 'class': the dynamic asset class name or classification determined from the rules (e.g. 'Asset Class 00.12 - Information Systems', 'Land Improvements', or 'Section 1250 Building').\n"
+        "- 'class': the dynamic asset class name or classification (e.g. 'Asset Class 00.12 - Information Systems', 'Land Improvements', or 'Section 1250 Building').\n"
         "- 'recovery_period': the GDS recovery period in years as an integer (e.g., 5, 7, 15, 39) or null if non-depreciable.\n"
-        "- 'category_id': the standard category ID identifier string. Choose from:\n"
-        "  * 'land' (for non-depreciable land or related costs)\n"
-        "  * 'personal_property_5yr' (for 5-year personal property)\n"
-        "  * 'personal_property_7yr' (for 7-year personal property)\n"
-        "  * 'land_improvements_15yr' (for 15-year land improvements)\n"
-        "  * 'qualified_improvement_property_15yr' (for 15-year QIP)\n"
-        "  * 'building_39yr' (for 39-year building structural components)\n"
-        "  * 'needs_review' (if ambiguous or low confidence)\n"
-        "  * 'excluded' (if non-depreciable or non-capital)\n"
-        "- 'category_label': a friendly label for the category (e.g., 'Building - Section 1250 (39-year)').\n"
-        "- 'bonus_eligible': boolean (true/false) indicating if it is eligible for bonus depreciation (typically true for GDS recovery periods <= 20 years).\n"
-        "- 'year1_deduction': calculated first-year depreciation deduction amount (number) for this cost item. "
-        "Under 2026 GDS MACRS Rules: bonus depreciation is 20%. The remainder uses standard GDS rates (5-yr = 20%, 7-yr = 14.29%, 15-yr Land = 5%, 15-yr QIP = 3.33%, 39-yr Building = 2.56%). If bonus eligible: year1 = (cost * 0.20) + (cost * 0.80 * standard_rate). If not bonus eligible: year1 = cost * standard_rate.\n"
-        "- 'confidence': float between 0.0 and 1.0 representing your confidence in this match.\n"
-        "- 'notes': concise rationale citing the specific sections of the matched IRS rules/ruling text from the context that support your classification."
+        "- 'category_id': choose from:\n"
+        "  * 'land' (non-depreciable land)\n"
+        "  * 'personal_property_5yr' (5-year)\n"
+        "  * 'personal_property_7yr' (7-year)\n"
+        "  * 'land_improvements_15yr' (15-year land improvements)\n"
+        "  * 'qualified_improvement_property_15yr' (15-year QIP)\n"
+        "  * 'building_39yr' (39-year building structural)\n"
+        "  * 'needs_review' (ambiguous)\n"
+        "  * 'excluded' (non-depreciable or non-capital)\n"
+        "- 'category_label': friendly label (e.g., 'Building - Section 1250 (39-year)').\n"
+        "- 'bonus_eligible': boolean, true if GDS recovery period <= 20 years.\n"
+        "- 'year1_deduction': first-year deduction amount (number). "
+        "2026 GDS MACRS: bonus = 20%. Standard rates: 5-yr=20%, 7-yr=14.29%, 15-yr Land=5%, 15-yr QIP=3.33%, 39-yr=2.56%. "
+        "Bonus eligible: year1 = (cost*0.20) + (cost*0.80*standard_rate). Not bonus: year1 = cost*standard_rate.\n"
+        "- 'confidence': float 0.0-1.0.\n"
+        "- 'notes': concise rationale citing specific IRS rule sections from the context."
     )
-
-
 
     raw_response = await llm.complete([
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": f"Line item:\n{json.dumps(item)}\n\nRetrieved IRS context:\n{context_text}"},
+        {"role": "user", "content": f"Classify the following {len(items)} line items:\n\n{combined}"},
     ])
-    parsed = _clean_json(raw_response)
-    if not isinstance(parsed, dict):
-        raise ValueError(f"Expected classification object, got {type(parsed).__name__}")
 
-    cost = float(item["cost"])
-    recovery_period_val = parsed.get("recovery_period")
-    if recovery_period_val is not None:
+    parsed = _clean_json(raw_response)
+    if not isinstance(parsed, list) or len(parsed) != len(items):
+        raise ValueError(
+            f"Expected JSON array of {len(items)} items from LLM, "
+            f"got {type(parsed).__name__} with "
+            f"{len(parsed) if isinstance(parsed, list) else 'N/A'} elements."
+        )
+
+    results = []
+    for i, (item, classification) in enumerate(zip(items, parsed)):
+        cost = float(item["cost"])
+
+        recovery_period_val = classification.get("recovery_period")
         try:
-            recovery_period = int(recovery_period_val)
+            recovery_period = int(recovery_period_val) if recovery_period_val is not None else None
         except (ValueError, TypeError):
             recovery_period = None
-    else:
-        recovery_period = None
 
-    category_id = str(parsed.get("category_id") or "needs_review").strip()
-    category_label = str(parsed.get("category_label") or parsed.get("class") or "Needs Review").strip()
-    bonus_eligible = bool(parsed.get("bonus_eligible", False))
-    
-    # Calculate or parse Year 1 deduction from LLM response safely
-    year1_val = parsed.get("year1_deduction")
-    if year1_val is not None:
+        category_id = str(classification.get("category_id") or "needs_review").strip()
+        category_label = str(classification.get("category_label") or classification.get("class") or "Needs Review").strip()
+        bonus_eligible = bool(classification.get("bonus_eligible", False))
+
+        year1_val = classification.get("year1_deduction")
         try:
-            year1_deduction = float(year1_val)
+            year1_deduction = float(year1_val) if year1_val is not None else None
         except (ValueError, TypeError):
             year1_deduction = None
-    else:
-        year1_deduction = None
 
-    confidence = _coerce_confidence(parsed.get("confidence"))
-    notes = str(parsed.get("notes") or "").strip()
-    if not notes:
-        notes = "Classified based on similarity matched IRS rule context."
+        confidence = _coerce_confidence(classification.get("confidence"))
+        notes = str(classification.get("notes") or "").strip() or "Classified based on similarity matched IRS rule context."
 
-    return {
-        "description": str(parsed.get("description") or item["description"]).strip(),
-        "cost": cost,
-        "class": str(parsed.get("class") or category_label),
-        "recovery_period": recovery_period,
-        "category_id": category_id,
-        "category_label": category_label,
-        "bonus_eligible": bonus_eligible,
-        "year1_deduction": year1_deduction,
-        "confidence": confidence,
-        "notes": notes,
-        "irs_context": context[:3],
-    }
+        results.append({
+            "description": str(classification.get("description") or item["description"]).strip(),
+            "cost": cost,
+            "class": str(classification.get("class") or category_label),
+            "recovery_period": recovery_period,
+            "category_id": category_id,
+            "category_label": category_label,
+            "bonus_eligible": bonus_eligible,
+            "year1_deduction": year1_deduction,
+            "confidence": confidence,
+            "notes": notes,
+            "irs_context": contexts[i][:3],
+        })
+
+    return results
 
 
 def _coerce_confidence(raw: Any) -> float | None:
@@ -599,7 +649,6 @@ async def run_report(
     project_id: str,
 ) -> None:
     """Arq job: calculate depreciation schedules, generate PDF, upload to S3, and insert DB document record."""
-    import datetime
     redis = ctx["redis"]
     http = ctx["http"]
     channel = task_channel(org_id, task_id)
@@ -685,7 +734,6 @@ async def run_report(
 
         # 4. Generate PDF Report using PDFGenerator
         await publish(redis, channel, {"type": "progress", "message": "Compiling PDF document..."})
-        from app.jobs.pdf_gen import PDFGenerator
         pdf_gen = PDFGenerator()
         study_date_str = project_details.get("meta", {}).get("study_date") or datetime.date.today().isoformat()
         
@@ -700,7 +748,6 @@ async def run_report(
         # 5. Upload the generated PDF to S3
         await publish(redis, channel, {"type": "progress", "message": "Uploading report to storage..."})
         s3_key = f"{org_id}/{task_id}_cost_seg.pdf"
-        from app.s3 import upload as s3_upload
         await s3_upload(s3_key, pdf_bytes)
 
         # 6. Insert Document record in DB
@@ -797,7 +844,6 @@ async def _insert_document_record(
     filename: str,
     size_bytes: int,
 ) -> str:
-    import uuid
     doc_id = str(uuid.uuid4())
     async with await psycopg.AsyncConnection.connect(db_url) as conn:
         async with conn.transaction():
