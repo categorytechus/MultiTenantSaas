@@ -188,6 +188,17 @@ async def delete_web_url(
     row = await session.get(WebUrl, url_id)
     if not row or row.org_id != ctx.org_id:
         raise HTTPException(status_code=404, detail="Web URL not found")
+        
+    url_to_delete = row.url
     await session.delete(row)
+    
+    # Also delete the orphaned Document records so they don't skew dashboard stats
+    from app.services.documents import delete_document
+    docs_result = await session.execute(
+        select(Document.id).where(Document.org_id == ctx.org_id, Document.source_url == url_to_delete)
+    )
+    for doc_id in docs_result.scalars().all():
+        await delete_document(session, doc_id)
+        
     await session.flush()
     return {"success": True}

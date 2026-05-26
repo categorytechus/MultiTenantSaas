@@ -26,6 +26,7 @@ export default function CreateUserPage() {
   const [existingUserAdded, setExistingUserAdded] = useState(false);
   const [setupEmailSent, setSetupEmailSent] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [copiedMessage, setCopiedMessage] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("accessToken");
@@ -163,6 +164,21 @@ export default function CreateUserPage() {
               </div>
             </div>
 
+            <div style={{ marginTop: 12, marginBottom: 6 }}>
+              <button
+                className="btn"
+                style={{ width: '100%', background: '#f5f4f1', border: '1px solid #e5e5e5', color: '#1a1a1a' }}
+                onClick={() => {
+                  const msg = `Hi there!\n\nYou have been added to our organization. You can log in using your existing account here:\n\n${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/auth/signin\n\nBest regards,`;
+                  navigator.clipboard.writeText(msg);
+                  setCopiedMessage(true);
+                  setTimeout(() => setCopiedMessage(false), 2000);
+                }}
+              >
+                {copiedMessage ? "✓ Message Copied!" : "Copy Full Message"}
+              </button>
+            </div>
+
             <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
               <button className="btn btn-ghost" onClick={() => { setExistingUserAdded(false); setName(""); setEmail(""); }} style={{ flex: 1 }}>
                 Add Another
@@ -245,6 +261,21 @@ export default function CreateUserPage() {
                   {copied ? '✓ Copied' : 'Copy'}
                 </button>
               </div>
+            </div>
+
+            <div style={{ marginTop: 12, marginBottom: 6 }}>
+              <button
+                className="btn"
+                style={{ width: '100%', background: '#f5f4f1', border: '1px solid #e5e5e5', color: '#1a1a1a' }}
+                onClick={() => {
+                  const msg = `Hi there!\n\nAn account has been created for you. Please use the following link to set your password and log in:\n\n${normalizedLink}\n\nBest regards,`;
+                  navigator.clipboard.writeText(msg);
+                  setCopiedMessage(true);
+                  setTimeout(() => setCopiedMessage(false), 2000);
+                }}
+              >
+                {copiedMessage ? "✓ Message Copied!" : "Copy Full Message"}
+              </button>
             </div>
 
             <div style={{
