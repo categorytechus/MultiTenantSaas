@@ -518,19 +518,53 @@ async def list_all_users(
     ctx: RequestContext = Depends(require_super_admin_user),
     session: AsyncSession = Depends(get_db),
 ):
+    from app.core.identity import is_super_admin_user
+    
+    # Get all memberships to extract roles
+    memberships_result = await session.execute(select(OrgMembership.user_id, OrgMembership.role))
+    user_roles: dict[UUID, set[str]] = {}
+    for uid, role in memberships_result.all():
+        if uid not in user_roles:
+            user_roles[uid] = set()
+        user_roles[uid].add(role)
+
     result = await session.execute(select(User).order_by(User.created_at.desc()))
     users = result.scalars().all()
-    return UsersListEnvelope(
-        data=[
-            {
-                "id": str(user.id),
-                "email": user.email,
-                "name": user.name,
-                "created_at": user.created_at.isoformat(),
-            }
-            for user in users
-        ],
-    )
+    
+    data = []
+    for user in users:
+        is_sa = is_super_admin_user(user.id)
+        roles_list = []
+        if is_sa:
+            roles_list.append({"id": "super_admin", "name": "super_admin"})
+        else:
+            for role in user_roles.get(user.id, []):
+                if role == Role.TENANT_ADMIN.value:
+                    roles_list.append({"id": "org_admin", "name": "org_admin"})
+                elif role == Role.USER.value:
+                    roles_list.append({"id": "user", "name": "user"})
+                
+        # Deduplicate roles
+        unique_roles = []
+        seen = set()
+        for r in roles_list:
+            if r["name"] not in seen:
+                seen.add(r["name"])
+                unique_roles.append(r)
+                
+        data.append({
+            "id": str(user.id),
+            "email": user.email,
+            "full_name": user.name or "",
+            "status": "active",
+            "user_type": "super_admin" if is_sa else "user",
+            "org_role": "super_admin" if is_sa else "user",
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+            "last_login_at": None,
+            "roles": unique_roles,
+        })
+        
+    return UsersListEnvelope(data=data)
 
 
 @router.get("/organizations/{org_id}/modules", response_model=OrgModulesListEnvelope)

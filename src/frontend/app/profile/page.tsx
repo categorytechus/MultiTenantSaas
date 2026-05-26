@@ -71,7 +71,7 @@ export default function ProfilePage() {
     setProfileSaving(true);
 
     try {
-      const res = await apiFetch<{ data: MeUser; message?: string }>('/auth/profile', {
+      const res = await apiFetch<{ data: MeUser; message?: string }>('/auth/me', {
         method: 'PUT',
         body: JSON.stringify({ name }),
       });
