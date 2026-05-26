@@ -2,7 +2,7 @@ from typing import Any
 from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, File, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +22,9 @@ from app.models.super_admin import SuperAdminAllowlist
 from app.models.user import User
 from app.core.security import hash_password
 from app.services.invite_service import create_invite_record, link_query_role
+from app.models.irs_rule import IrsRule
+from app.integrations.s3 import upload as s3_upload
+from arq.connections import RedisSettings, create_pool
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 def _public_app_base(request: Request) -> str:
@@ -515,19 +518,53 @@ async def list_all_users(
     ctx: RequestContext = Depends(require_super_admin_user),
     session: AsyncSession = Depends(get_db),
 ):
+    from app.core.identity import is_super_admin_user
+    
+    # Get all memberships to extract roles
+    memberships_result = await session.execute(select(OrgMembership.user_id, OrgMembership.role))
+    user_roles: dict[UUID, set[str]] = {}
+    for uid, role in memberships_result.all():
+        if uid not in user_roles:
+            user_roles[uid] = set()
+        user_roles[uid].add(role)
+
     result = await session.execute(select(User).order_by(User.created_at.desc()))
     users = result.scalars().all()
-    return UsersListEnvelope(
-        data=[
-            {
-                "id": str(user.id),
-                "email": user.email,
-                "name": user.name,
-                "created_at": user.created_at.isoformat(),
-            }
-            for user in users
-        ],
-    )
+    
+    data = []
+    for user in users:
+        is_sa = is_super_admin_user(user.id)
+        roles_list = []
+        if is_sa:
+            roles_list.append({"id": "super_admin", "name": "super_admin"})
+        else:
+            for role in user_roles.get(user.id, []):
+                if role == Role.TENANT_ADMIN.value:
+                    roles_list.append({"id": "org_admin", "name": "org_admin"})
+                elif role == Role.USER.value:
+                    roles_list.append({"id": "user", "name": "user"})
+                
+        # Deduplicate roles
+        unique_roles = []
+        seen = set()
+        for r in roles_list:
+            if r["name"] not in seen:
+                seen.add(r["name"])
+                unique_roles.append(r)
+                
+        data.append({
+            "id": str(user.id),
+            "email": user.email,
+            "full_name": user.name or "",
+            "status": "active",
+            "user_type": "super_admin" if is_sa else "user",
+            "org_role": "super_admin" if is_sa else "user",
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+            "last_login_at": None,
+            "roles": unique_roles,
+        })
+        
+    return UsersListEnvelope(data=data)
 
 
 @router.get("/organizations/{org_id}/modules", response_model=OrgModulesListEnvelope)
@@ -569,6 +606,8 @@ async def get_org_module_flags(
         "ai_assistant": "AI assistant tools and chat capabilities.",
         "documents": "Document library and document actions.",
         "web_urls": "Manage web URL records and sources.",
+        "api_calling": "Enable outbound API actions and webhook integrations.",
+        "report_generation": "Generate and export PDF or structured reports.",
     }
 
     return OrgModulesListEnvelope(
@@ -654,3 +693,57 @@ async def list_audit_logs(
             for log in logs
         ],
     }
+
+
+@router.post("/irs-rules/upload", status_code=202)
+async def upload_irs_rule(
+    file: UploadFile = File(...),
+    ctx: RequestContext = Depends(require_super_admin_user),
+    session: AsyncSession = Depends(get_db),
+):
+    body = await file.read()
+    MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+    if len(body) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail="File too large. Maximum size is 50MB.",
+        )
+
+    filename = file.filename or "irs_rule.pdf"
+    ext = filename.rsplit(".", 1)[-1] if "." in filename else "pdf"
+
+    rule = IrsRule(
+        filename=filename,
+        title=filename.rsplit(".", 1)[0],
+        size_bytes=len(body),
+        status="processing",
+    )
+    session.add(rule)
+    await session.flush()
+
+    s3_key = f"global/irs-rules/{rule.id}.{ext}"
+    rule.s3_key = s3_key
+    session.add(rule)
+    await session.flush()
+
+    # Upload to S3/local fallback
+    await s3_upload(s3_key, body)
+
+    # Enqueue Arq background task for ingestion
+    arq = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
+    await arq.enqueue_job("ingest_irs_rule", irs_rule_id=str(rule.id))
+    await arq.aclose()
+
+    return {
+        "success": True,
+        "irs_rule": {
+            "id": str(rule.id),
+            "filename": rule.filename,
+            "title": rule.title,
+            "size_bytes": rule.size_bytes,
+            "status": rule.status,
+            "s3_key": rule.s3_key,
+            "created_at": rule.created_at.isoformat(),
+        }
+    }
+

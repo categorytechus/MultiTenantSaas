@@ -3,6 +3,7 @@ from typing import Any, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -393,6 +394,32 @@ async def process_payment(
         project = await svc.get_project(sess, project_id)
         await svc.update_project(sess, project, status="paid")
         await log_action(sess, ctx, "cost_seg.payment", "workflow_session", str(project_id))
+
+        # Enqueue the PDF generation task automatically after payment
+        try:
+            from app.core.config import settings
+            from arq.connections import create_pool, RedisSettings
+            from app.services.agent_tasks import create_task
+            from app.models.agent_task import AgentTaskType
+
+            task = await create_task(
+                sess,
+                org_id=ctx.org_id,
+                user_id=ctx.user_id,
+                task_type=AgentTaskType.COST_SEG_REPORT,
+                input_data={"project_id": str(project_id)},
+            )
+            
+            redis_conn = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
+            await redis_conn.enqueue_job(
+                "run_report",
+                task_id=str(task.id),
+                org_id=str(ctx.org_id),
+                project_id=str(project_id),
+            )
+            await redis_conn.aclose()
+        except Exception as e:
+            logger.error(f"Failed to enqueue report generation task after payment: {e}", exc_info=True)
     return {"message": "Payment processed (test mode)", "status": "paid"}
 
 
@@ -429,3 +456,24 @@ async def get_report(
     if not report:
         raise HTTPException(status_code=404, detail="Report not yet generated")
     return {"data": {"html": report.content, "generated_at": report.generated_at.isoformat()}}
+
+
+@router.get("/projects/{project_id}/report/preview", response_class=HTMLResponse)
+async def preview_report(
+    project_id: UUID,
+    ctx: RequestContext = authorize("cost_seg:read"),
+    session: AsyncSession = Depends(get_db),
+) -> HTMLResponse:
+    report = await svc.get_report(session, project_id)
+    if not report:
+        # Auto-generate the HTML report if it doesn't exist yet
+        async with db_session(ctx.org_id) as sess:
+            project = await svc.get_project(sess, project_id)
+            if project.status not in ("paid", "report_ready", "analysis_complete"):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Complete analysis before previewing the report.",
+                )
+            html = await svc.generate_report(sess, project_id, ctx.org_id)
+        return HTMLResponse(content=html)
+    return HTMLResponse(content=report.content)

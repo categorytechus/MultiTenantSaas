@@ -4,8 +4,9 @@ from arq.connections import RedisSettings
 
 from app.config import settings
 from app.jobs.chat import run_chat
-from app.jobs.ingest import ingest_document
+from app.jobs.ingest import ingest_document, ingest_irs_rule
 from app.jobs.api_tool import run_api_tool
+from app.jobs.cost_seg import run_classification, run_extraction, run_report
 import asyncio
 import sys
 
@@ -44,7 +45,7 @@ async def shutdown(ctx: dict) -> None:
 
 
 class WorkerSettings:
-    functions = [run_chat, ingest_document, run_api_tool]
+    functions = [run_chat, ingest_document, ingest_irs_rule, run_api_tool, run_extraction, run_classification, run_report]
     redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
     on_startup = startup
     on_shutdown = shutdown

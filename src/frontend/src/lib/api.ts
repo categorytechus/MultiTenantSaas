@@ -111,3 +111,13 @@ export function getWebSocketUrl(path: string = '/ws/task-status') {
   
   return `${baseUrl}${relativePath}${token ? `?token=${token}` : ''}`;
 }
+
+/**
+ * Trigger the cost segregation extraction, classification, and report pipeline.
+ */
+export async function triggerCostSegPipeline(projectId: string): Promise<ApiResponse<{ id: string; status: string }>> {
+  return apiFetch<{ id: string; status: string }>('/agents/tasks/cost_seg', {
+    method: 'POST',
+    body: JSON.stringify({ project_id: projectId }),
+  });
+}

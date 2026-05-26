@@ -11,9 +11,8 @@ interface OrgRow {
   slug: string;
   status: string;
   enabledModuleCount: number;
+  totalModuleCount: number;
 }
-
-const TOTAL_MODULES = 3;
 
 export default function OrgPermissionsPage() {
   const router = useRouter();
@@ -43,10 +42,10 @@ export default function OrgPermissionsPage() {
             res.data.data.map(async (o) => {
               try {
                 const modRes = await apiFetch<{ data: { id: string; enabled: boolean }[] }>(`/admin/organizations/${o.id}/modules`);
-                const enabledModuleCount = modRes.success ? modRes.data.data.filter((m) => m.enabled).length : 0;
-                return { ...o, enabledModuleCount };
+                const modules = modRes.success ? modRes.data.data : [];
+                return { ...o, enabledModuleCount: modules.filter((m) => m.enabled).length, totalModuleCount: modules.length };
               } catch {
-                return { ...o, enabledModuleCount: 0 };
+                return { ...o, enabledModuleCount: 0, totalModuleCount: 0 };
               }
             })
           );
@@ -104,7 +103,7 @@ export default function OrgPermissionsPage() {
                 </thead>
                 <tbody>
                   {filtered.map(org => {
-                    const pct = TOTAL_MODULES > 0 ? Math.round((org.enabledModuleCount / TOTAL_MODULES) * 100) : 0;
+                    const pct = org.totalModuleCount > 0 ? Math.round((org.enabledModuleCount / org.totalModuleCount) * 100) : 0;
                     return (
                       <tr key={org.id}>
                         <td>
@@ -116,7 +115,7 @@ export default function OrgPermissionsPage() {
                         </td>
                         <td>
                           <span className="text-[13px] font-semibold text-[#1a1a1a]">{org.enabledModuleCount}</span>
-                          <span className="text-[12px] text-[#9a9a9a]"> / {TOTAL_MODULES}</span>
+                          <span className="text-[12px] text-[#9a9a9a]"> / {org.totalModuleCount}</span>
                         </td>
                         <td>
                           <div className="flex items-center gap-2">

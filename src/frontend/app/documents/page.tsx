@@ -866,24 +866,12 @@ export default function DocumentsPage() {
   };
 
 
-  const handleView = async (doc: Document) => {
-    try {
-      const res = await apiFetch<{ data: { downloadUrl: string | null } }>(`/documents/${doc.id}`);
-      if (res.success && res.data.data.downloadUrl) {
-        window.open(res.data.data.downloadUrl, "_blank");
-      } else {
-        const token = localStorage.getItem("accessToken");
-        const fileRes = await fetch(`/api/documents/${doc.id}/local-file`, {
-          headers: { Authorization: token ? `Bearer ${token}` : "" },
-        });
-        if (!fileRes.ok) throw new Error("Unable to open file");
-        const blob = await fileRes.blob();
-        const blobUrl = URL.createObjectURL(blob);
-        window.open(blobUrl, "_blank");
-        setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
-      }
-    } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Error viewing document");
+  const handleView = (doc: Document) => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") : "";
+    const url = `/api/documents/${doc.id}/download${token ? `?token=${token}` : ""}`;
+    const newTab = window.open(url, "_blank");
+    if (!newTab) {
+      alert("Please allow popups to view documents.");
     }
   };
 

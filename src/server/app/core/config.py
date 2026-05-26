@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     GEMINI_MODEL: str = "gemini-2.5-flash"
 
     ENVIRONMENT: str = "development"
+    EMBEDDING_MODEL: str = "BAAI/bge-small-en-v1.5"
     # Comma-separated string so pydantic-settings doesn't attempt JSON parsing.
     # Parsed into a list by cors_origins_list below.
     CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000"

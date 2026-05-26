@@ -504,7 +504,7 @@ export default function ApiModulesPage() {
                 <table className="w-full border-collapse min-w-[800px]">
                   <thead className="bg-gray-50">
                     <tr>
-                      {["Name & Description", "Method & Path", "Auth Type", "Permissions", "Status", "Actions"].map((h) => (
+                      {["Name & Description", "Base URL", "Method & Path", "Auth Type", "Permissions", "Status", "Actions"].map((h) => (
                         <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
                           {h}
                         </th>
@@ -533,14 +533,21 @@ export default function ApiModulesPage() {
                           </div>
                         </td>
 
+                        {/* Base URL */}
+                        <td className="px-4 py-3">
+                          <span className="text-[12px] font-mono text-gray-700 truncate max-w-[200px] block" title={m.base_url}>
+                            {m.base_url}
+                          </span>
+                        </td>
+
                         {/* Method & Path */}
                         <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-col items-start gap-1.5">
+                            <span className="text-[12px] font-mono text-gray-700 truncate max-w-[200px]" title={m.endpoint_path}>
+                              {m.endpoint_path}
+                            </span>
                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${METHOD_COLORS[m.method] ?? 'bg-gray-100 text-gray-600'}`}>
                               {m.method}
-                            </span>
-                            <span className="text-[12px] font-mono text-gray-500 truncate max-w-[200px]" title={`${m.base_url}${m.endpoint_path}`}>
-                              {m.endpoint_path}
                             </span>
                           </div>
                         </td>

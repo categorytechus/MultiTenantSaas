@@ -87,6 +87,11 @@ async def create_url_document(
 async def delete_document(session: AsyncSession, doc_id: UUID) -> Document:
     """Delete a document record. Returns the deleted document for S3 cleanup."""
     doc = await get_document(session, doc_id)
+    # Delete associated chunks first to prevent ForeignKeyViolation
+    from app.models.document import DocumentChunk
+    from sqlmodel import delete
+    await session.execute(delete(DocumentChunk).where(DocumentChunk.document_id == doc_id))
+    
     await session.delete(doc)
     await session.flush()
     logger.info("Document deleted", doc_id=str(doc_id))

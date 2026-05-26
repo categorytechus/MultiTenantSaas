@@ -212,7 +212,7 @@ async def me(
 @router.put("/me", response_model=UserResponse)
 async def update_profile(
     body: UpdateProfileRequest,
-    ctx: RequestContext = Depends(get_required_context),
+    ctx: RequestContext = Depends(get_optional_tenant_context),
     session: AsyncSession = Depends(get_db),
 ) -> Any:
     from app.models.user import User as UserModel

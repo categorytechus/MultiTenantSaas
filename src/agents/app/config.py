@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     AWS_BEDROCK_REGION: str = "us-east-1"
     OPENAI_API_KEY: str = ""
     ENVIRONMENT: str = "development"
+    EMBEDDING_MODEL: str = "BAAI/bge-small-en-v1.5"
 
     # S3 / local file storage (mirrors server config)
     S3_BUCKET: str = ""
@@ -36,6 +37,14 @@ class Settings(BaseSettings):
     AWS_SECRET_ACCESS_KEY: str = ""
     AWS_SESSION_TOKEN: str = ""
     LOCAL_UPLOAD_DIR: str = "/tmp/uploads"
+
+    # Prompt management
+    DEFAULT_PROMPT_WORKFLOW: str = "default"
+
+    # Langfuse — optional, for LLM call tracing only
+    LANGFUSE_PUBLIC_KEY: str = ""
+    LANGFUSE_SECRET_KEY: str = ""
+    LANGFUSE_HOST: str = "https://cloud.langfuse.com"
 
 
 settings = Settings()
