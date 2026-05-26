@@ -21,6 +21,7 @@ from app.core.identity import is_super_admin_user, normalize_email
 from app.core.rbac import Role, role_permissions_from_db
 from app.core.tenancy import RequestContext, get_required_context
 from app.models.org import OrgMembership
+from app.models.org_module import OrgModule
 from app.models.user import User
 from app.models.rbac import RbacPermission, RbacRole, RoleOrgPermission, RolePermission
 from app.services.invite_service import _assign_custom_role_if_any, create_invite_record, link_query_role
@@ -95,6 +96,21 @@ async def my_modules(
         modules = sorted(modules_set)
 
     return ModulesPayload(data={"modules": modules})
+
+
+@router.get("/modules", response_model=ModulesPayload)
+async def get_org_enabled_modules(
+    organization_id: UUID,
+    ctx: RequestContext = Depends(get_required_context),
+    session: AsyncSession = Depends(get_db),
+) -> ModulesPayload:
+    """Return the list of module IDs enabled for this org. Accessible to all org members."""
+    _ensure_org_context(ctx, organization_id)
+    result = await session.execute(
+        select(OrgModule.module_id).where(OrgModule.org_id == organization_id)
+    )
+    enabled_ids = [row[0] for row in result.all()]
+    return ModulesPayload(data={"modules": enabled_ids})
 
 
 class OrgUserRow(BaseModel):

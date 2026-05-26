@@ -164,17 +164,24 @@ export default function Layout({ children }: LayoutProps) {
               const freshPrimaryRole = extractPrimaryRoleFromToken(freshToken)?.toLowerCase().replace(/-/g, "_");
               const isSA = isSuperAdminUserType(userData.user_type) || freshPrimaryRole === "super_admin";
               const isOA = freshPrimaryRole === "tenant_admin";
-              if (isSA || isOA) {
+              if (isSA && !jwtParsed.org_id) {
+                // Super admin with no org context — unrestricted, show all modules
                 sessionStorage.removeItem("userModules");
                 sessionStorage.setItem("userModulesUnrestricted", "1");
                 setModulesResolved(true);
               } else if (jwtParsed.org_id) {
-                const cached = sessionStorage.getItem("userModules");
-                if (cached) {
-                  try { const modules = JSON.parse(cached) as string[]; setUserModules(Array.isArray(modules) ? modules : []); }
-                  catch { setUserModules([]); }
-                } else { setUserModules([]); }
-                sessionStorage.removeItem("userModulesUnrestricted");
+                // SA or OA or regular user with an org context — fetch actual enabled modules
+                try {
+                  const modRes = await apiFetch<{ data: { modules: string[] } }>(
+                    `/organizations/${jwtParsed.org_id}/modules`
+                  );
+                  const enabledIds = modRes.success ? (modRes.data.data.modules ?? []) : [];
+                  sessionStorage.setItem("userModules", JSON.stringify(enabledIds));
+                  sessionStorage.removeItem("userModulesUnrestricted");
+                  setUserModules(enabledIds);
+                } catch {
+                  setUserModules([]);
+                }
                 setModulesResolved(true);
               } else {
                 setUserModules([]);
@@ -257,7 +264,7 @@ export default function Layout({ children }: LayoutProps) {
 
   const hasModule = (moduleId: string) => {
     if (!PERMISSION_MODULE_ENABLED) return true;
-    if (isSuperAdmin || isOrgAdmin) return true;
+    if (isSuperAdmin && !cur) return true; // SA with no org context sees all
     if (!modulesResolved) return false;
     return userModules?.includes(moduleId) ?? false;
   };
@@ -349,55 +356,103 @@ export default function Layout({ children }: LayoutProps) {
               </div>
             )}
 
-            <div>
-              <div className="px-2 mb-1.5 text-[10px] font-semibold text-[#b0aaa0] uppercase tracking-wider">Home</div>
-              <NavItem href="/dashboard" active={pathname === "/dashboard"} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>}>Dashboard</NavItem>
-              {hasModule("ai_assistant") && (
-                <Link href="/ai_assistant" className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors w-full ${pathname === "/ai_assistant" ? "bg-gradient-to-r from-violet-50 to-blue-50 text-violet-700 shadow-sm" : "text-[#606060] hover:bg-white hover:text-[#1a1a1a]"}`}>
-                  <span className="w-4 h-4 shrink-0 flex items-center justify-center">
-                    <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"/><circle cx="18" cy="5" r="3"/></svg>
-                  </span>
-                  <span className={pathname === "/ai_assistant" ? "bg-gradient-to-r from-violet-600 to-blue-600 bg-clip-text text-transparent font-semibold" : ""}>AI Assistant</span>
-                </Link>
-              )}
-              {hasModule("cost_seg") && (
-                <Link href="/cost_segregation" className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors w-full ${pathname.startsWith("/cost_segregation") ? "bg-gradient-to-r from-emerald-50 to-teal-50 text-emerald-700 shadow-sm" : "text-[#606060] hover:bg-white hover:text-[#1a1a1a]"}`}>
-                  <span className="w-4 h-4 shrink-0 flex items-center justify-center">
-                    <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
-                  </span>
-                  <span className={pathname.startsWith("/cost_segregation") ? "bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent font-semibold" : ""}>Cost Segregation</span>
-                </Link>
-              )}
-              <NavItem href="/profile" active={pathname === "/profile"} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>}>My Profile</NavItem>
-            </div>
-
-            {(hasModule("documents") || hasModule("web_urls")) && (
-              <div>
-                <div className="px-2 mb-1.5 text-[10px] font-semibold text-[#b0aaa0] uppercase tracking-wider">Knowledge Base</div>
-                {hasModule("documents") && (
-                  <NavItem href="/documents" active={pathname === "/documents"} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>}>Documents</NavItem>
-                )}
-                {hasModule("web_urls") && (
-                  <NavItem href="/web-urls" active={pathname === "/web-urls"} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>}>Web URLs</NavItem>
-                )}
-              </div>
-            )}
-
-            {isOrgAdmin && (
-              <div>
-                <div className="px-2 mb-1.5 text-[10px] font-semibold text-[#b0aaa0] uppercase tracking-wider">Tools</div>
-                <NavItem
-                  href="/api-modules"
-                  active={pathname === "/api-modules"}
-                  icon={
-                    <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                      <path d="M13 10V3L4 14h7v7l9-11h-7z"/>
-                    </svg>
-                  }
+            {/* Org-context border: wraps Home / Knowledge Base / Tools for admins */}
+            {isOrgAdmin ? (
+              <div className="relative border border-[#d9d6d0] rounded-xl pt-5 pb-3 space-y-4">
+                <span
+                  className="absolute -top-[9px] left-3 flex items-center gap-1 px-2 py-0.5 bg-[#faf9f7] border border-[#d9d6d0] rounded-full"
+                  style={{ maxWidth: 'calc(100% - 24px)' }}
                 >
-                  API Modules
-                </NavItem>
+                  <svg className="w-2.5 h-2.5 text-[#9a9a9a] shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1"/></svg>
+                  <span className="text-[9px] font-semibold tracking-wide text-[#6b7280] uppercase truncate">
+                    {cur ? cur.name : 'Admin'}
+                  </span>
+                </span>
+
+                <div className="px-2">
+                  <div className="px-2 mb-1.5 text-[10px] font-semibold text-[#b0aaa0] uppercase tracking-wider">Home</div>
+                  <NavItem href="/dashboard" active={pathname === "/dashboard"} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>}>Dashboard</NavItem>
+                  {hasModule("ai_assistant") && (
+                    <Link href="/ai_assistant" className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors w-full ${pathname === "/ai_assistant" ? "bg-gradient-to-r from-violet-50 to-blue-50 text-violet-700 shadow-sm" : "text-[#606060] hover:bg-white hover:text-[#1a1a1a]"}`}>
+                      <span className="w-4 h-4 shrink-0 flex items-center justify-center">
+                        <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"/><circle cx="18" cy="5" r="3"/></svg>
+                      </span>
+                      <span className={pathname === "/ai_assistant" ? "bg-gradient-to-r from-violet-600 to-blue-600 bg-clip-text text-transparent font-semibold" : ""}>AI Assistant</span>
+                    </Link>
+                  )}
+                  {hasModule("cost_seg") && (
+                    <Link href="/cost_segregation" className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors w-full ${pathname.startsWith("/cost_segregation") ? "bg-gradient-to-r from-emerald-50 to-teal-50 text-emerald-700 shadow-sm" : "text-[#606060] hover:bg-white hover:text-[#1a1a1a]"}`}>
+                      <span className="w-4 h-4 shrink-0 flex items-center justify-center">
+                        <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                      </span>
+                      <span className={pathname.startsWith("/cost_segregation") ? "bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent font-semibold" : ""}>Cost Segregation</span>
+                    </Link>
+                  )}
+                  <NavItem href="/profile" active={pathname === "/profile"} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>}>My Profile</NavItem>
+                </div>
+
+                {(hasModule("documents") || hasModule("web_urls")) && (
+                  <div className="px-2">
+                    <div className="px-2 mb-1.5 text-[10px] font-semibold text-[#b0aaa0] uppercase tracking-wider">Knowledge Base</div>
+                    {hasModule("documents") && (
+                      <NavItem href="/documents" active={pathname === "/documents"} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>}>Documents</NavItem>
+                    )}
+                    {hasModule("web_urls") && (
+                      <NavItem href="/web-urls" active={pathname === "/web-urls"} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>}>Web URLs</NavItem>
+                    )}
+                  </div>
+                )}
+
+                {hasModule("api_calling") && (
+                  <div className="px-2">
+                    <div className="px-2 mb-1.5 text-[10px] font-semibold text-[#b0aaa0] uppercase tracking-wider">Tools</div>
+                    <NavItem href="/api-modules" active={pathname === "/api-modules"} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>}>API Modules</NavItem>
+                  </div>
+                )}
               </div>
+            ) : (
+              <>
+                <div>
+                  <div className="px-2 mb-1.5 text-[10px] font-semibold text-[#b0aaa0] uppercase tracking-wider">Home</div>
+                  <NavItem href="/dashboard" active={pathname === "/dashboard"} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>}>Dashboard</NavItem>
+                  {hasModule("ai_assistant") && (
+                    <Link href="/ai_assistant" className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors w-full ${pathname === "/ai_assistant" ? "bg-gradient-to-r from-violet-50 to-blue-50 text-violet-700 shadow-sm" : "text-[#606060] hover:bg-white hover:text-[#1a1a1a]"}`}>
+                      <span className="w-4 h-4 shrink-0 flex items-center justify-center">
+                        <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"/><circle cx="18" cy="5" r="3"/></svg>
+                      </span>
+                      <span className={pathname === "/ai_assistant" ? "bg-gradient-to-r from-violet-600 to-blue-600 bg-clip-text text-transparent font-semibold" : ""}>AI Assistant</span>
+                    </Link>
+                  )}
+                  {hasModule("cost_seg") && (
+                    <Link href="/cost_segregation" className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors w-full ${pathname.startsWith("/cost_segregation") ? "bg-gradient-to-r from-emerald-50 to-teal-50 text-emerald-700 shadow-sm" : "text-[#606060] hover:bg-white hover:text-[#1a1a1a]"}`}>
+                      <span className="w-4 h-4 shrink-0 flex items-center justify-center">
+                        <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                      </span>
+                      <span className={pathname.startsWith("/cost_segregation") ? "bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent font-semibold" : ""}>Cost Segregation</span>
+                    </Link>
+                  )}
+                  <NavItem href="/profile" active={pathname === "/profile"} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>}>My Profile</NavItem>
+                </div>
+
+                {(hasModule("documents") || hasModule("web_urls")) && (
+                  <div>
+                    <div className="px-2 mb-1.5 text-[10px] font-semibold text-[#b0aaa0] uppercase tracking-wider">Knowledge Base</div>
+                    {hasModule("documents") && (
+                      <NavItem href="/documents" active={pathname === "/documents"} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>}>Documents</NavItem>
+                    )}
+                    {hasModule("web_urls") && (
+                      <NavItem href="/web-urls" active={pathname === "/web-urls"} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>}>Web URLs</NavItem>
+                    )}
+                  </div>
+                )}
+
+                {hasModule("api_calling") && (
+                  <div>
+                    <div className="px-2 mb-1.5 text-[10px] font-semibold text-[#b0aaa0] uppercase tracking-wider">Tools</div>
+                    <NavItem href="/api-modules" active={pathname === "/api-modules"} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>}>API Modules</NavItem>
+                  </div>
+                )}
+              </>
             )}
           </div>
 
@@ -468,7 +523,7 @@ export default function Layout({ children }: LayoutProps) {
                     <div className="flex items-center gap-2.5 px-3 py-2.5 hover:bg-[#faf9f7] cursor-pointer border-b border-[#f0eeeb]" onClick={resetOrgContext}>
                       <div className="w-6 h-6 rounded flex items-center justify-center text-white text-[9px] font-bold bg-[#6b7280] shrink-0">SA</div>
                       <div className="flex-1 min-w-0">
-                        <div className="text-[13px] font-medium text-[#1a1a1a]">Reset Org Context</div>
+                        <div className="text-[13px] font-medium text-[#1a1a1a]">No Org</div>
                         <div className="text-[11px] text-[#9a9a9a]">Show all organizations</div>
                       </div>
                     </div>

@@ -175,15 +175,6 @@ export default function OrgPermissionsDetailPage() {
           </div>
         )}
 
-        <div className="flex gap-3 justify-end mt-6">
-          <button className="btn btn-ghost" onClick={() => router.push('/admin/org-permissions')}>
-            Cancel
-          </button>
-          <button className="btn btn-primary" onClick={handleSave} disabled={saving || loading}>
-            {saving && <span className="spin" />}
-            {saving ? 'Saving…' : 'Save Changes'}
-          </button>
-        </div>
       </div>
     </Layout>
   );
