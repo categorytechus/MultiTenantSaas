@@ -572,6 +572,8 @@ async def get_org_module_flags(
         "ai_assistant": "AI assistant tools and chat capabilities.",
         "documents": "Document library and document actions.",
         "web_urls": "Manage web URL records and sources.",
+        "api_calling": "Enable outbound API actions and webhook integrations.",
+        "report_generation": "Generate and export PDF or structured reports.",
     }
 
     return OrgModulesListEnvelope(
