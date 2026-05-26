@@ -12,6 +12,7 @@ Flow:
   7b. api_task_proposal: save proposal via /internal, publish SSE event, mark succeeded
 """
 from typing import Any
+import uuid
 
 import httpx
 import psycopg
@@ -40,6 +41,7 @@ async def run_chat(
     session_id: str,
     message: str,
     user_role: str = "",
+    workflow: str | None = None,
 ) -> None:
     redis: aioredis.Redis = ctx["redis"]
     http: httpx.AsyncClient = ctx["http"]
@@ -78,6 +80,8 @@ async def run_chat(
             api_modules=api_modules,
             redis=redis,
             channel=channel,
+            workflow=workflow,
+            trace_id=str(uuid.uuid4()),
         )
 
         if result.type == "api_task_proposal" and result.proposal:
