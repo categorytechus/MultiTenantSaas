@@ -35,6 +35,7 @@ export default function UsersPage() {
   const guardAndFetch = useCallback(async () => {
     const token = localStorage.getItem("accessToken");
     if (!token) { router.push("/auth/signin"); return; }
+    let isSuper = false;
     try {
       const meRes = await apiFetch<{ data: { user_type: string } }>("/auth/me");
       if (!meRes.success) { router.push("/auth/signin"); return; }
@@ -42,6 +43,7 @@ export default function UsersPage() {
       const jwtPayload = JSON.parse(atob(token.split(".")[1]));
       const jwtRoles: string[] = jwtPayload.roles ?? [];
       setCurrentUserType(jwtRoles.includes("org_admin") ? "org_admin" : ut);
+      isSuper = ut === "super_admin";
       if (ut !== "super_admin" && !jwtRoles.includes("org_admin")) {
         router.push("/dashboard"); return;
       }
@@ -55,6 +57,11 @@ export default function UsersPage() {
         if (oid) {
           setOrgId(oid);
           const res = await apiFetch<{ data: OrgUser[] }>(`/organizations/${oid}/users`);
+          if (res.success) setUsers(res.data.data);
+          else setError(res.error || "Failed to load users");
+        } else if (isSuper) {
+          setOrgId("");
+          const res = await apiFetch<{ data: OrgUser[] }>("/admin/users");
           if (res.success) setUsers(res.data.data);
           else setError(res.error || "Failed to load users");
         } else {
@@ -119,15 +126,19 @@ export default function UsersPage() {
             <div className="page-subtitle">Manage users in your organization</div>
           </div>
           <div className="actions">
-            <button className="btn" onClick={() => router.push("/users/invite")}>
-              Invite User
-            </button>
-            <button className="btn btn-primary" onClick={() => router.push("/users/create")}>
-              <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                <path d="M12 5v14M5 12h14" />
-              </svg>
-              Create User
-            </button>
+            {orgId && (
+              <>
+                <button className="btn" onClick={() => router.push("/users/invite")}>
+                  Invite User
+                </button>
+                <button className="btn btn-primary" onClick={() => router.push("/users/create")}>
+                  <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                  Create User
+                </button>
+              </>
+            )}
           </div>
         </div>
 
@@ -191,32 +202,38 @@ export default function UsersPage() {
                           <td style={{ color: "#777" }}>{formatDate(u.last_login_at)}</td>
                           <td>
                             <div className="actions">
-                              <button
-                                className="btn btn-sm"
-                                style={{ background: "#f5f4f1", color: "#1a1a1a", border: "none" }}
-                                title="Edit user"
-                                onClick={() => router.push(`/users/${u.id}/edit`)}
-                              >
-                                <Pencil size={13} />
-                                Edit
-                              </button>
-                              {isSuperAdmin && (
-                                <button
-                                  className="btn btn-sm"
-                                  style={{ background: "#f5f4f1", color: "#1a1a1a", border: "none" }}
-                                  title="Reset password"
-                                  onClick={() => setPasswordTarget(u)}
-                                >
-                                  <KeyRound size={13} />
-                                </button>
+                              {orgId ? (
+                                <>
+                                  <button
+                                    className="btn btn-sm"
+                                    style={{ background: "#f5f4f1", color: "#1a1a1a", border: "none" }}
+                                    title="Edit user"
+                                    onClick={() => router.push(`/users/${u.id}/edit`)}
+                                  >
+                                    <Pencil size={13} />
+                                    Edit
+                                  </button>
+                                  {isSuperAdmin && (
+                                    <button
+                                      className="btn btn-sm"
+                                      style={{ background: "#f5f4f1", color: "#1a1a1a", border: "none" }}
+                                      title="Reset password"
+                                      onClick={() => setPasswordTarget(u)}
+                                    >
+                                      <KeyRound size={13} />
+                                    </button>
+                                  )}
+                                  <button
+                                    className="btn btn-sm btn-danger"
+                                    title="Delete user"
+                                    onClick={() => setDeleteTarget(u)}
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                </>
+                              ) : (
+                                <span style={{ color: "#9a9a9a", fontSize: "12px" }}>Select org to manage</span>
                               )}
-                              <button
-                                className="btn btn-sm btn-danger"
-                                title="Delete user"
-                                onClick={() => setDeleteTarget(u)}
-                              >
-                                <Trash2 size={13} />
-                              </button>
                             </div>
                           </td>
                         </tr>

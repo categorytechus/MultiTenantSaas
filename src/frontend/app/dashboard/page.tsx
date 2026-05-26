@@ -1,32 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Layout from "../../components/Layout";
-import { ChevronDown, TrendingUp } from "lucide-react";
+import { ChevronDown, TrendingUp, Loader2 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend,
 } from "recharts";
-
-const chartData = [
-  { name: "Mar 4",  total_documents: 2,  success_count: 2,  error_count: 0 },
-  { name: "Jul 17", total_documents: 22, success_count: 12, error_count: 0 },
-  { name: "Jul 20", total_documents: 18, success_count: 10, error_count: 0 },
-  { name: "Jul 24", total_documents: 50, success_count: 25, error_count: 0 },
-  { name: "Jul 29", total_documents: 62, success_count: 31, error_count: 0 },
-  { name: "Jul 31", total_documents: 10, success_count: 5,  error_count: 0 },
-  { name: "Aug 2",  total_documents: 50, success_count: 25, error_count: 0 },
-  { name: "Aug 4",  total_documents: 16, success_count: 8,  error_count: 0 },
-  { name: "Aug 6",  total_documents: 18, success_count: 9,  error_count: 0 },
-  { name: "Aug 8",  total_documents: 28, success_count: 14, error_count: 0 },
-  { name: "Aug 10", total_documents: 14, success_count: 7,  error_count: 0 },
-  { name: "Aug 12", total_documents: 48, success_count: 24, error_count: 0 },
-  { name: "Aug 14", total_documents: 4,  success_count: 2,  error_count: 0 },
-  { name: "Aug 16", total_documents: 68, success_count: 34, error_count: 0 },
-  { name: "Aug 18", total_documents: 8,  success_count: 4,  error_count: 0 },
-  { name: "Aug 20", total_documents: 24, success_count: 12, error_count: 0 },
-  { name: "Aug 22", total_documents: 62, success_count: 31, error_count: 0 },
-];
+import { apiFetch } from "../../src/lib/api";
 
 function StatCard({ label, value, footer, sub }: { label: string; value: string | number; footer: string; sub: string }) {
   return (
@@ -51,6 +32,67 @@ export default function DashboardPage() {
   const [timeframe, setTimeframe] = useState<"Daily" | "Weekly" | "Monthly">("Daily");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [preset, setPreset] = useState("All");
+  const [loading, setLoading] = useState(true);
+
+  const [data, setData] = useState({
+    chart_data: [],
+    totals: {
+      total_documents: 0,
+      success_count: 0,
+      error_count: 0,
+      success_rate: "100.0%",
+    }
+  });
+
+  useEffect(() => {
+    let finalStart = startDate;
+    let finalEnd = endDate;
+
+    if (preset !== "Custom" && preset !== "All") {
+      const now = new Date();
+      finalEnd = now.toISOString();
+      let start = new Date();
+
+      switch (preset) {
+        case "Last 1 hr": start.setHours(start.getHours() - 1); break;
+        case "Last 4 hr": start.setHours(start.getHours() - 4); break;
+        case "Last 1d": start.setDate(start.getDate() - 1); break;
+        case "Last 14d": start.setDate(start.getDate() - 14); break;
+        case "1 month": start.setMonth(start.getMonth() - 1); break;
+        case "3 month": start.setMonth(start.getMonth() - 3); break;
+        case "6 month": start.setMonth(start.getMonth() - 6); break;
+        case "1 yr": start.setFullYear(start.getFullYear() - 1); break;
+      }
+      finalStart = start.toISOString();
+    } else if (preset === "All") {
+      finalStart = "";
+      finalEnd = "";
+    } else {
+      if (startDate) finalStart = new Date(`${startDate}T00:00:00Z`).toISOString();
+      if (endDate) finalEnd = new Date(`${endDate}T23:59:59.999Z`).toISOString();
+    }
+
+    const fetchStats = async () => {
+      setLoading(true);
+      try {
+        let url = `/dashboard/stats?timeframe=${timeframe}`;
+        if (finalStart) url += `&start_date=${encodeURIComponent(finalStart)}`;
+        if (finalEnd) url += `&end_date=${encodeURIComponent(finalEnd)}`;
+        
+        const res = await apiFetch<any>(url);
+        if (res.success) {
+          setData(res.data.data);
+        }
+      } catch (err) {
+        console.error("Failed to fetch dashboard stats", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchStats();
+  }, [startDate, endDate, preset, timeframe]);
 
   return (
     <Layout>
@@ -61,7 +103,10 @@ export default function DashboardPage() {
             <input
               type="date"
               value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
+              onChange={(e) => {
+                setStartDate(e.target.value);
+                setPreset("Custom");
+              }}
               aria-label="Start date"
               className="border-none outline-none bg-transparent text-[13px] text-gray-900 w-full [color-scheme:light]"
             />
@@ -72,23 +117,49 @@ export default function DashboardPage() {
               type="date"
               value={endDate}
               min={startDate || undefined}
-              onChange={(e) => setEndDate(e.target.value)}
+              onChange={(e) => {
+                setEndDate(e.target.value);
+                setPreset("Custom");
+              }}
               aria-label="End date"
               className="border-none outline-none bg-transparent text-[13px] text-gray-900 w-full [color-scheme:light]"
             />
           </div>
-          <div className="flex items-center justify-between bg-white border border-gray-200 rounded-lg px-3 h-9 text-[13px] text-gray-900 shadow-sm cursor-pointer min-w-[140px] gap-2">
-            <span>All</span>
-            <ChevronDown size={14} className="text-gray-400" />
-          </div>
+          <select
+            value={preset}
+            onChange={(e) => {
+              setPreset(e.target.value);
+              if (e.target.value !== "Custom") {
+                setStartDate("");
+                setEndDate("");
+              }
+            }}
+            className="bg-white border border-gray-200 rounded-lg px-3 h-9 text-[13px] text-gray-900 shadow-sm cursor-pointer min-w-[140px] outline-none"
+          >
+            <option value="All">All</option>
+            <option value="Last 1 hr">Last 1 hr</option>
+            <option value="Last 4 hr">Last 4 hr</option>
+            <option value="Last 1d">Last 1d</option>
+            <option value="Last 14d">Last 14d</option>
+            <option value="1 month">1 month</option>
+            <option value="3 month">3 month</option>
+            <option value="6 month">6 month</option>
+            <option value="1 yr">1 yr</option>
+            <option value="Custom" disabled hidden>Custom</option>
+          </select>
         </div>
 
         {/* Stat cards */}
-        <div className="grid grid-cols-4 gap-4 mb-6 max-lg:grid-cols-2 max-sm:grid-cols-1">
-          <StatCard label="Total Documents Processed" value={257} footer="Total files processed" sub="Total Documents Processed" />
-          <StatCard label="Success Count" value={257} footer="High success rate" sub="Success Count" />
-          <StatCard label="Error Count" value={0} footer="Low error rate" sub="Error Count" />
-          <StatCard label="Success Rate" value="100.0%" footer="Strong performance" sub="Success Rate" />
+        <div className="grid grid-cols-4 gap-4 mb-6 max-lg:grid-cols-2 max-sm:grid-cols-1 relative">
+          {loading && (
+            <div className="absolute inset-0 bg-white/50 z-10 flex items-center justify-center rounded-xl backdrop-blur-[1px]">
+              <Loader2 className="animate-spin text-gray-400" size={24} />
+            </div>
+          )}
+          <StatCard label="Total Documents Processed" value={data.totals.total_documents} footer="Total files processed" sub="Total Documents Processed" />
+          <StatCard label="Success Count" value={data.totals.success_count} footer="High success rate" sub="Success Count" />
+          <StatCard label="Error Count" value={data.totals.error_count} footer="Low error rate" sub="Error Count" />
+          <StatCard label="Success Rate" value={data.totals.success_rate} footer="Strong performance" sub="Success Rate" />
         </div>
 
         {/* Chart controls */}
@@ -109,22 +180,27 @@ export default function DashboardPage() {
         </div>
 
         {/* Chart */}
-        <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+        <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm relative">
+          {loading && (
+            <div className="absolute inset-0 bg-white/50 z-10 flex items-center justify-center rounded-xl backdrop-blur-[1px]">
+              <Loader2 className="animate-spin text-gray-400" size={24} />
+            </div>
+          )}
           <div className="mb-8">
-            <div className="text-base font-semibold text-gray-900 mb-1">Documents Processed by Day</div>
-            <div className="text-[13px] text-gray-500">Documents processed per day over the selected date range</div>
+            <div className="text-base font-semibold text-gray-900 mb-1">Documents Processed ({timeframe})</div>
+            <div className="text-[13px] text-gray-500">Documents processed over the selected date range</div>
           </div>
           <div style={{ height: 320, width: "100%" }}>
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
+              <BarChart data={data.chart_data} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "#9ca3af" }} dy={10} />
                 <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "#9ca3af" }} label={{ value: "Number of Occurrences", angle: -90, position: "insideLeft", style: { textAnchor: "middle", fill: "#9ca3af", fontSize: 12 } }} />
                 <Tooltip cursor={{ fill: "#f3f4f6" }} contentStyle={{ borderRadius: "8px", border: "1px solid #e5e7eb" }} />
                 <Legend iconType="square" wrapperStyle={{ fontSize: 12, marginTop: 10 }} />
-                <Bar dataKey="total_documents" name="total_documents" stackId="a" fill="#4f46e5" radius={[0, 0, 4, 4]} barSize={32} />
-                <Bar dataKey="success_count" name="success_count" stackId="a" fill="#2dd4bf" radius={[0, 0, 0, 0]} barSize={32} />
-                <Bar dataKey="error_count" name="error_count" stackId="a" fill="#f87171" radius={[4, 4, 0, 0]} barSize={32} />
+                <Bar dataKey="total_documents" name="Total" stackId="a" fill="#4f46e5" radius={[0, 0, 4, 4]} barSize={32} />
+                <Bar dataKey="success_count" name="Success" stackId="a" fill="#2dd4bf" radius={[0, 0, 0, 0]} barSize={32} />
+                <Bar dataKey="error_count" name="Error" stackId="a" fill="#f87171" radius={[4, 4, 0, 0]} barSize={32} />
               </BarChart>
             </ResponsiveContainer>
           </div>
