@@ -24,7 +24,14 @@ ENV PYTHONDONTWRITEBYTECODE=1
 WORKDIR /app
 COPY . .
 
-RUN useradd --create-home --shell /bin/bash appuser && chown -R appuser:appuser /app
+# Pre-download the fastembed embedding model at build time so the first chat
+# request doesn't hang while the worker downloads ~130 MB from HuggingFace.
+ENV FASTEMBED_CACHE_PATH=/opt/fastembed-cache
+RUN mkdir -p /opt/fastembed-cache && \
+    python3 -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5')"
+
+RUN useradd --create-home --shell /bin/bash appuser && \
+    chown -R appuser:appuser /app /opt/fastembed-cache
 USER appuser
 
 CMD ["arq", "app.jobs.WorkerSettings"]

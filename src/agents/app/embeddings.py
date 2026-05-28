@@ -13,7 +13,9 @@ _model: TextEmbedding | None = None
 def _get_model() -> TextEmbedding:
     global _model
     if _model is None:
-        _model = TextEmbedding(MODEL_NAME)
+        import os
+        cache_dir = os.environ.get("FASTEMBED_CACHE_PATH")
+        _model = TextEmbedding(MODEL_NAME, cache_dir=cache_dir) if cache_dir else TextEmbedding(MODEL_NAME)
     return _model
 
 
