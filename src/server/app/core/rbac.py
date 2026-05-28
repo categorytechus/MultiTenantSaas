@@ -31,6 +31,10 @@ ROLE_PERMISSIONS: dict[Role, Set[str]] = {
         "cost_seg:read",
         "cost_seg:create",
         "cost_seg:delete",
+        "web_urls:view",
+        "web_urls:create",
+        "web_urls:update",
+        "web_urls:delete",
     },
     Role.USER: {
         "documents:upload",

@@ -104,6 +104,8 @@ export default function UsersPage() {
   };
 
   const isSuperAdmin = currentUserType === "super_admin";
+  const isOrgAdmin = currentUserType === "org_admin";
+  const canResetPassword = isSuperAdmin || isOrgAdmin;
 
   const formatDate = (d: string | null) => {
     if (!d) return "—";
@@ -173,7 +175,7 @@ export default function UsersPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {users.map((u) => {
+                    {users.filter((u) => u.user_type !== "super_admin").map((u) => {
                       const roleTags = getRoleTags(u);
                       return (
                         <tr key={u.id}>
@@ -213,7 +215,7 @@ export default function UsersPage() {
                                     <Pencil size={13} />
                                     Edit
                                   </button>
-                                  {isSuperAdmin && (
+                                  {canResetPassword && (
                                     <button
                                       className="btn btn-sm"
                                       style={{ background: "#f5f4f1", color: "#1a1a1a", border: "none" }}

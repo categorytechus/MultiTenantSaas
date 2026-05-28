@@ -170,17 +170,18 @@ async def list_org_users(
 
     data: list[dict[str, object]] = []
     for u, m in rows:
+        if is_super_admin_user(u.id):
+            continue
         assigned_roles = roles_by_user.get(str(u.id), [])
         if not assigned_roles and m.role not in {Role.USER.value, Role.TENANT_ADMIN.value, Role.SUPER_ADMIN.value}:
             assigned_roles = [{"id": m.role, "name": m.role, "is_system": False}]
-        user_type = "super_admin" if is_super_admin_user(u.id) else "user"
         data.append(
             {
                 "id": str(u.id),
                 "email": u.email,
                 "full_name": u.name,
                 "status": "active",
-                "user_type": user_type,
+                "user_type": "user",
                 "org_role": m.role,
                 "created_at": u.created_at.isoformat(),
                 "last_login_at": None,
@@ -316,9 +317,6 @@ async def reset_user_password(
 ):
     _require_tenant_admin(ctx)
     _ensure_org_context(ctx, organization_id)
-
-    if ctx.role != Role.SUPER_ADMIN:
-        raise HTTPException(status_code=403, detail="Super admin privileges required to reset passwords")
 
     membership_result = await session.execute(
         select(OrgMembership).where(OrgMembership.org_id == organization_id, OrgMembership.user_id == user_id)
@@ -770,10 +768,16 @@ async def assign_user_role(
             ),
             {"user_id": user_id, "role_id": body.role_id, "org_id": organization_id},
         )
-    else:
-        # Compatibility fallback when user_roles table is unavailable.
-        membership.role = role.name
-        session.add(membership)
+
+    # Sync membership.role so the JWT role claim reflects the change at next login.
+    _SYSTEM_TO_MEMBERSHIP = {
+        "org_admin": Role.TENANT_ADMIN.value,
+        "tenant_admin": Role.TENANT_ADMIN.value,
+        "user": Role.USER.value,
+        "viewer": Role.VIEWER.value,
+    }
+    membership.role = _SYSTEM_TO_MEMBERSHIP.get(role.name, Role.USER.value) if role.is_system else Role.USER.value
+    session.add(membership)
 
     await session.flush()
     return {"success": True}
@@ -790,6 +794,11 @@ async def remove_user_role(
     _require_tenant_admin(ctx)
     _ensure_org_context(ctx, organization_id)
 
+    membership_result = await session.execute(
+        select(OrgMembership).where(OrgMembership.org_id == organization_id, OrgMembership.user_id == user_id)
+    )
+    membership = membership_result.scalars().first()
+
     if await _table_exists(session, "user_roles"):
         await session.execute(
             text(
@@ -802,14 +811,11 @@ async def remove_user_role(
             ),
             {"user_id": user_id, "role_id": role_id, "org_id": organization_id},
         )
-    else:
-        membership_result = await session.execute(
-            select(OrgMembership).where(OrgMembership.org_id == organization_id, OrgMembership.user_id == user_id)
-        )
-        membership = membership_result.scalars().first()
-        if membership:
-            membership.role = Role.USER.value
-            session.add(membership)
+
+    # Reset membership.role to user when a role is removed.
+    if membership:
+        membership.role = Role.USER.value
+        session.add(membership)
 
     await session.flush()
     return {"success": True}

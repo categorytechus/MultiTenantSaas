@@ -34,6 +34,7 @@ export default function EditUserPage() {
   const [availableRoles, setAvailableRoles] = useState<Role[]>([]);
   const [orgId, setOrgId] = useState("");
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [isOrgAdmin, setIsOrgAdmin] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
@@ -54,7 +55,9 @@ export default function EditUserPage() {
         if (!meRes.success || (ut !== "super_admin" && !jwtRoles.includes("org_admin"))) {
           router.push("/dashboard"); return;
         }
-        setIsSuperAdmin(ut === "super_admin");
+        const isSA = ut === "super_admin";
+        setIsSuperAdmin(isSA);
+        setIsOrgAdmin(!isSA && jwtRoles.includes("org_admin"));
         const oid = payload.org_id;
         if (!oid) { setError("No org context"); setFetchingData(false); return; }
         setOrgId(oid);
@@ -219,7 +222,7 @@ export default function EditUserPage() {
               </form>
             </div>
 
-            {isSuperAdmin && (
+            {(isSuperAdmin || isOrgAdmin) && (
               <div className="form-card">
                 <div className="form-card-title">Password Reset</div>
                 <div className="form-card-subtitle">Generate a temporary password for this user. Share it securely — they should change it after signing in.</div>

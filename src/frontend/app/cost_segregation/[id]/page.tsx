@@ -206,6 +206,141 @@ function Step1({
   );
 }
 
+// ── Address Autocomplete (Nominatim) ──────────────────────────────────────────
+
+interface NominatimResult {
+  place_id: number;
+  display_name: string;
+  address: {
+    house_number?: string;
+    road?: string;
+    city?: string;
+    town?: string;
+    village?: string;
+    state?: string;
+    postcode?: string;
+    country_code?: string;
+  };
+}
+
+function AddressAutocomplete({
+  value,
+  onChange,
+  onSelect,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onSelect: (parts: { address: string; city: string; state: string; zip_code: string }) => void;
+}) {
+  const [results, setResults] = useState<NominatimResult[]>([]);
+  const [open, setOpen] = useState(false);
+  const [activeIdx, setActiveIdx] = useState(-1);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const search = (q: string) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (q.length < 3) { setResults([]); setOpen(false); return; }
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&addressdetails=1&limit=6&countrycodes=us`,
+          { headers: { 'Accept-Language': 'en', 'User-Agent': 'MultiTenantSaas/1.0' } }
+        );
+        const data: NominatimResult[] = await res.json();
+        setResults(data);
+        setOpen(data.length > 0);
+        setActiveIdx(-1);
+      } catch { /* network error — silently ignore */ }
+    }, 320);
+  };
+
+  const pick = (r: NominatimResult) => {
+    const a = r.address;
+    const street = [a.house_number, a.road].filter(Boolean).join(' ');
+    onSelect({
+      address: street || r.display_name.split(',')[0],
+      city: a.city ?? a.town ?? a.village ?? '',
+      state: a.state ?? '',
+      zip_code: a.postcode ?? '',
+    });
+    setOpen(false);
+    setResults([]);
+  };
+
+  const onKey = (e: React.KeyboardEvent) => {
+    if (!open) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIdx(i => Math.min(i + 1, results.length - 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIdx(i => Math.max(i - 1, 0)); }
+    else if (e.key === 'Enter' && activeIdx >= 0) { e.preventDefault(); pick(results[activeIdx]); }
+    else if (e.key === 'Escape') { setOpen(false); }
+  };
+
+  // Close on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  return (
+    <div ref={containerRef} style={{ position: 'relative' }}>
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => { onChange(e.target.value); search(e.target.value); }}
+        onKeyDown={onKey}
+        onFocus={() => results.length > 0 && setOpen(true)}
+        className="w-full px-3 py-2.5 border border-[#e5e7eb] rounded-lg text-[13px] outline-none focus:border-[#1a1a1a]"
+        placeholder="123 Main Street"
+        autoComplete="off"
+      />
+      {open && (
+        <ul style={{
+          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50,
+          marginTop: 4, background: 'white',
+          border: '1px solid #e5e7eb', borderRadius: 8,
+          boxShadow: '0 4px 16px rgba(0,0,0,.08)',
+          listStyle: 'none', padding: 0, margin: '4px 0 0',
+          maxHeight: 260, overflowY: 'auto',
+        }}>
+          {results.map((r, idx) => {
+            const a = r.address;
+            const street = [a.house_number, a.road].filter(Boolean).join(' ');
+            const secondary = [a.city ?? a.town ?? a.village, a.state, a.postcode]
+              .filter(Boolean).join(', ');
+            return (
+              <li
+                key={r.place_id}
+                onMouseDown={() => pick(r)}
+                onMouseEnter={() => setActiveIdx(idx)}
+                style={{
+                  padding: '9px 12px',
+                  cursor: 'pointer',
+                  borderBottom: idx < results.length - 1 ? '1px solid #f5f5f4' : 'none',
+                  background: activeIdx === idx ? '#f9f8f6' : 'white',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 1,
+                }}
+              >
+                <span style={{ fontSize: 13, fontWeight: 500, color: '#1a1a1a' }}>
+                  {street || r.display_name.split(',')[0]}
+                </span>
+                {secondary && (
+                  <span style={{ fontSize: 11, color: '#9a9a9a' }}>{secondary}</span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 // ── Step 2: Property Details ───────────────────────────────────────────────────
 
 function Step2({
@@ -248,9 +383,16 @@ function Step2({
         </div>
         <div className="col-span-2">
           <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">Street Address *</label>
-          <input type="text" value={form.address} onChange={(e) => set('address', e.target.value)}
-            className="w-full px-3 py-2.5 border border-[#e5e7eb] rounded-lg text-[13px] outline-none focus:border-[#1a1a1a]"
-            placeholder="123 Main Street" />
+          <AddressAutocomplete
+            value={form.address}
+            onChange={(v) => set('address', v)}
+            onSelect={(parts) => {
+              set('address', parts.address);
+              set('city', parts.city);
+              set('state', parts.state);
+              set('zip_code', parts.zip_code);
+            }}
+          />
         </div>
         <div>
           <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">City</label>
