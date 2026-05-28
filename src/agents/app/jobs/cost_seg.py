@@ -19,21 +19,7 @@ from pgvector.psycopg import register_vector_async
 import psycopg
 from psycopg.types.json import Jsonb
 
-# Import server's robust llm wrapper directly using path to prevent package collision
-import sys
-from pathlib import Path
-_server_dir = str(Path(__file__).parents[3] / "server")
-sys.path.insert(0, _server_dir)
-_old_app = sys.modules.pop("app", None)
-try:
-    from app.integrations.llm import llm
-finally:
-    sys.modules.pop("app", None)
-    if _old_app:
-        sys.modules["app"] = _old_app
-    if sys.path[0] == _server_dir:
-        sys.path.pop(0)
-
+from app.integrations.llm import llm
 from app.config import settings
 from app.embeddings import embed_query
 from app.redis import publish, task_channel

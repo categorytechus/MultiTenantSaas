@@ -90,6 +90,9 @@ services:
       REDIS_URL: redis://redis:6379
       SERVER_URL: http://server:8000
       SECRET_KEY: ${SECRET_KEY:-dev-secret-change-in-prod}
+      CHAT_MODEL: ${CHAT_MODEL:-gemini}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
       BEDROCK_MODEL_ARN: ${BEDROCK_MODEL_ARN:-}
       BEDROCK_MODEL_PROVIDER: ${BEDROCK_MODEL_PROVIDER:-anthropic}
       AWS_BEDROCK_REGION: ${AWS_BEDROCK_REGION:-us-east-1}
