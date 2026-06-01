@@ -23,6 +23,21 @@ services:
       timeout: 5s
       retries: 5
 
+  # One-shot migration runner — uses the same server image so no extra build.
+  # Runs "alembic upgrade head" and exits; server waits for it to complete
+  # successfully before starting.
+  db-migrate:
+    build:
+      context: src/server
+      dockerfile: Dockerfile
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/multitenant
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   server:
     build:
       context: src/server
@@ -54,6 +69,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
@@ -77,6 +94,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       CHAT_MODEL: ${CHAT_MODEL:-gemini}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
       S3_BUCKET: ${S3_BUCKET:-}
       AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}

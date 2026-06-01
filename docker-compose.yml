@@ -27,21 +27,22 @@ services:
       timeout: 5s
       retries: 5
 
-  # One-off migrations: same image as server, DB host is `postgres` (Compose DNS), not localhost.
+  # Runs "alembic upgrade head" once on startup then exits.
+  # server waits for this to complete successfully before starting.
   db-migrate:
     build:
       context: src/server
       dockerfile: Dockerfile
+    command: ["alembic", "upgrade", "head"]
     depends_on:
       postgres:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/multitenant
-    # Runtime image has /opt/venv/bin (alembic); `uv` is not installed in that stage.
-    command: ["alembic", "upgrade", "head"]
     volumes:
       - ./src/server:/app
     working_dir: /app
+    restart: "no"
 
   server:
     build:
@@ -73,6 +74,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
     working_dir: /app
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]

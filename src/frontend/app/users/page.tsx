@@ -114,9 +114,15 @@ export default function UsersPage() {
 
   const getRoleTags = (u: OrgUser) => {
     if (u.roles?.length) return u.roles.map((r) => r.name);
-    if (u.org_role === "tenant_admin") return ["org_admin"];
-    if (u.org_role === "super_admin") return ["super_admin"];
-    return [];
+    // Fallback: derive display name from membership.role (org_role)
+    const orgRoleDisplay: Record<string, string> = {
+      tenant_admin: "org_admin",
+      super_admin: "super_admin",
+      user: "user",
+      viewer: "viewer",
+    };
+    const display = orgRoleDisplay[u.org_role] ?? u.org_role;
+    return display ? [display] : [];
   };
 
   return (

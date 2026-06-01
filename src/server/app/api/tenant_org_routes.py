@@ -20,6 +20,7 @@ from app.core.db import get_db
 from app.core.identity import is_super_admin_user, normalize_email
 from app.core.rbac import Role, role_permissions_from_db
 from app.core.tenancy import RequestContext, get_required_context
+from app.models.master_module import MasterModule
 from app.models.org import OrgMembership
 from app.models.org_module import OrgModule
 from app.models.user import User
@@ -173,8 +174,17 @@ async def list_org_users(
         if is_super_admin_user(u.id):
             continue
         assigned_roles = roles_by_user.get(str(u.id), [])
-        if not assigned_roles and m.role not in {Role.USER.value, Role.TENANT_ADMIN.value, Role.SUPER_ADMIN.value}:
-            assigned_roles = [{"id": m.role, "name": m.role, "is_system": False}]
+        if not assigned_roles:
+            # Fall back to membership.role for display when no user_roles entry exists.
+            _display_map = {
+                Role.TENANT_ADMIN.value: "org_admin",
+                Role.USER.value: "user",
+                Role.VIEWER.value: "viewer",
+                Role.SUPER_ADMIN.value: "super_admin",
+            }
+            display_name = _display_map.get(m.role, m.role)
+            if display_name:
+                assigned_roles = [{"id": m.role, "name": display_name, "is_system": m.role in _display_map}]
         data.append(
             {
                 "id": str(u.id),
@@ -351,11 +361,17 @@ async def list_roles(
     _ensure_org_context(ctx, organization_id)
 
     # Local query is fine: roles table is small (base system roles + custom roles).
-    # Base system roles are seeded with organization_id=NULL.
+    # System roles have is_system=True, organization_id=NULL.
+    # The built-in 'user' role has is_system=False, organization_id=NULL (editable default).
     base_roles_result = await session.execute(
         select(RbacRole).where(RbacRole.is_system == True, RbacRole.organization_id == None)  # noqa: E712
     )
     base_roles = base_roles_result.scalars().all()
+
+    global_default_roles_result = await session.execute(
+        select(RbacRole).where(RbacRole.is_system == False, RbacRole.organization_id == None)  # noqa: E712
+    )
+    global_default_roles = global_default_roles_result.scalars().all()
 
     custom_roles_result = await session.execute(
         select(RbacRole).where(RbacRole.organization_id == organization_id, RbacRole.is_system == False)  # noqa: E712
@@ -363,7 +379,7 @@ async def list_roles(
     custom_roles = custom_roles_result.scalars().all()
 
     roles_out: list[dict[str, str | bool | None]] = []
-    for r in [*base_roles, *custom_roles]:
+    for r in [*base_roles, *global_default_roles, *custom_roles]:
         roles_out.append(
             {
                 "id": str(r.id),
@@ -433,7 +449,8 @@ async def update_role(
         raise HTTPException(status_code=404, detail="Role not found")
     if role.is_system:
         raise HTTPException(status_code=403, detail="Cannot modify system roles")
-    if role.organization_id != organization_id:
+    # Allow editing global default roles (organization_id=None, is_system=False) or org-owned roles.
+    if role.organization_id is not None and role.organization_id != organization_id:
         raise HTTPException(status_code=403, detail="Role does not belong to this organization")
 
     role.name = body.name.strip()
@@ -458,7 +475,8 @@ async def delete_role(
         raise HTTPException(status_code=404, detail="Role not found")
     if role.is_system:
         raise HTTPException(status_code=403, detail="Cannot delete system roles")
-    if role.organization_id != organization_id:
+    # Allow deleting global default roles (organization_id=None, is_system=False) or org-owned roles.
+    if role.organization_id is not None and role.organization_id != organization_id:
         raise HTTPException(status_code=403, detail="Role does not belong to this organization")
 
     # Remove per-org permission grants.
@@ -500,23 +518,71 @@ def _action_to_label(action: str) -> str:
     return action.replace("_", " ").title()
 
 
-_MODULES = {
-    "ai_assistant": {
-        "label": "AI Assistant",
-        "description": "AI assistant tools and chat capabilities.",
-        "permissions": [("chat",)],
-    },
-    "documents": {
-        "label": "Documents",
-        "description": "Document library and document actions.",
-        "permissions": [("view",), ("create",), ("upload",), ("update",), ("delete",)],
-    },
-    "web_urls": {
-        "label": "Web URLs",
-        "description": "Manage web URL records and sources.",
-        "permissions": [("view",), ("create",), ("update",), ("delete",)],
-    },
+_LEGACY_MODULES = {
+    "ai_assistant": {"label": "AI Assistant",  "description": "AI assistant tools and chat capabilities.", "permissions": ["ai_assistant:chat"]},
+    "documents":    {"label": "Documents",     "description": "Document library and document actions.",    "permissions": ["documents:view", "documents:create", "documents:upload", "documents:update", "documents:delete"]},
+    "web_urls":     {"label": "Web URLs",      "description": "Manage web URL records and sources.",       "permissions": ["web_urls:view", "web_urls:create", "web_urls:update", "web_urls:delete"]},
+    "cost_seg":     {"label": "Cost Segregation", "description": "IRS MACRS cost segregation.",           "permissions": ["cost_seg:read", "cost_seg:create", "cost_seg:delete"]},
+    "api_calling":  {"label": "API Calling",   "description": "Outbound API actions and webhooks.",        "permissions": ["api_calling:create", "api_calling:view", "api_calling:update", "api_calling:delete"]},
 }
+
+
+async def _load_perm_modules(
+    session: AsyncSession, organization_id: UUID
+) -> list[MasterModule]:
+    """Return org-enabled modules that have permission_keys, ordered by sort_order.
+    Uses a savepoint so missing columns (pre-migration 041) fall back to legacy dicts.
+    Falls back to all enabled modules when org_modules table is absent."""
+    try:
+        async with session.begin_nested():
+            if await _table_exists(session, "org_modules"):
+                result = await session.execute(
+                    select(MasterModule)
+                    .join(OrgModule, OrgModule.module_id == MasterModule.id)
+                    .where(
+                        OrgModule.org_id == organization_id,
+                        MasterModule.enabled == True,  # noqa: E712
+                    )
+                    .order_by(MasterModule.sort_order)
+                )
+            else:
+                result = await session.execute(
+                    select(MasterModule)
+                    .where(MasterModule.enabled == True)  # noqa: E712
+                    .order_by(MasterModule.sort_order)
+                )
+            return [m for m in result.scalars().all() if m.permission_keys]
+    except Exception:
+        pass  # Migration 041 columns not present — build synthetic module objects below
+
+    # Pre-migration fallback: query original columns, merge with legacy dicts
+    if await _table_exists(session, "org_modules"):
+        enabled_result = await session.execute(
+            text("SELECT module_id FROM org_modules WHERE org_id = :org_id"),
+            {"org_id": organization_id},
+        )
+        enabled_ids = {row[0] for row in enabled_result.all()}
+    else:
+        name_result = await session.execute(
+            text("SELECT id FROM master_modules WHERE enabled = true")
+        )
+        enabled_ids = {row[0] for row in name_result.all()}
+
+    modules = []
+    for mod_id, spec in _LEGACY_MODULES.items():
+        if mod_id not in enabled_ids:
+            continue
+        m = MasterModule.__new__(MasterModule)
+        object.__setattr__(m, "id", mod_id)
+        object.__setattr__(m, "name", spec["label"])
+        object.__setattr__(m, "label", spec["label"])
+        object.__setattr__(m, "description", spec["description"])
+        object.__setattr__(m, "parent_id", None)
+        object.__setattr__(m, "sort_order", list(_LEGACY_MODULES).index(mod_id) * 10)
+        object.__setattr__(m, "permission_keys", spec["permissions"])
+        object.__setattr__(m, "enabled", True)
+        modules.append(m)
+    return modules
 
 
 @router.get("/roles/{role_id}/permissions")
@@ -533,43 +599,31 @@ async def get_role_permissions(
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
 
-    if not role.is_system and role.organization_id != organization_id:
+    if not role.is_system and role.organization_id is not None and role.organization_id != organization_id:
         raise HTTPException(status_code=403, detail="Role does not belong to this organization")
 
-    is_system_org_admin = bool(role.is_system and role.name == "org_admin")
+    is_system_org_admin = bool(role.is_system and role.name in ("org_admin", "tenant_admin"))
 
-    # Fetch permission rows for all module actions we expose.
-    wanted_keys: set[str] = set()
-    for mod_id, mod_spec in _MODULES.items():
-        for (action,) in mod_spec["permissions"]:
-            wanted_keys.add(f"{mod_id}:{action}")
+    # Load modules enabled for this org that have permission_keys
+    perm_modules = await _load_perm_modules(session, organization_id)
 
-    # Load permission descriptions.
-    resource_actions = [(k.split(":", 1)[0], k.split(":", 1)[1]) for k in wanted_keys]
-    perms_result = await session.execute(
-        select(RbacPermission).where(
-            (RbacPermission.resource.in_([r for r, _ in resource_actions]))
+    # Collect all wanted permission keys and look up DB rows
+    wanted_keys: set[str] = {key for m in perm_modules for key in m.permission_keys}
+    perm_by_key: dict[str, RbacPermission] = {}
+    if wanted_keys:
+        resources = list({k.split(":")[0] for k in wanted_keys})
+        perms_result = await session.execute(
+            select(RbacPermission).where(RbacPermission.resource.in_(resources))
         )
-    )
-    perms = perms_result.scalars().all()
-    perm_by_key: dict[str, RbacPermission] = {f"{p.resource}:{p.action}": p for p in perms}
+        perm_by_key = {f"{p.resource}:{p.action}": p for p in perms_result.scalars().all()}
 
-    permission_keys_all = sorted(wanted_keys)
-
+    # Resolve granted keys for non-admin roles
     granted_keys: set[str] = set()
-    if is_system_org_admin:
-        granted_keys = set(permission_keys_all)
-    else:
-        # System roles: use global role_permissions
-        # Custom roles: use role_org_permissions for this org
+    if not is_system_org_admin:
         rp_result = await session.execute(
             select(RolePermission.permission_id).where(RolePermission.role_id == role_id)
         )
-        for permission_id in rp_result.scalars().all():
-            # Map permission_id back to permission_key
-            perm = next((p for p in perm_by_key.values() if p.id == permission_id), None)
-            if perm:
-                granted_keys.add(f"{perm.resource}:{perm.action}")
+        granted_perm_ids = set(rp_result.scalars().all())
 
         rorg_result = await session.execute(
             select(RoleOrgPermission.permission_id).where(
@@ -577,31 +631,31 @@ async def get_role_permissions(
                 RoleOrgPermission.org_id == organization_id,
             )
         )
-        for permission_id in rorg_result.scalars().all():
-            perm = next((p for p in perm_by_key.values() if p.id == permission_id), None)
-            if perm:
-                granted_keys.add(f"{perm.resource}:{perm.action}")
+        granted_perm_ids.update(rorg_result.scalars().all())
+
+        for key, perm in perm_by_key.items():
+            if perm.id in granted_perm_ids:
+                granted_keys.add(key)
 
     modules_out: list[PermissionModuleOut] = []
-    for mod_id in ["documents", "web_urls", "ai_assistant"]:
-        mod_spec = _MODULES[mod_id]
+    for mod in perm_modules:
         permissions_out: list[PermissionItemOut] = []
-        for (action,) in mod_spec["permissions"]:
-            perm_key = f"{mod_id}:{action}"
-            perm_row = perm_by_key.get(perm_key)
+        for key in sorted(mod.permission_keys):
+            action = key.split(":", 1)[1]
+            perm_row = perm_by_key.get(key)
             permissions_out.append(
                 PermissionItemOut(
-                    id=perm_key,
+                    id=key,
                     label=_action_to_label(action),
                     description=perm_row.description if perm_row else None,
-                    granted=True if is_system_org_admin else perm_key in granted_keys,
+                    granted=is_system_org_admin or key in granted_keys,
                 )
             )
         modules_out.append(
             PermissionModuleOut(
-                id=mod_id,
-                label=mod_spec["label"],
-                description=mod_spec["description"],
+                id=mod.id,
+                label=mod.display_label(),
+                description=mod.display_description(),
                 permissions=permissions_out,
             )
         )
@@ -646,7 +700,8 @@ async def put_role_permissions(
         raise HTTPException(status_code=404, detail="Role not found")
     if role.is_system:
         raise HTTPException(status_code=403, detail="Cannot modify system roles")
-    if role.organization_id != organization_id:
+    # Allow editing global default roles (organization_id=None, is_system=False) or org-owned roles.
+    if role.organization_id is not None and role.organization_id != organization_id:
         raise HTTPException(status_code=403, detail="Role does not belong to this organization")
 
     # Map permission keys (e.g. documents:view) -> permission IDs
@@ -776,7 +831,9 @@ async def assign_user_role(
         "user": Role.USER.value,
         "viewer": Role.VIEWER.value,
     }
-    membership.role = _SYSTEM_TO_MEMBERSHIP.get(role.name, Role.USER.value) if role.is_system else Role.USER.value
+    # System roles: map to the canonical JWT role value. Custom roles: store the
+    # role name directly so list_org_users can display it via the fallback path.
+    membership.role = _SYSTEM_TO_MEMBERSHIP.get(role.name, Role.USER.value) if role.is_system else role.name
     session.add(membership)
 
     await session.flush()

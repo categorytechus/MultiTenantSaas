@@ -148,7 +148,7 @@ function SessionItem({
           </button>
         </div>
       ) : (
-        <div className="flex gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex gap-0.5 shrink-0">
           <button
             onClick={startEdit}
             className="p-1 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"

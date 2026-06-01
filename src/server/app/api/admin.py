@@ -58,15 +58,100 @@ class UpdateOrgRequest(BaseModel):
 
 class OrgModuleRow(BaseModel):
     id: str
-    name: str
     label: str
     description: str
-    permissions: list[str]
+    parent_id: str | None = None
+    sort_order: int = 100
     enabled: bool
 
 
 class OrgModulesListEnvelope(BaseModel):
     data: list[OrgModuleRow]
+
+
+class ModuleTreeRow(BaseModel):
+    id: str
+    label: str
+    description: str
+    parent_id: str | None = None
+    sort_order: int = 100
+
+
+class ModuleTreeEnvelope(BaseModel):
+    data: list[ModuleTreeRow]
+
+
+# Fallback metadata used before migration 041 has been applied.
+# After migration 041 runs, all of this data lives in master_modules columns.
+_MODULE_LABELS: dict[str, str] = {
+    "ai_assistant":      "AI Assistant",
+    "ai_images":         "Images",
+    "ai_links":          "Links",
+    "report_generation": "Report Generation",
+    "cost_seg":          "Cost Segregation",
+    "documents":         "Documents",
+    "web_urls":          "Web URLs",
+    "api_calling":       "API Calling",
+}
+_MODULE_DESCRIPTIONS: dict[str, str] = {
+    "ai_assistant":      "AI assistant tools and chat capabilities.",
+    "ai_images":         "Image embedding in chat.",
+    "ai_links":          "Link embeddings in chat.",
+    "report_generation": "Generate PDF reports in chat.",
+    "cost_seg":          "IRS MACRS cost segregation classification.",
+    "documents":         "Document library and document actions.",
+    "web_urls":          "Manage web URL records and sources.",
+    "api_calling":       "Enable outbound API actions and webhook integrations.",
+}
+_MODULE_PARENT_IDS: dict[str, str] = {
+    "ai_images":         "ai_assistant",
+    "ai_links":          "ai_assistant",
+    "report_generation": "ai_assistant",
+}
+_MODULE_SORT_ORDER: dict[str, int] = {
+    "ai_assistant": 10, "ai_images": 11, "ai_links": 12, "report_generation": 13,
+    "cost_seg": 20, "documents": 30, "web_urls": 40, "api_calling": 50,
+}
+
+
+async def _load_modules_safe(session: AsyncSession) -> list[dict]:
+    """Load master_modules rows with full metadata.
+    Uses a savepoint so a missing column (pre-migration) falls back to raw SQL + hardcoded metadata."""
+    try:
+        async with session.begin_nested():
+            result = await session.execute(
+                select(MasterModule)
+                .where(MasterModule.enabled == True)  # noqa: E712
+                .order_by(MasterModule.sort_order)
+            )
+            return [
+                {
+                    "id": m.id,
+                    "label": m.display_label(),
+                    "description": m.display_description(),
+                    "parent_id": m.parent_id,
+                    "sort_order": m.sort_order,
+                }
+                for m in result.scalars().all()
+            ]
+    except Exception:
+        # Migration 041 columns not present yet — fall back to original columns
+        result = await session.execute(
+            text("SELECT id, name FROM master_modules WHERE enabled = true ORDER BY id")
+        )
+        return sorted(
+            [
+                {
+                    "id": row[0],
+                    "label": _MODULE_LABELS.get(row[0], row[1]),
+                    "description": _MODULE_DESCRIPTIONS.get(row[0], f"Manage {row[1].lower()} features."),
+                    "parent_id": _MODULE_PARENT_IDS.get(row[0]),
+                    "sort_order": _MODULE_SORT_ORDER.get(row[0], 100),
+                }
+                for row in result.all()
+            ],
+            key=lambda m: (m["sort_order"], m["id"]),
+        )
 
 
 class UpdateOrgModulesRequest(BaseModel):
@@ -96,6 +181,10 @@ class SuperAdminCreateRequest(BaseModel):
 class SuperAdminUpdateRequest(BaseModel):
     name: str
     status: str = "active"
+
+
+class SuperAdminChangePasswordRequest(BaseModel):
+    password: str = Field(..., min_length=8)
 
 
 async def _org_modules_table_exists(session: AsyncSession) -> bool:
@@ -294,6 +383,34 @@ async def delete_super_admin(
         raise HTTPException(status_code=404, detail="Super admin not found")
     await session.delete(allow)
     await session.flush()
+
+
+@router.post("/super-admins/{user_id}/change-password")
+async def change_super_admin_password(
+    user_id: UUID,
+    body: SuperAdminChangePasswordRequest,
+    ctx: RequestContext = Depends(require_super_admin_user),
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    import secrets
+    _ = ctx
+    user = await session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    allow = await session.get(SuperAdminAllowlist, user_id)
+    if not allow:
+        raise HTTPException(status_code=404, detail="Super admin not found")
+
+    user.hashed_password = hash_password(body.password)
+
+    recovery_key = secrets.token_hex(32)
+    allow.recovery_key_hash = hash_password(recovery_key)
+
+    session.add(user)
+    session.add(allow)
+    await session.flush()
+
+    return {"success": True, "data": {"recovery_key": recovery_key}}
 
 
 @router.post("/org-admins/invites")
@@ -567,6 +684,19 @@ async def list_all_users(
     return UsersListEnvelope(data=data)
 
 
+@router.get("/modules", response_model=ModuleTreeEnvelope)
+async def list_master_modules(
+    ctx: RequestContext = Depends(require_super_admin_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """Return the full module tree — used by org-permissions UI to derive hierarchy."""
+    _ = ctx
+    modules = await _load_modules_safe(session)
+    return ModuleTreeEnvelope(
+        data=[ModuleTreeRow(**{k: m[k] for k in ModuleTreeRow.model_fields}) for m in modules]
+    )
+
+
 @router.get("/organizations/{org_id}/modules", response_model=OrgModulesListEnvelope)
 async def get_org_module_flags(
     org_id: UUID,
@@ -578,8 +708,7 @@ async def get_org_module_flags(
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
 
-    result = await session.execute(select(MasterModule).order_by(MasterModule.id.asc()))
-    modules = result.scalars().all()
+    modules = await _load_modules_safe(session)
 
     assigned_module_ids: set[str] = set()
     if await _org_modules_table_exists(session):
@@ -592,42 +721,74 @@ async def get_org_module_flags(
         except Exception:
             raise HTTPException(status_code=500, detail="Unable to load organization module assignments")
 
-    module_ids = [m.id for m in modules]
-    permission_result = await session.execute(
-        select(RbacPermission.resource, RbacPermission.action).where(
-            RbacPermission.resource.in_(module_ids)
-        )
-    )
-    permission_map: dict[str, list[str]] = {module_id: [] for module_id in module_ids}
-    for resource, action in permission_result.all():
-        permission_map.setdefault(resource, []).append(f"{resource}:{action}")
-
-    default_descriptions: dict[str, str] = {
-        "ai_assistant": "AI assistant tools and chat capabilities.",
-        "ai_images": "Image embedding in chat.",
-        "ai_links": "Link embeddings in chat.",
-        "report_generation": "Generate PDF reports in chat.",
-        "documents": "Document library and document actions.",
-        "web_urls": "Manage web URL records and sources.",
-        "api_calling": "Enable outbound API actions and webhook integrations.",
-    }
-
     return OrgModulesListEnvelope(
         data=[
             OrgModuleRow(
-                id=m.id,
-                name=m.name,
-                label=m.name,
-                description=default_descriptions.get(
-                    m.id,
-                    f"Manage access to {m.name.lower()} features.",
-                ),
-                permissions=sorted(permission_map.get(m.id, [])),
-                enabled=(m.id in assigned_module_ids),
+                id=m["id"],
+                label=m["label"],
+                description=m["description"],
+                parent_id=m["parent_id"],
+                sort_order=m["sort_order"],
+                enabled=(m["id"] in assigned_module_ids),
             )
             for m in modules
         ]
     )
+
+
+async def _sync_module_permission_grants(session: AsyncSession, module_ids: list[str]) -> None:
+    """Ensure tenant_admin and org_admin system roles have grants for all permission_keys
+    belonging to the given modules. Called whenever org module assignments change.
+    Skips silently if migration 041 columns are not yet available."""
+    from app.models.rbac import RbacRole, RolePermission
+
+    if not module_ids:
+        return
+
+    # Load permission_keys — skip if migration 041 hasn't added the column yet
+    try:
+        async with session.begin_nested():
+            result = await session.execute(
+                select(MasterModule.permission_keys).where(MasterModule.id.in_(module_ids))
+            )
+            all_keys: list[str] = [key for (keys,) in result.all() for key in (keys or [])]
+    except Exception:
+        return  # Column not present yet — grants will be seeded by the migration
+    if not all_keys:
+        return
+
+    # Resolve permission rows
+    perm_rows_result = await session.execute(
+        select(RbacPermission).where(
+            RbacPermission.resource.in_([k.split(":")[0] for k in all_keys]),
+            RbacPermission.action.in_([k.split(":")[1] for k in all_keys]),
+        )
+    )
+    perm_by_key = {f"{p.resource}:{p.action}": p for p in perm_rows_result.scalars().all()}
+
+    # Resolve system roles
+    system_roles_result = await session.execute(
+        select(RbacRole).where(
+            RbacRole.name.in_(["tenant_admin", "org_admin"]),
+            RbacRole.is_system == True,  # noqa: E712
+        )
+    )
+    system_roles = system_roles_result.scalars().all()
+
+    # Insert missing grants
+    for role in system_roles:
+        for key in all_keys:
+            perm = perm_by_key.get(key)
+            if not perm:
+                continue
+            await session.execute(
+                text("""
+                    INSERT INTO role_permissions (id, role_id, permission_id, created_at)
+                    VALUES (gen_random_uuid(), :role_id, :perm_id, NOW())
+                    ON CONFLICT DO NOTHING
+                """),
+                {"role_id": role.id, "perm_id": perm.id},
+            )
 
 
 @router.put("/organizations/{org_id}/modules")
@@ -652,16 +813,14 @@ async def put_org_module_flags(
         async with session.begin_nested():
             await session.execute(OrgModule.__table__.delete().where(OrgModule.org_id == org_id))
             for module_id in normalized:
-                session.add(
-                    OrgModule(
-                        org_id=org_id,
-                        module_id=module_id,
-                        assigned_by=ctx.user_id,
-                    )
-                )
+                session.add(OrgModule(org_id=org_id, module_id=module_id, assigned_by=ctx.user_id))
             await session.flush()
     except Exception:
         raise HTTPException(status_code=500, detail="Unable to update organization module assignments")
+
+    # Ensure system roles have grants for all newly-enabled module permissions.
+    await _sync_module_permission_grants(session, normalized)
+
     return {"success": True, "organization_id": str(org_id), "module_ids": normalized}
 
 

@@ -88,14 +88,16 @@ async def role_permissions_from_db(
 
     role_name = role.value if isinstance(role, Role) else str(role)
 
+    # JWT carries "tenant_admin" but the DB system role is named "org_admin".
+    # Normalise here so migration 042 can drop the redundant tenant_admin DB role.
+    db_role_name = "org_admin" if role_name == "tenant_admin" else role_name
+
     try:
         from app.models.rbac import RbacPermission, RbacRole, RoleOrgPermission, RolePermission
 
-        # Current architecture stores role in JWT as a system role string.
         rr = await session.execute(
             select(RbacRole).where(
-                RbacRole.name == role_name,
-                RbacRole.is_system == True,  # noqa: E712
+                RbacRole.name == db_role_name,
                 RbacRole.organization_id == None,  # noqa: E711
             )
         )
@@ -134,11 +136,13 @@ async def role_permissions_from_db(
             )
             membership_role_name = membership_result.scalar_one_or_none()
             if membership_role_name:
+                # Normalise tenant_admin → org_admin so the DB lookup finds the right role.
+                lookup_name = "org_admin" if membership_role_name == "tenant_admin" else membership_role_name
                 membership_role = await session.execute(
                     select(RbacRole).where(
-                        RbacRole.name == membership_role_name,
+                        RbacRole.name == lookup_name,
                         (
-                            (RbacRole.is_system == True)  # noqa: E712
+                            (RbacRole.organization_id == None)  # noqa: E711
                             | (RbacRole.organization_id == org_id)
                         ),
                     )

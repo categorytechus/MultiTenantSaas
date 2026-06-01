@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { apiFetch } from "../src/lib/api";
 import { PERMISSION_MODULE_ENABLED } from "../src/lib/permissions";
+import { MODULE } from "../src/lib/module-ids";
 
 interface Org {
   id: string;
@@ -84,6 +85,7 @@ export default function Layout({ children }: LayoutProps) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [userModules, setUserModules] = useState<string[] | null>(null);
   const [modulesResolved, setModulesResolved] = useState(false);
+  const [roleLabel, setRoleLabel] = useState("");
   const dropRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -105,6 +107,16 @@ export default function Layout({ children }: LayoutProps) {
         setUser(userData);
         const primaryRole = extractPrimaryRoleFromToken(token)?.toLowerCase().replace(/-/g, "_");
         const isSuperFromToken = primaryRole === "super_admin";
+
+        if (isSuperAdminUserType(userData.user_type) || isSuperFromToken) {
+          setRoleLabel("Super Admin");
+        } else if (primaryRole === "tenant_admin") {
+          setRoleLabel("Org Admin");
+        } else if (primaryRole === "user") {
+          setRoleLabel("User");
+        } else if (primaryRole) {
+          setRoleLabel(primaryRole.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()));
+        }
 
         if (isSuperAdminUserType(userData.user_type) || isSuperFromToken) {
           const oRes = await apiFetch<{ data: { id: string; name: string; slug: string }[] }>("/admin/organizations");
@@ -372,7 +384,7 @@ export default function Layout({ children }: LayoutProps) {
                 <div className="px-2">
                   <div className="px-2 mb-1.5 text-[10px] font-semibold text-[#b0aaa0] uppercase tracking-wider">Home</div>
                   <NavItem href="/dashboard" active={pathname === "/dashboard"} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>}>Dashboard</NavItem>
-                  {hasModule("ai_assistant") && (
+                  {hasModule(MODULE.AI_ASSISTANT) && (
                     <Link href="/ai_assistant" className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors w-full ${pathname === "/ai_assistant" ? "bg-gradient-to-r from-violet-50 to-blue-50 text-violet-700 shadow-sm" : "text-[#606060] hover:bg-white hover:text-[#1a1a1a]"}`}>
                       <span className="w-4 h-4 shrink-0 flex items-center justify-center">
                         <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"/><circle cx="18" cy="5" r="3"/></svg>
@@ -380,7 +392,7 @@ export default function Layout({ children }: LayoutProps) {
                       <span className={pathname === "/ai_assistant" ? "bg-gradient-to-r from-violet-600 to-blue-600 bg-clip-text text-transparent font-semibold" : ""}>AI Assistant</span>
                     </Link>
                   )}
-                  {hasModule("cost_seg") && (
+                  {hasModule(MODULE.COST_SEG) && (
                     <Link href="/cost_segregation" className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors w-full ${pathname.startsWith("/cost_segregation") ? "bg-gradient-to-r from-emerald-50 to-teal-50 text-emerald-700 shadow-sm" : "text-[#606060] hover:bg-white hover:text-[#1a1a1a]"}`}>
                       <span className="w-4 h-4 shrink-0 flex items-center justify-center">
                         <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
@@ -391,19 +403,19 @@ export default function Layout({ children }: LayoutProps) {
                   <NavItem href="/profile" active={pathname === "/profile"} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>}>My Profile</NavItem>
                 </div>
 
-                {(hasModule("documents") || hasModule("web_urls")) && (
+                {(hasModule(MODULE.DOCUMENTS) || hasModule(MODULE.WEB_URLS)) && (
                   <div className="px-2">
                     <div className="px-2 mb-1.5 text-[10px] font-semibold text-[#b0aaa0] uppercase tracking-wider">Knowledge Base</div>
-                    {hasModule("documents") && (
+                    {hasModule(MODULE.DOCUMENTS) && (
                       <NavItem href="/documents" active={pathname === "/documents"} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>}>Documents</NavItem>
                     )}
-                    {hasModule("web_urls") && (
+                    {hasModule(MODULE.WEB_URLS) && (
                       <NavItem href="/web-urls" active={pathname === "/web-urls"} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>}>Web URLs</NavItem>
                     )}
                   </div>
                 )}
 
-                {hasModule("api_calling") && (
+                {hasModule(MODULE.API_CALLING) && (
                   <div className="px-2">
                     <div className="px-2 mb-1.5 text-[10px] font-semibold text-[#b0aaa0] uppercase tracking-wider">Tools</div>
                     <NavItem href="/api-modules" active={pathname === "/api-modules"} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>}>API Modules</NavItem>
@@ -415,7 +427,7 @@ export default function Layout({ children }: LayoutProps) {
                 <div>
                   <div className="px-2 mb-1.5 text-[10px] font-semibold text-[#b0aaa0] uppercase tracking-wider">Home</div>
                   <NavItem href="/dashboard" active={pathname === "/dashboard"} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>}>Dashboard</NavItem>
-                  {hasModule("ai_assistant") && (
+                  {hasModule(MODULE.AI_ASSISTANT) && (
                     <Link href="/ai_assistant" className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors w-full ${pathname === "/ai_assistant" ? "bg-gradient-to-r from-violet-50 to-blue-50 text-violet-700 shadow-sm" : "text-[#606060] hover:bg-white hover:text-[#1a1a1a]"}`}>
                       <span className="w-4 h-4 shrink-0 flex items-center justify-center">
                         <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"/><circle cx="18" cy="5" r="3"/></svg>
@@ -423,7 +435,7 @@ export default function Layout({ children }: LayoutProps) {
                       <span className={pathname === "/ai_assistant" ? "bg-gradient-to-r from-violet-600 to-blue-600 bg-clip-text text-transparent font-semibold" : ""}>AI Assistant</span>
                     </Link>
                   )}
-                  {hasModule("cost_seg") && (
+                  {hasModule(MODULE.COST_SEG) && (
                     <Link href="/cost_segregation" className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors w-full ${pathname.startsWith("/cost_segregation") ? "bg-gradient-to-r from-emerald-50 to-teal-50 text-emerald-700 shadow-sm" : "text-[#606060] hover:bg-white hover:text-[#1a1a1a]"}`}>
                       <span className="w-4 h-4 shrink-0 flex items-center justify-center">
                         <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
@@ -434,19 +446,19 @@ export default function Layout({ children }: LayoutProps) {
                   <NavItem href="/profile" active={pathname === "/profile"} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>}>My Profile</NavItem>
                 </div>
 
-                {(hasModule("documents") || hasModule("web_urls")) && (
+                {(hasModule(MODULE.DOCUMENTS) || hasModule(MODULE.WEB_URLS)) && (
                   <div>
                     <div className="px-2 mb-1.5 text-[10px] font-semibold text-[#b0aaa0] uppercase tracking-wider">Knowledge Base</div>
-                    {hasModule("documents") && (
+                    {hasModule(MODULE.DOCUMENTS) && (
                       <NavItem href="/documents" active={pathname === "/documents"} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>}>Documents</NavItem>
                     )}
-                    {hasModule("web_urls") && (
+                    {hasModule(MODULE.WEB_URLS) && (
                       <NavItem href="/web-urls" active={pathname === "/web-urls"} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>}>Web URLs</NavItem>
                     )}
                   </div>
                 )}
 
-                {hasModule("api_calling") && (
+                {hasModule(MODULE.API_CALLING) && (
                   <div>
                     <div className="px-2 mb-1.5 text-[10px] font-semibold text-[#b0aaa0] uppercase tracking-wider">Tools</div>
                     <NavItem href="/api-modules" active={pathname === "/api-modules"} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>}>API Modules</NavItem>
@@ -469,8 +481,8 @@ export default function Layout({ children }: LayoutProps) {
                 {initials(user?.full_name, user?.email)}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-[13px] font-semibold text-[#1a1a1a] truncate">{user?.full_name || "User"}</div>
-                <div className="text-[11px] text-[#9a9a9a] truncate">{user?.email}</div>
+                <div className="text-[13px] font-semibold text-[#1a1a1a] truncate">{user?.full_name || user?.email || "User"}</div>
+                <div className="text-[11px] text-[#9a9a9a] truncate">{roleLabel || "User"}</div>
               </div>
               <button
                 className="p-1 text-[#9a9a9a] hover:text-[#1a1a1a] transition-colors shrink-0"

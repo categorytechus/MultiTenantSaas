@@ -17,6 +17,13 @@ export default function SignInPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Recovery key login state
+  const [showRecovery, setShowRecovery] = useState(false);
+  const [recoveryEmail, setRecoveryEmail] = useState('');
+  const [recoveryKey, setRecoveryKey] = useState('');
+  const [recoveryError, setRecoveryError] = useState('');
+  const [recoveryLoading, setRecoveryLoading] = useState(false);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -97,6 +104,34 @@ export default function SignInPage() {
     }
   };
 
+  const handleRecoveryLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRecoveryError('');
+    setRecoveryLoading(true);
+    try {
+      const res = await apiFetch<{ access_token?: string; refresh_token?: string }>(
+        '/auth/superadmin-recovery',
+        { method: 'POST', body: JSON.stringify({ email: recoveryEmail, recovery_key: recoveryKey }) },
+      );
+      if (!res.success) {
+        throw new Error(res.status === 401 ? 'Invalid email or recovery key.' : res.error || 'Recovery login failed.');
+      }
+      const accessToken = res.data.access_token;
+      const refreshToken = res.data.refresh_token;
+      if (!accessToken || !refreshToken) throw new Error('Missing tokens');
+      sessionStorage.removeItem('userModules');
+      sessionStorage.removeItem('userModulesUnrestricted');
+      sessionStorage.setItem('userModulesUnrestricted', '1');
+      localStorage.setItem('accessToken', accessToken);
+      localStorage.setItem('refreshToken', refreshToken);
+      router.push('/dashboard');
+    } catch (err: unknown) {
+      setRecoveryError(err instanceof Error ? err.message : 'Recovery login failed.');
+    } finally {
+      setRecoveryLoading(false);
+    }
+  };
+
   return (
     <>
       
@@ -153,6 +188,37 @@ export default function SignInPage() {
           </form>
 
           <p className="foot">Need access? Contact your organization administrator.</p>
+
+          <button
+            type="button"
+            style={{ background: 'none', border: 'none', padding: 0, fontSize: 12, color: '#9a9a9a', cursor: 'pointer', marginTop: 8, textDecoration: 'underline' }}
+            onClick={() => { setShowRecovery(!showRecovery); setRecoveryError(''); }}
+          >
+            {showRecovery ? 'Hide recovery key login' : 'Super admin? Use recovery key'}
+          </button>
+
+          {showRecovery && (
+            <div style={{ marginTop: 16, padding: '16px', background: '#fafaf9', border: '1px solid #e5e5e5', borderRadius: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a1a', marginBottom: 12 }}>
+                Recovery Key Login
+              </div>
+              {recoveryError && <div className="err" style={{ marginBottom: 10, fontSize: 12 }}>{recoveryError}</div>}
+              <form onSubmit={handleRecoveryLogin}>
+                <div className="field" style={{ marginBottom: 10 }}>
+                  <div className="field-lbl"><span style={{ fontSize: 12 }}>Email</span></div>
+                  <input className="fi" type="email" placeholder="superadmin@example.com" value={recoveryEmail} onChange={e => setRecoveryEmail(e.target.value)} required autoComplete="email" style={{ fontSize: 13 }} />
+                </div>
+                <div className="field" style={{ marginBottom: 12 }}>
+                  <div className="field-lbl"><span style={{ fontSize: 12 }}>Recovery key</span></div>
+                  <input className="fi" type="text" placeholder="Paste recovery key from .txt file" value={recoveryKey} onChange={e => setRecoveryKey(e.target.value)} required autoComplete="off" style={{ fontSize: 13, fontFamily: 'monospace' }} />
+                </div>
+                <button className="sbtn" type="submit" disabled={recoveryLoading} style={{ fontSize: 13, padding: '9px 0' }}>
+                  {recoveryLoading && <span className="spin" />}
+                  {recoveryLoading ? 'Signing in…' : 'Sign in with recovery key'}
+                </button>
+              </form>
+            </div>
+          )}
         </div>
 
         <p className="terms">By continuing you agree to our <a href="#">Terms</a> and <a href="#">Privacy Policy</a></p>

@@ -1,11 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Layout from "../../components/Layout";
 import { apiFetch } from "../../src/lib/api";
-
-// Org custom roles: title + description only (no permission matrix in UI for now)
 
 interface Role {
   id: string;
@@ -15,8 +13,122 @@ interface Role {
   created_at: string;
 }
 
+interface PermissionItem {
+  id: string;
+  label: string;
+  description?: string;
+  granted?: boolean;
+}
+
+interface PermissionModule {
+  id: string;
+  label: string;
+  description: string;
+  permissions: PermissionItem[];
+}
+
+type RolePermsData = {
+  modules: PermissionModule[];
+  isSystemOrgAdmin: boolean;
+};
+
 function isSystemBaseRole(r: Role) {
   return r.is_system && (r.name === "org_admin" || r.name === "user");
+}
+
+function formatRoleTitle(name: string) {
+  if (name === "org_admin") return "Organization Admin";
+  return name.replace(/_/g, " ");
+}
+
+// Inline read-only permission matrix for the modal
+const MATRIX_ACTIONS = ["create", "view", "update", "delete"] as const;
+
+function actionSlug(permId: string) {
+  const i = permId.indexOf(":");
+  return i === -1 ? null : permId.slice(i + 1).toLowerCase();
+}
+
+function ReadOnlyMatrix({ modules, isSystemOrgAdmin }: { modules: PermissionModule[]; isSystemOrgAdmin: boolean }) {
+  const sorted = useMemo(() => {
+    const order = ["documents", "web_urls", "ai_assistant"];
+    return [...modules].sort(
+      (a, b) => order.indexOf(a.id) - order.indexOf(b.id) || a.label.localeCompare(b.label),
+    );
+  }, [modules]);
+
+  if (sorted.length === 0) {
+    return (
+      <div style={{ padding: "24px", textAlign: "center", color: "#9a9a9a", fontSize: 13 }}>
+        No modules assigned to this organization yet.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <thead>
+          <tr style={{ background: "#faf9f7" }}>
+            <th style={{ textAlign: "left", padding: "10px 14px", color: "#555", fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", borderBottom: "1px solid #ebe9e6", minWidth: 140 }}>
+              Module
+            </th>
+            {MATRIX_ACTIONS.map((a) => (
+              <th key={a} style={{ textAlign: "center", padding: "10px 14px", color: "#555", fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", borderBottom: "1px solid #ebe9e6" }}>
+                {a.charAt(0).toUpperCase() + a.slice(1)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((module) => {
+            if (module.id === "ai_assistant") {
+              const chatPerm = module.permissions.find((p) => actionSlug(p.id) === "chat" || p.label.toLowerCase() === "chat") ?? module.permissions[0];
+              if (!chatPerm) return null;
+              const checked = isSystemOrgAdmin || !!chatPerm.granted;
+              return (
+                <tr key={module.id} style={{ borderTop: "1px solid #f0eeeb" }}>
+                  <td style={{ padding: "10px 14px", fontWeight: 500, color: "#1a1a1a" }}>{module.label}</td>
+                  <td colSpan={MATRIX_ACTIONS.length} style={{ padding: "10px 14px" }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "default" }}>
+                      <input type="checkbox" checked={checked} readOnly disabled style={{ width: 14, height: 14 }} />
+                      <span>Chat</span>
+                    </label>
+                  </td>
+                </tr>
+              );
+            }
+
+            return (
+              <tr key={module.id} style={{ borderTop: "1px solid #f0eeeb" }}>
+                <td style={{ padding: "10px 14px", fontWeight: 500, color: "#1a1a1a" }}>{module.label}</td>
+                {MATRIX_ACTIONS.map((action) => {
+                  if (module.id === "documents" && action === "create") {
+                    const c = module.permissions.find((p) => actionSlug(p.id) === "create");
+                    const u = module.permissions.find((p) => actionSlug(p.id) === "upload");
+                    const checked = isSystemOrgAdmin || !!(c?.granted || u?.granted);
+                    return (
+                      <td key="doc-create" style={{ padding: "10px 14px", textAlign: "center" }}>
+                        <input type="checkbox" checked={checked} readOnly disabled style={{ width: 14, height: 14 }} />
+                      </td>
+                    );
+                  }
+                  const perm = module.permissions.find((p) => actionSlug(p.id) === action);
+                  if (!perm) return <td key={action} style={{ padding: "10px 14px", textAlign: "center", color: "#ccc" }}>—</td>;
+                  const checked = isSystemOrgAdmin || !!perm.granted;
+                  return (
+                    <td key={perm.id} style={{ padding: "10px 14px", textAlign: "center" }}>
+                      <input type="checkbox" checked={checked} readOnly disabled style={{ width: 14, height: 14 }} />
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 export default function RolesPage() {
@@ -27,6 +139,11 @@ export default function RolesPage() {
   const [orgId, setOrgId] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<Role | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // View permissions modal state
+  const [viewTarget, setViewTarget] = useState<Role | null>(null);
+  const [viewPerms, setViewPerms] = useState<RolePermsData | null>(null);
+  const [viewLoading, setViewLoading] = useState(false);
 
   const guardAndFetch = useCallback(async () => {
     const token = localStorage.getItem("accessToken");
@@ -91,6 +208,28 @@ export default function RolesPage() {
       setError("Delete failed");
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const openViewModal = async (r: Role) => {
+    setViewTarget(r);
+    setViewPerms(null);
+    if (!orgId) return;
+    setViewLoading(true);
+    try {
+      const res = await apiFetch<{ data: PermissionModule[]; is_system_org_admin?: boolean }>(
+        `/organizations/${orgId}/roles/${r.id}/permissions`,
+      );
+      if (res.success) {
+        setViewPerms({
+          modules: res.data.data ?? [],
+          isSystemOrgAdmin: res.data.is_system_org_admin === true,
+        });
+      }
+    } catch {
+      // ignore — modal will show empty state
+    } finally {
+      setViewLoading(false);
     }
   };
 
@@ -234,27 +373,54 @@ export default function RolesPage() {
                         )}
                       </td>
                       <td>
-                        {!r.is_system && (
-                          <div className="actions">
-                            <button
-                              className="btn btn-sm"
-                              style={{
-                                background: "#f5f4f1",
-                                color: "#1a1a1a",
-                                border: "none",
-                              }}
-                              onClick={() => router.push(`/roles/${r.id}/edit`)}
+                        <div className="actions">
+                          {/* Eye / view button for every role */}
+                          <button
+                            type="button"
+                            className="btn btn-sm"
+                            title="View permissions"
+                            style={{
+                              background: "#f5f4f1",
+                              color: "#555",
+                              border: "none",
+                              padding: "5px 8px",
+                            }}
+                            onClick={() => void openViewModal(r)}
+                          >
+                            <svg
+                              width="15"
+                              height="15"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              viewBox="0 0 24 24"
                             >
-                              Edit
-                            </button>
-                            <button
-                              className="btn btn-sm btn-danger"
-                              onClick={() => setDeleteTarget(r)}
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        )}
+                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                              <circle cx="12" cy="12" r="3" />
+                            </svg>
+                          </button>
+                          {!r.is_system && (
+                            <>
+                              <button
+                                className="btn btn-sm"
+                                style={{
+                                  background: "#f5f4f1",
+                                  color: "#1a1a1a",
+                                  border: "none",
+                                }}
+                                onClick={() => router.push(`/roles/${r.id}/edit`)}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                className="btn btn-sm btn-danger"
+                                onClick={() => setDeleteTarget(r)}
+                              >
+                                Delete
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -266,6 +432,7 @@ export default function RolesPage() {
         )}
       </div>
 
+      {/* Delete confirm modal */}
       {deleteTarget && (
         <div className="modal-overlay" onClick={() => setDeleteTarget(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -292,6 +459,61 @@ export default function RolesPage() {
                 disabled={deleting}
               >
                 {deleting ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* View permissions modal */}
+      {viewTarget && (
+        <div className="modal-overlay" onClick={() => setViewTarget(null)}>
+          <div
+            className="modal"
+            style={{ maxWidth: 620, width: "100%" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+              {formatRoleTitle(viewTarget.name)} — Permissions
+            </div>
+
+            <div className="modal-body" style={{ padding: 0 }}>
+              {viewLoading ? (
+                <div style={{ padding: "32px", textAlign: "center", color: "#9a9a9a", fontSize: 13 }}>
+                  Loading…
+                </div>
+              ) : viewPerms?.isSystemOrgAdmin ? (
+                <div style={{ padding: "20px 24px" }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 14px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 8, fontSize: 13, color: "#15803d" }}>
+                    <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" style={{ flexShrink: 0, marginTop: 1 }}>
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                    This role has <strong style={{ marginLeft: 3 }}>full access</strong> to every module assigned to the organization.
+                  </div>
+                  {viewPerms.modules.length > 0 && (
+                    <div style={{ marginTop: 16 }}>
+                      <ReadOnlyMatrix modules={viewPerms.modules} isSystemOrgAdmin />
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <ReadOnlyMatrix
+                  modules={viewPerms?.modules ?? []}
+                  isSystemOrgAdmin={false}
+                />
+              )}
+            </div>
+
+            <div className="modal-actions">
+              <button
+                className="btn btn-primary"
+                onClick={() => setViewTarget(null)}
+              >
+                Close
               </button>
             </div>
           </div>

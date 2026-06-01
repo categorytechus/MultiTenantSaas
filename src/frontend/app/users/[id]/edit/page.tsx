@@ -81,12 +81,15 @@ export default function EditUserPage() {
             if (rbacRoles.length > 0) {
               setCurrentRoles(rbacRoles);
               setSelectedRoleId(rbacRoles[0].id);
-            } else if (u.org_role === "tenant_admin") {
-              // membership.role fallback: tenant_admin maps to the org_admin system role
-              const orgAdminRole = assignable.find((r) => r.name === "org_admin");
-              if (orgAdminRole) {
-                setCurrentRoles([orgAdminRole]);
-                setSelectedRoleId(orgAdminRole.id);
+            } else {
+              // Fallback: find the role in the assignable list by matching the display name
+              // derived from membership.role (org_role).
+              const orgRoleToName: Record<string, string> = { tenant_admin: "org_admin" };
+              const lookupName = orgRoleToName[u.org_role ?? ""] ?? u.org_role;
+              const matchedRole = lookupName ? assignable.find((r) => r.name === lookupName) : null;
+              if (matchedRole) {
+                setCurrentRoles([matchedRole]);
+                setSelectedRoleId(matchedRole.id);
               }
             }
           } else {

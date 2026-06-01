@@ -1,18 +1,25 @@
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
 
+from app.core.config import settings
 from app.core.db import get_db
-from app.core.security import hash_password, verify_password
+from app.core.identity import normalize_email
+from app.core.security import create_refresh_token, hash_password, verify_password
 from app.core.tenancy import get_optional_tenant_context, get_required_context, RequestContext
 from app.core.rbac import Role
+from app.models.super_admin import SuperAdminAllowlist
+from app.models.user import RefreshToken, User
 from app.services.auth import (
     get_me,
     login_user,
     logout_user,
+    make_super_admin_reset_access_token,
     refresh_tokens,
     register_user,
     revoke_all_refresh_tokens,
@@ -57,6 +64,11 @@ class AcceptInviteBody(BaseModel):
 
 class LogoutRequest(BaseModel):
     refresh_token: str
+
+
+class SuperAdminRecoveryRequest(BaseModel):
+    email: str
+    recovery_key: str
 
 
 class UserResponse(BaseModel):
@@ -180,6 +192,42 @@ async def logout_all_sessions(
     session: AsyncSession = Depends(get_db),
 ) -> None:
     await revoke_all_refresh_tokens(session, ctx.user_id)
+
+
+@router.post("/superadmin-recovery", response_model=AuthWithUserResponse)
+async def superadmin_recovery_login(
+    body: SuperAdminRecoveryRequest,
+    session: AsyncSession = Depends(get_db),
+) -> Any:
+    """Log in as a super admin using a previously-generated recovery key."""
+    _invalid = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+    result = await session.execute(select(User).where(User.email == normalize_email(body.email)))
+    user = result.scalars().first()
+    if not user:
+        raise _invalid
+
+    allow = await session.get(SuperAdminAllowlist, user.id)
+    if not allow or not allow.recovery_key_hash:
+        raise _invalid
+
+    if not verify_password(body.recovery_key, allow.recovery_key_hash):
+        raise _invalid
+
+    access_token = make_super_admin_reset_access_token(user)
+    opaque_refresh, refresh_hash = create_refresh_token()
+    session.add(RefreshToken(
+        user_id=user.id,
+        token_hash=refresh_hash,
+        expires_at=datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+        no_org_scope=True,
+    ))
+
+    return {
+        "access_token": access_token,
+        "refresh_token": opaque_refresh,
+        "user": {"id": str(user.id), "email": user.email, "name": user.name},
+    }
 
 
 class UpdateProfileRequest(BaseModel):

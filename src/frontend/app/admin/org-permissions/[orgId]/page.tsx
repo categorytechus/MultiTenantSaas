@@ -9,22 +9,10 @@ interface Module {
   id: string;
   label: string;
   description: string;
+  parent_id?: string | null;
+  sort_order?: number;
   enabled: boolean;
 }
-
-// Hierarchy: which modules are children of which parent
-const CHILDREN_OF: Record<string, string[]> = {
-  ai_assistant: ['ai_images', 'ai_links', 'report_generation'],
-};
-
-const PARENT_OF: Record<string, string> = {
-  ai_images: 'ai_assistant',
-  ai_links: 'ai_assistant',
-  report_generation: 'ai_assistant',
-};
-
-// Display order for top-level modules
-const TOP_LEVEL_ORDER = ['ai_assistant', 'cost_seg', 'documents', 'web_urls', 'api_calling'];
 
 function Toggle({ on, disabled, onToggle, label }: { on: boolean; disabled?: boolean; onToggle: () => void; label: string }) {
   return (
@@ -49,15 +37,9 @@ function Toggle({ on, disabled, onToggle, label }: { on: boolean; disabled?: boo
       }}
     >
       <span style={{
-        position: 'absolute',
-        top: 2,
-        left: on ? 16 : 2,
-        width: 18,
-        height: 18,
-        borderRadius: '50%',
-        background: 'white',
-        boxShadow: '0 1px 3px rgba(0,0,0,.2)',
-        transition: 'left .15s',
+        position: 'absolute', top: 2, left: on ? 16 : 2,
+        width: 18, height: 18, borderRadius: '50%', background: 'white',
+        boxShadow: '0 1px 3px rgba(0,0,0,.2)', transition: 'left .15s',
       }} />
       <span className="sr-only">{on ? 'Disable' : 'Enable'} {label}</span>
     </button>
@@ -71,7 +53,7 @@ export default function OrgPermissionsDetailPage() {
   const [orgName, setOrgName] = useState('');
   const [modules, setModules] = useState<Module[]>([]);
   const [enabled, setEnabled] = useState<Set<string>>(new Set());
-  const [expanded, setExpanded] = useState<Set<string>>(new Set(Object.keys(CHILDREN_OF)));
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState('');
@@ -97,8 +79,14 @@ export default function OrgPermissionsDetailPage() {
           if (org) setOrgName(org.name);
         }
         if (modRes.success) {
-          setModules(modRes.data.data);
-          setEnabled(new Set(modRes.data.data.filter((m) => m.enabled).map((m) => m.id)));
+          const list = modRes.data.data;
+          setModules(list);
+          setEnabled(new Set(list.filter((m) => m.enabled).map((m) => m.id)));
+          // Auto-expand all parent modules that have children
+          const parentIds = new Set(
+            list.filter(m => m.parent_id).map(m => m.parent_id as string)
+          );
+          setExpanded(parentIds);
         }
       } catch {
         if (!cancelled) setError('Failed to load data');
@@ -109,18 +97,26 @@ export default function OrgPermissionsDetailPage() {
     return () => { cancelled = true; };
   }, [orgId, router]);
 
+  // Derive hierarchy dynamically from parent_id — no hardcoded constants
+  const childrenOf = (parentId: string): Module[] =>
+    modules
+      .filter(m => m.parent_id === parentId)
+      .sort((a, b) => (a.sort_order ?? 100) - (b.sort_order ?? 100));
+
+  const topLevel: Module[] = modules
+    .filter(m => !m.parent_id)
+    .sort((a, b) => (a.sort_order ?? 100) - (b.sort_order ?? 100));
+
   const toggle = (id: string) => {
     setEnabled((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
         next.delete(id);
-        // Disabling a parent also disables its children
-        (CHILDREN_OF[id] ?? []).forEach(c => next.delete(c));
+        childrenOf(id).forEach(c => next.delete(c.id));
       } else {
         next.add(id);
-        // Enabling a child auto-enables its parent
-        const parent = PARENT_OF[id];
-        if (parent) next.add(parent);
+        const mod = modules.find(m => m.id === id);
+        if (mod?.parent_id) next.add(mod.parent_id);
       }
       return next;
     });
@@ -147,15 +143,6 @@ export default function OrgPermissionsDetailPage() {
     }
   };
 
-  const moduleMap = Object.fromEntries(modules.map(m => [m.id, m]));
-  const childIds = new Set(Object.keys(PARENT_OF));
-
-  // Top-level modules in display order, then any unknown ones appended
-  const topLevel = [
-    ...TOP_LEVEL_ORDER.filter(id => moduleMap[id]),
-    ...modules.filter(m => !TOP_LEVEL_ORDER.includes(m.id) && !childIds.has(m.id)).map(m => m.id),
-  ];
-
   return (
     <Layout>
       <div className="page">
@@ -173,7 +160,7 @@ export default function OrgPermissionsDetailPage() {
           <div>
             <div className="page-title">{orgName ? `Modules — ${orgName}` : 'Organization Modules'}</div>
             <div className="page-subtitle">
-              Enable or disable feature modules for this organization. Sub-capabilities under a module are only active when the parent module is enabled.
+              Enable or disable feature modules. Sub-capabilities are only active when their parent module is enabled.
             </div>
           </div>
           <div className="actions">
@@ -198,35 +185,25 @@ export default function OrgPermissionsDetailPage() {
           </div>
         ) : (
           <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-            {topLevel.map((id, i) => {
-              const mod = moduleMap[id];
-              if (!mod) return null;
+            {topLevel.map((mod, i) => {
               const on = enabled.has(mod.id);
-              const children = (CHILDREN_OF[mod.id] ?? []).map(cid => moduleMap[cid]).filter(Boolean) as Module[];
+              const children = childrenOf(mod.id);
               const isLast = i === topLevel.length - 1 && children.length === 0;
 
               return (
                 <div key={mod.id}>
-                  {/* Parent row */}
                   <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                     padding: '16px 20px',
-                    borderBottom: (!isLast || children.length > 0) ? '1px solid #f0eeeb' : 'none',
+                    borderBottom: !isLast ? '1px solid #f0eeeb' : 'none',
                   }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 500, color: '#1a1a1a', marginBottom: 2 }}>
-                        {mod.label}
-                      </div>
-                      <div style={{ fontSize: 12, color: '#9a9a9a', lineHeight: 1.5 }}>
-                        {mod.description}
-                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 500, color: '#1a1a1a', marginBottom: 2 }}>{mod.label}</div>
+                      <div style={{ fontSize: 12, color: '#9a9a9a', lineHeight: 1.5 }}>{mod.description}</div>
                     </div>
                     <Toggle on={on} onToggle={() => toggle(mod.id)} label={mod.label} />
                   </div>
 
-                  {/* Extended capabilities accordion */}
                   {children.length > 0 && (() => {
                     const isOpen = expanded.has(mod.id);
                     return (
@@ -234,7 +211,6 @@ export default function OrgPermissionsDetailPage() {
                         background: '#f9f8f6',
                         borderBottom: i < topLevel.length - 1 ? '1px solid #f0eeeb' : 'none',
                       }}>
-                        {/* Accordion header */}
                         <button
                           type="button"
                           onClick={() => setExpanded(prev => {
@@ -243,88 +219,37 @@ export default function OrgPermissionsDetailPage() {
                             return next;
                           })}
                           style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            width: '100%',
-                            padding: '7px 20px',
-                            background: 'none',
-                            border: 'none',
-                            cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            width: '100%', padding: '7px 20px', background: 'none', border: 'none', cursor: 'pointer',
                           }}
                         >
-                          <span style={{
-                            fontSize: 10,
-                            fontWeight: 600,
-                            color: '#b0aaa0',
-                            letterSpacing: '0.06em',
-                            textTransform: 'uppercase',
-                          }}>
+                          <span style={{ fontSize: 10, fontWeight: 600, color: '#b0aaa0', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
                             Extended Capabilities
                           </span>
-                          <svg
-                            width="12" height="12"
-                            fill="none" stroke="#b0aaa0" strokeWidth="2.5"
-                            viewBox="0 0 24 24"
-                            style={{ transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }}
-                          >
+                          <svg width="12" height="12" fill="none" stroke="#b0aaa0" strokeWidth="2.5" viewBox="0 0 24 24"
+                            style={{ transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }}>
                             <polyline points="6 9 12 15 18 9" />
                           </svg>
                         </button>
 
-                        {/* Accordion body */}
-                        {isOpen && children.map((child, ci) => {
-                          const childOn = enabled.has(child.id);
-                          const parentDisabled = !on;
-                          return (
-                            <div
-                              key={child.id}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                padding: '11px 20px 11px 36px',
-                                borderTop: '1px solid #f0eeeb',
-                                opacity: parentDisabled ? 0.45 : 1,
-                                transition: 'opacity .15s',
-                                position: 'relative',
-                              }}
-                            >
-                              {/* Tree connector */}
-                              <span style={{
-                                position: 'absolute',
-                                left: 20,
-                                top: ci === 0 ? '50%' : 0,
-                                bottom: ci === children.length - 1 ? '50%' : 0,
-                                width: 1,
-                                background: '#d9d6d0',
-                              }} />
-                              <span style={{
-                                position: 'absolute',
-                                left: 20,
-                                top: '50%',
-                                width: 10,
-                                height: 1,
-                                background: '#d9d6d0',
-                              }} />
-
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: 13, fontWeight: 500, color: '#1a1a1a', marginBottom: 1 }}>
-                                  {child.label}
-                                </div>
-                                <div style={{ fontSize: 11, color: '#9a9a9a', lineHeight: 1.5 }}>
-                                  {child.description}
-                                </div>
-                              </div>
-                              <Toggle
-                                on={childOn}
-                                disabled={parentDisabled}
-                                onToggle={() => toggle(child.id)}
-                                label={child.label}
-                              />
+                        {isOpen && children.map((child, ci) => (
+                          <div
+                            key={child.id}
+                            style={{
+                              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                              padding: '11px 20px 11px 36px', borderTop: '1px solid #f0eeeb',
+                              opacity: !on ? 0.45 : 1, transition: 'opacity .15s', position: 'relative',
+                            }}
+                          >
+                            <span style={{ position: 'absolute', left: 20, top: ci === 0 ? '50%' : 0, bottom: ci === children.length - 1 ? '50%' : 0, width: 1, background: '#d9d6d0' }} />
+                            <span style={{ position: 'absolute', left: 20, top: '50%', width: 10, height: 1, background: '#d9d6d0' }} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 13, fontWeight: 500, color: '#1a1a1a', marginBottom: 1 }}>{child.label}</div>
+                              <div style={{ fontSize: 11, color: '#9a9a9a', lineHeight: 1.5 }}>{child.description}</div>
                             </div>
-                          );
-                        })}
+                            <Toggle on={enabled.has(child.id)} disabled={!on} onToggle={() => toggle(child.id)} label={child.label} />
+                          </div>
+                        ))}
                       </div>
                     );
                   })()}

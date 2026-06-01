@@ -37,7 +37,7 @@ help:
 	@echo "  make logs-frontend   Next.js frontend logs"
 	@echo ""
 	@echo "Production (EC2 / local prod build):"
-	@echo "  make prod            Build & run all services with production frontend (Docker)"
+	@echo "  make prod            Build & run all services; migrations run automatically before server starts"
 	@echo "  make prod-detach     Same, detached"
 	@echo "  make prod-frontend   Build & run production frontend Docker container only"
 	@echo ""
@@ -48,6 +48,11 @@ help:
 # ── Full stack via Docker Compose ──────────────────────────────────────────
 
 dev:
+	@printf "Clean entire database? [y/N] "; \
+	read answer; \
+	case "$$answer" in \
+		[Yy]*) echo "Wiping database, uploads, and Redis volumes..."; docker compose down -v --remove-orphans ;; \
+	esac; \
 	docker compose up --build
 
 dev-detach:
@@ -92,6 +97,11 @@ prod-frontend:
 	@echo "Production frontend running at http://localhost:3000"
 
 prod:
+	@printf "Clean entire database? [y/N] "; \
+	read answer; \
+	case "$$answer" in \
+		[Yy]*) echo "Wiping database, uploads, and Redis volumes..."; docker compose -f docker-compose.local-prod.yml down -v --remove-orphans ;; \
+	esac; \
 	docker compose -f docker-compose.local-prod.yml up --build
 
 prod-detach:

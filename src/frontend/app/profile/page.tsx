@@ -31,6 +31,7 @@ export default function ProfilePage() {
   const [passwordError, setPasswordError] = useState('');
 
   const [roleLabel, setRoleLabel] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -52,9 +53,15 @@ export default function ProfilePage() {
         try {
           const payload = JSON.parse(atob(token.split('.')[1]));
           const roles: string[] = payload.roles ?? [];
-          if (me.user_type === 'super_admin') setRoleLabel('Super Admin');
-          else if (roles.includes('org_admin')) setRoleLabel('Org Admin');
-          else setRoleLabel('User');
+          if (me.user_type === 'super_admin') {
+            setRoleLabel('Super Admin');
+            setIsAdmin(true);
+          } else if (roles.includes('org_admin')) {
+            setRoleLabel('Org Admin');
+            setIsAdmin(true);
+          } else {
+            setRoleLabel('User');
+          }
         } catch { setRoleLabel(me.user_type); }
       } catch {
         router.push('/auth/signin');
@@ -142,6 +149,35 @@ export default function ProfilePage() {
 
         {loading ? (
           <div className="profile-loading">Loading profile…</div>
+        ) : isAdmin ? (
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '64px 24px',
+            textAlign: 'center',
+            gap: 16,
+          }}>
+            <svg
+              width="48"
+              height="48"
+              fill="none"
+              stroke="#c8c4bc"
+              strokeWidth="1.5"
+              viewBox="0 0 24 24"
+            >
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+            </svg>
+            <div style={{ fontSize: 16, fontWeight: 600, color: '#1a1a1a' }}>
+              Profile editing is managed through Admin Tools
+            </div>
+            <div style={{ fontSize: 13, color: '#9a9a9a', maxWidth: 380 }}>
+              User profiles are shown here. As an administrator, use the admin
+              tools to view or update user details.
+            </div>
+          </div>
         ) : (
           <>
             <div className="profile-tabs">
