@@ -705,18 +705,62 @@ async def run_report(
             "total_year1": round(total_year1, 2),
         }
 
-        # 4. Generate PDF Report using PDFGenerator
-        await publish(redis, channel, {"type": "progress", "message": "Compiling PDF document..."})
-        pdf_gen = PDFGenerator()
+        # 4. Generate report — try Claude Skills API first, fallback to PDFGenerator
+        pdf_bytes = None
         study_date_str = project_details.get("meta", {}).get("study_date") or datetime.date.today().isoformat()
-        
-        pdf_bytes = pdf_gen.generate_report(
-            project_name=project_details["name"],
-            study_date=study_date_str,
-            property_details=property_meta,
-            line_items=processed_items,
-            summary=summary,
-        )
+
+        if settings.ANTHROPIC_API_KEY and settings.CLAUDE_SKILLS_COST_SEG_ID:
+            try:
+                await publish(redis, channel, {"type": "progress", "message": "Generating report with AI Skills..."})
+                from app.integrations.claude_skills import ClaudeSkillsClient
+
+                skills_client = ClaudeSkillsClient(
+                    api_key=settings.ANTHROPIC_API_KEY,
+                    skill_id=settings.CLAUDE_SKILLS_COST_SEG_ID,
+                    skill_version=settings.CLAUDE_SKILLS_COST_SEG_VERSION,
+                    model=settings.CLAUDE_SKILLS_MODEL,
+                )
+
+                # Prepare data payload for Skills API
+                skills_data = {
+                    "project_name": project_details["name"],
+                    "study_date": study_date_str,
+                    "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    "property": property_meta,
+                    "line_items": processed_items,
+                    "bonus_rate": 0.20,
+                    "summary": summary,
+                }
+                result = await skills_client.generate_report(skills_data)
+                html_content = result["html"]
+
+                # Convert HTML to PDF
+                await publish(redis, channel, {"type": "progress", "message": "Converting report to PDF..."})
+                try:
+                    import weasyprint
+                    pdf_bytes = weasyprint.HTML(string=html_content).write_pdf()
+                except ImportError:
+                    logger.info("weasyprint not available, falling back to PDFGenerator")
+                    pdf_bytes = None
+                except Exception as html_to_pdf_err:
+                    logger.warning(f"HTML-to-PDF conversion failed: {html_to_pdf_err}")
+                    pdf_bytes = None
+
+            except Exception as skills_err:
+                logger.warning(f"Claude Skills report generation failed, falling back to PDFGenerator: {skills_err}")
+                pdf_bytes = None
+
+        if pdf_bytes is None:
+            # Fallback: use the existing ReportLab PDFGenerator
+            await publish(redis, channel, {"type": "progress", "message": "Compiling PDF document..."})
+            pdf_gen = PDFGenerator()
+            pdf_bytes = pdf_gen.generate_report(
+                project_name=project_details["name"],
+                study_date=study_date_str,
+                property_details=property_meta,
+                line_items=processed_items,
+                summary=summary,
+            )
 
         # 5. Upload the generated PDF to S3
         await publish(redis, channel, {"type": "progress", "message": "Uploading report to storage..."})

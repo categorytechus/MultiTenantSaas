@@ -543,6 +543,66 @@ async def _classify_with_llm(text: str) -> list[dict]:
 
 # ── Report generation ──────────────────────────────────────────────────────────
 
+
+def _prepare_report_data(
+    project: WorkflowSession,
+    prop: Optional[dict],
+    items: list[WorkflowItem],
+) -> dict:
+    """Serialize project data into a dict for the Claude Skills API."""
+    return {
+        "project_name": project.title,
+        "study_date": (project.meta or {}).get("study_date"),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "property": prop or {},
+        "line_items": [
+            {
+                "description": item.content,
+                "amount": item.amount,
+                "category_id": (item.data or {}).get("category_id"),
+                "category_label": (item.data or {}).get("category_label"),
+                "recovery_period": (item.data or {}).get("recovery_period"),
+                "bonus_eligible": (item.data or {}).get("bonus_eligible"),
+                "year1_deduction": (item.data or {}).get("year1_deduction"),
+                "confidence": (item.data or {}).get("confidence"),
+                "ai_notes": (item.data or {}).get("ai_notes"),
+                "user_edited": (item.data or {}).get("user_edited"),
+            }
+            for item in items
+        ],
+        "bonus_rate": BONUS_PCT,
+        "categories": CATEGORIES,
+    }
+
+
+async def _generate_report_with_skills(
+    project: WorkflowSession,
+    prop: Optional[dict],
+    items: list[WorkflowItem],
+) -> Optional[str]:
+    """Try generating the report via Claude Skills API. Returns HTML or None."""
+    from app.core.config import settings
+
+    if not settings.ANTHROPIC_API_KEY or not settings.CLAUDE_SKILLS_COST_SEG_ID:
+        return None
+
+    try:
+        from app.integrations.claude_skills import ClaudeSkillsClient
+
+        client = ClaudeSkillsClient(
+            api_key=settings.ANTHROPIC_API_KEY,
+            skill_id=settings.CLAUDE_SKILLS_COST_SEG_ID,
+            skill_version=settings.CLAUDE_SKILLS_COST_SEG_VERSION,
+            model=settings.CLAUDE_SKILLS_MODEL,
+        )
+        data = _prepare_report_data(project, prop, items)
+        result = await client.generate_report(data)
+        return result["html"]
+    except Exception as e:
+        logger.warning("Claude Skills report generation failed, using fallback", error=str(e))
+        return None
+
+
 async def generate_report(
     session: AsyncSession,
     project_id: UUID,
@@ -552,7 +612,11 @@ async def generate_report(
     prop = get_property_from_meta(project)
     items = await list_line_items(session, project_id)
 
-    html = _build_report_html(project, prop, items)
+    # Try Claude Skills API first; fall back to hardcoded template
+    html = await _generate_report_with_skills(project, prop, items)
+    if html is None:
+        html = _build_report_html_fallback(project, prop, items)
+
     totals = _build_totals(items)
 
     # Upsert via unique constraint (session_id, type)
@@ -607,11 +671,12 @@ def _build_totals(items: list[WorkflowItem]) -> dict:
     }
 
 
-def _build_report_html(
+def _build_report_html_fallback(
     project: WorkflowSession,
     prop: Optional[dict],
     items: list[WorkflowItem],
 ) -> str:
+    """Hardcoded HTML template — used when Claude Skills is unavailable."""
     from collections import defaultdict
 
     meta = project.meta or {}
