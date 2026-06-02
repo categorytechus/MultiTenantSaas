@@ -1,4 +1,4 @@
-.PHONY: help dev dev-detach db-up migrate migrate-docker migrate-new install server agents frontend prod prod-detach prod-frontend clean logs-server logs-agents logs-frontend logs-prod-frontend ecr-login redeploy-ecr
+.PHONY: help dev dev-detach db-up migrate migrate-docker migrate-new install server agents frontend prod prod-detach prod-frontend clean logs-server logs-agents logs-frontend logs-prod-frontend ecr-login redeploy-ecr upload-env url
 
 PYTHON := python3
 UV := uv
@@ -163,10 +163,26 @@ EC2_IP   ?= $(shell aws ec2 describe-instances \
                --query "Reservations[0].Instances[0].PublicIpAddress" --output text 2>/dev/null)
 SSH_KEY  ?= infra/multi-tenant-saas-key.pem
 
+url:
+	@IP=$(shell terraform -chdir=infra output -raw ec2_public_ip 2>/dev/null); \
+	if [ -z "$$IP" ]; then echo "No EC2 instance found. Has terraform apply been run?"; exit 1; fi; \
+	echo ""; \
+	echo "  Frontend : http://$$IP:3000"; \
+	echo "  API      : http://$$IP:8000"; \
+	echo "  SSH      : ssh -i infra/multi-tenant-saas-key.pem ec2-user@$$IP"; \
+	echo ""
+
 ecr-login:
 	aws ecr get-login-password --region $(AWS_REGION) | docker login --username AWS --password-stdin $(ECR_REGISTRY)
 
-redeploy-ecr: ecr-login
+upload-env:
+	@test -f infra/prod.env || (echo "ERROR: infra/prod.env not found. Copy infra/prod.env.example and fill in the values." && exit 1)
+	@echo "Uploading infra/prod.env to EC2 ($(EC2_IP))..."
+	scp -i $(SSH_KEY) -o StrictHostKeyChecking=no infra/prod.env \
+	    $(EC2_USER)@$(EC2_IP):/opt/app/.env
+	@echo "Done. .env updated on server."
+
+redeploy-ecr: ecr-login upload-env
 	@echo "Building and pushing images (tag: $(IMAGE_TAG))..."
 	docker build -t $(ECR_REGISTRY)/multitenant-saas-backend:$(IMAGE_TAG) \
 	             -t $(ECR_REGISTRY)/multitenant-saas-backend:latest \
