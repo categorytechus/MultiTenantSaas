@@ -571,7 +571,6 @@ def _prepare_report_data(
             for item in items
         ],
         "bonus_rate": BONUS_PCT,
-        "categories": CATEGORIES,
     }
 
 
@@ -594,6 +593,8 @@ async def _generate_report_with_skills(
             skill_id=settings.CLAUDE_SKILLS_COST_SEG_ID,
             skill_version=settings.CLAUDE_SKILLS_COST_SEG_VERSION,
             model=settings.CLAUDE_SKILLS_MODEL,
+            base_url=settings.ANTHROPIC_BASE_URL,
+            workspace_id=settings.ANTHROPIC_WORKSPACE_ID,
         )
         data = _prepare_report_data(project, prop, items)
         result = await client.generate_report(data)

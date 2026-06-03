@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     # Anthropic direct API — used exclusively for Claude Skills (report generation).
     # Skills API is NOT available through Bedrock; requires a direct Anthropic key.
     ANTHROPIC_API_KEY: str = ""
+    ANTHROPIC_BASE_URL: str | None = None
+    ANTHROPIC_WORKSPACE_ID: str | None = None
     CLAUDE_SKILLS_COST_SEG_ID: str = ""       # Set after creating skill in Console
     CLAUDE_SKILLS_COST_SEG_VERSION: str = "latest"
     CLAUDE_SKILLS_MODEL: str = "claude-sonnet-4-20250514"

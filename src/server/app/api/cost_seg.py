@@ -466,14 +466,9 @@ async def preview_report(
 ) -> HTMLResponse:
     report = await svc.get_report(session, project_id)
     if not report:
-        # Auto-generate the HTML report if it doesn't exist yet
-        async with db_session(ctx.org_id) as sess:
-            project = await svc.get_project(sess, project_id)
-            if project.status not in ("paid", "report_ready", "analysis_complete"):
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail="Complete analysis before previewing the report.",
-                )
-            html = await svc.generate_report(sess, project_id, ctx.org_id)
-        return HTMLResponse(content=html)
+        raise HTTPException(
+            status_code=404,
+            detail="Report not yet generated. Use POST /report to generate.",
+        )
     return HTMLResponse(content=report.content)
+

@@ -22,10 +22,20 @@ class ClaudeSkillsClient:
         skill_id: str,
         skill_version: str = "latest",
         model: str = "claude-sonnet-4-20250514",
+        base_url: str | None = None,
+        workspace_id: str | None = None,
     ) -> None:
         import anthropic
 
-        self.client = anthropic.Anthropic(api_key=api_key)
+        headers = {}
+        if workspace_id:
+            headers["anthropic-workspace-id"] = workspace_id
+
+        self.client = anthropic.Anthropic(
+            api_key=api_key,
+            base_url=base_url,
+            default_headers=headers if headers else None,
+        )
         self.skill_id = skill_id
         self.skill_version = skill_version
         self.model = model
@@ -42,7 +52,11 @@ class ClaudeSkillsClient:
             return self.client.beta.messages.create(
                 model=self.model,
                 max_tokens=16384,
-                betas=["code-execution-2025-08-25", "skills-2025-10-02"],
+                betas=[
+                    "code-execution-2025-08-25",
+                    "skills-2025-10-02",
+                    "files-api-2025-04-14",
+                ],
                 container={
                     "skills": [
                         {
@@ -76,33 +90,36 @@ class ClaudeSkillsClient:
     # Response parsing
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _extract_output(response: Any) -> dict[str, str]:
-        """Walk response content blocks and pull the generated HTML."""
-        html: str | None = None
+    def _extract_output(self, response: Any) -> dict[str, str]:
+        """Extract the generated HTML or file ID from the Claude Skills response."""
+        file_ids = []
+        
+        # Collect any file IDs from bash execution results
+        for item in response.content:
+            if getattr(item, "type", "") == "bash_code_execution_tool_result":
+                content_item = getattr(item, "content", None)
+                if content_item and getattr(content_item, "type", "") == "bash_code_execution_result":
+                    # Log stdout/stderr for debugging
+                    logger.debug("Bash execution stdout: %s", getattr(content_item, "stdout", ""))
+                    logger.debug("Bash execution stderr: %s", getattr(content_item, "stderr", ""))
+                    for file in getattr(content_item, "content", []):
+                        fid = getattr(file, "file_id", None)
+                        if fid:
+                            file_ids.append(fid)
+        
+        if file_ids:
+            file_id = file_ids[-1]
+            logger.info("Found file_id in Claude response: %s", file_id)
+        else:
+            # Provide detailed block summary for debugging
+            block_summary = [(getattr(b, "type", "unknown"), getattr(b, "content", None)) for b in response.content]
+            logger.error("Claude Skills response missing file_id. Blocks: %s", block_summary)
+            raise ValueError(f"Claude Skills response did not contain a generated file. Found blocks: {block_summary}")
 
-        for block in response.content:
-            block_type = getattr(block, "type", None)
-
-            # Code-execution results may contain output files
-            if block_type == "code_execution_result":
-                for output in getattr(block, "content", []):
-                    out_type = getattr(output, "type", None)
-                    if out_type == "file":
-                        fname = getattr(output, "filename", "")
-                        if fname.endswith(".html"):
-                            html = getattr(output, "content", None)
-
-            # Fallback: if Claude put raw HTML in a text block
-            if block_type == "text" and html is None:
-                text = block.text.strip()
-                if text.startswith("<!DOCTYPE") or text.startswith("<html"):
-                    html = text
-
-        if not html:
-            raise ValueError(
-                "Claude Skills response did not contain an HTML report file"
-            )
+        # Download the file content via Files API
+        logger.info("Downloading HTML file via Files API: %s", file_id)
+        file_content = self.client.beta.files.download(file_id=file_id)
+        html = file_content.read().decode("utf-8")
 
         logger.info(
             "Claude Skills report generated (html_length=%d, stop_reason=%s)",

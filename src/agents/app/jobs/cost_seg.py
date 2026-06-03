@@ -719,40 +719,62 @@ async def run_report(
                     skill_id=settings.CLAUDE_SKILLS_COST_SEG_ID,
                     skill_version=settings.CLAUDE_SKILLS_COST_SEG_VERSION,
                     model=settings.CLAUDE_SKILLS_MODEL,
+                    base_url=settings.ANTHROPIC_BASE_URL,
+                    workspace_id=settings.ANTHROPIC_WORKSPACE_ID,
                 )
 
                 # Prepare data payload for Skills API
+                # Strip `schedules` from each line item — they're not used in the
+                # report template and massively inflate the payload size.
+                skills_line_items = [
+                    {k: v for k, v in item.items() if k != "schedules"}
+                    for item in processed_items
+                ]
                 skills_data = {
                     "project_name": project_details["name"],
                     "study_date": study_date_str,
                     "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                     "property": property_meta,
-                    "line_items": processed_items,
+                    "line_items": skills_line_items,
                     "bonus_rate": 0.20,
                     "summary": summary,
                 }
                 result = await skills_client.generate_report(skills_data)
                 html_content = result["html"]
+                await publish(redis, channel, {"type": "progress", "message": "✅ Claude AI successfully generated custom report layout."})
+
+                # Persist the HTML report to workflow_outputs so the server
+                # preview endpoint can serve it immediately (no second Claude call).
+                await _upsert_html_report(
+                    db_url=db_url,
+                    org_id=org_id,
+                    project_id=project_id,
+                    html_content=html_content,
+                    totals=summary,
+                )
 
                 # Convert HTML to PDF
-                await publish(redis, channel, {"type": "progress", "message": "Converting report to PDF..."})
+                await publish(redis, channel, {"type": "progress", "message": "Converting AI report to PDF..."})
                 try:
                     import weasyprint
                     pdf_bytes = weasyprint.HTML(string=html_content).write_pdf()
                 except ImportError:
                     logger.info("weasyprint not available, falling back to PDFGenerator")
+                    await publish(redis, channel, {"type": "progress", "message": "⚠️ Weasyprint missing, falling back to standard generator."})
                     pdf_bytes = None
                 except Exception as html_to_pdf_err:
                     logger.warning(f"HTML-to-PDF conversion failed: {html_to_pdf_err}")
+                    await publish(redis, channel, {"type": "progress", "message": "⚠️ HTML conversion failed, falling back to standard generator."})
                     pdf_bytes = None
 
             except Exception as skills_err:
                 logger.warning(f"Claude Skills report generation failed, falling back to PDFGenerator: {skills_err}")
+                await publish(redis, channel, {"type": "progress", "message": "⚠️ Claude AI generation failed, falling back to standard generator."})
                 pdf_bytes = None
 
         if pdf_bytes is None:
             # Fallback: use the existing ReportLab PDFGenerator
-            await publish(redis, channel, {"type": "progress", "message": "Compiling PDF document..."})
+            await publish(redis, channel, {"type": "progress", "message": "Compiling standard PDF document..."})
             pdf_gen = PDFGenerator()
             pdf_bytes = pdf_gen.generate_report(
                 project_name=project_details["name"],
@@ -877,3 +899,33 @@ async def _insert_document_record(
                 [doc_id, org_id, s3_key, filename, size_bytes, project_id],
             )
     return doc_id
+
+
+async def _upsert_html_report(
+    db_url: str,
+    org_id: str,
+    project_id: str,
+    html_content: str,
+    totals: dict[str, Any],
+) -> None:
+    """Save or update the HTML report in workflow_outputs so the server can serve it."""
+    import json as _json
+
+    async with await psycopg.AsyncConnection.connect(db_url) as conn:
+        async with conn.transaction():
+            await conn.execute("SELECT set_config('app.current_org_id', %s, true)", [str(org_id)])
+            await conn.execute(
+                """
+                INSERT INTO workflow_outputs (
+                    id, session_id, org_id, type, content, data, generated_at
+                )
+                VALUES (
+                    %s::uuid, %s::uuid, %s::uuid, 'html_report', %s, %s::jsonb, now()
+                )
+                ON CONFLICT (session_id, type)
+                DO UPDATE SET content = EXCLUDED.content,
+                             data = EXCLUDED.data,
+                             generated_at = EXCLUDED.generated_at
+                """,
+                [str(uuid.uuid4()), project_id, org_id, html_content, _json.dumps(totals)],
+            )
