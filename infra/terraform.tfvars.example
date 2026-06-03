@@ -15,4 +15,4 @@ github_org        = "categorytechus"
 github_repo       = "MultiTenantSaas"
 
 # Restrict SSH to your office/VPN IP for production
-allowed_ssh_cidrs = ["0.0.0.0/0"]
+allowed_ssh_cidrs = ["0.0.0.0/0","103.186.40.195/32"]

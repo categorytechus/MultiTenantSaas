@@ -24,13 +24,22 @@ resource "aws_instance" "app" {
   ami                  = data.aws_ami.amazon_linux_2023.id
   instance_type        = var.ec2_instance_type
   subnet_id            = aws_subnet.public[0].id
-  security_groups      = [aws_security_group.ec2.id]
+  vpc_security_group_ids = [aws_security_group.ec2.id]
   key_name             = aws_key_pair.app.key_name
   iam_instance_profile = aws_iam_instance_profile.ec2.name
 
   root_block_device {
     volume_size = 30
     volume_type = "gp3"
+  }
+
+  # Increase IMDS hop limit to 2 so Docker containers can reach the IAM
+  # credentials endpoint (169.254.169.254). The default limit of 1 blocks
+  # any request that goes through a Docker network hop.
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 2
   }
 
   user_data = file("${path.module}/userdata.sh")
