@@ -78,11 +78,11 @@ const STEPS = [
 
 const STATUS_TO_STEP: Record<string, number> = {
   draft: 1,
-  property_added: 2,
+  property_added: 3,
   documents_uploaded: 3,
   analyzing: 3,
   analysis_complete: 4,
-  paid: 5,
+  paid: 6,        // after payment, always show the report/download screen
   report_ready: 6,
 };
 
@@ -170,26 +170,28 @@ function Step1({
   const [studyDate, setStudyDate] = useState(project.study_date ?? '');
 
   return (
-    <div className="space-y-5 max-w-lg">
-      <div>
-        <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">Study Name *</label>
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          className="w-full px-3 py-2.5 border border-[#e5e7eb] rounded-lg text-[14px] outline-none focus:border-[#1a1a1a] transition-colors"
-          placeholder="e.g. 123 Main St Office Building"
-        />
-      </div>
-      <div>
-        <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">Study Date</label>
-        <input
-          type="date"
-          value={studyDate}
-          onChange={(e) => setStudyDate(e.target.value)}
-          className="w-full px-3 py-2.5 border border-[#e5e7eb] rounded-lg text-[14px] outline-none focus:border-[#1a1a1a] transition-colors"
-        />
-        <p className="text-[11px] text-[#9ca3af] mt-1.5">Date the study is being prepared (used for bonus depreciation calculation)</p>
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-5">
+        <div>
+          <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">Study Name *</label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="w-full px-3 py-2.5 border border-[#e5e7eb] rounded-lg text-[14px] outline-none focus:border-[#1a1a1a] transition-colors"
+            placeholder="e.g. 123 Main St Office Building"
+          />
+        </div>
+        <div>
+          <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">Study Date</label>
+          <input
+            type="date"
+            value={studyDate}
+            onChange={(e) => setStudyDate(e.target.value)}
+            className="w-full px-3 py-2.5 border border-[#e5e7eb] rounded-lg text-[14px] outline-none focus:border-[#1a1a1a] transition-colors"
+          />
+          <p className="text-[11px] text-[#9ca3af] mt-1.5">Used for bonus depreciation calculation</p>
+        </div>
       </div>
       <div className="pt-2">
         <button
@@ -354,6 +356,8 @@ function Step2({
   saving: boolean;
   onBack: () => void;
 }) {
+  const [errors, setErrors] = useState<Record<string, boolean>>({});
+
   const [form, setForm] = useState<Property>({
     property_name: initial.property_name ?? '',
     address: initial.address ?? '',
@@ -369,37 +373,70 @@ function Step2({
     notes: initial.notes ?? '',
   });
 
-  const set = (k: keyof Property, v: string | number | null) =>
+  const set = (k: keyof Property, v: string | number | null) => {
     setForm((prev) => ({ ...prev, [k]: v }));
+    if (errors[k]) setErrors((e) => ({ ...e, [k]: false }));
+  };
+
+  const handleSave = () => {
+    const newErrors: Record<string, boolean> = {};
+    if (!form.property_name.trim()) newErrors.property_name = true;
+    if (!form.address.trim()) newErrors.address = true;
+    if (!form.acquisition_date) newErrors.acquisition_date = true;
+    if (Object.keys(newErrors).length > 0) { setErrors(newErrors); return; }
+    onSave(form);
+  };
+
+  const fieldClass = (key: string, base = '') =>
+    `w-full px-3 py-2.5 rounded-lg text-[13px] outline-none transition-colors ${base} ${
+      errors[key]
+        ? 'border-2 border-red-400 focus:border-red-500 bg-red-50/30'
+        : 'border border-[#e5e7eb] focus:border-[#1a1a1a]'
+    }`;
 
   return (
-    <div className="max-w-2xl space-y-5">
+    <div className="space-y-5">
       <div className="grid grid-cols-2 gap-4">
-        <div className="col-span-2">
-          <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">Property Name *</label>
-          <input type="text" value={form.property_name} onChange={(e) => set('property_name', e.target.value)}
-            className="w-full px-3 py-2.5 border border-[#e5e7eb] rounded-lg text-[13px] outline-none focus:border-[#1a1a1a]"
-            placeholder="e.g. Sunrise Office Park" />
+        <div className="col-span-2 grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">
+              Property Name <span className="text-red-500">*</span>
+            </label>
+            <input type="text" value={form.property_name} onChange={(e) => set('property_name', e.target.value)}
+              className={fieldClass('property_name')}
+              placeholder="e.g. Sunrise Office Park" />
+            {errors.property_name && <p className="text-[11px] text-red-500 mt-1">Required</p>}
+          </div>
+          <div>
+            <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">Property Type</label>
+            <select value={form.property_type} onChange={(e) => set('property_type', e.target.value)}
+              className="w-full px-3 py-2.5 border border-[#e5e7eb] rounded-lg text-[13px] outline-none focus:border-[#1a1a1a] bg-white">
+              {PROPERTY_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+          </div>
         </div>
+
         <div className="col-span-2">
-          <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">Street Address *</label>
+          <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">
+            Street Address <span className="text-red-500">*</span>
+          </label>
           <AddressAutocomplete
             value={form.address}
             onChange={(v) => set('address', v)}
             onSelect={(parts) => {
-              set('address', parts.address);
-              set('city', parts.city);
-              set('state', parts.state);
-              set('zip_code', parts.zip_code);
+              setForm((p) => ({ ...p, address: parts.address, city: parts.city, state: parts.state, zip_code: parts.zip_code }));
+              setErrors((e) => ({ ...e, address: false }));
             }}
           />
+          {errors.address && <p className="text-[11px] text-red-500 mt-1">Required</p>}
         </div>
-        <div>
-          <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">City</label>
-          <input type="text" value={form.city ?? ''} onChange={(e) => set('city', e.target.value)}
-            className="w-full px-3 py-2.5 border border-[#e5e7eb] rounded-lg text-[13px] outline-none focus:border-[#1a1a1a]" />
-        </div>
-        <div className="grid grid-cols-2 gap-2">
+
+        <div className="grid grid-cols-3 gap-3">
+          <div className="col-span-1">
+            <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">City</label>
+            <input type="text" value={form.city ?? ''} onChange={(e) => set('city', e.target.value)}
+              className="w-full px-3 py-2.5 border border-[#e5e7eb] rounded-lg text-[13px] outline-none focus:border-[#1a1a1a]" />
+          </div>
           <div>
             <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">State</label>
             <input type="text" value={form.state ?? ''} onChange={(e) => set('state', e.target.value)}
@@ -412,23 +449,20 @@ function Step2({
               className="w-full px-3 py-2.5 border border-[#e5e7eb] rounded-lg text-[13px] outline-none focus:border-[#1a1a1a]" />
           </div>
         </div>
+
         <div>
-          <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">Property Type *</label>
-          <select value={form.property_type} onChange={(e) => set('property_type', e.target.value)}
-            className="w-full px-3 py-2.5 border border-[#e5e7eb] rounded-lg text-[13px] outline-none focus:border-[#1a1a1a] bg-white">
-            {PROPERTY_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">Acquisition / Placed-in-Service Date</label>
+          <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">
+            Acquisition / Placed-in-Service Date <span className="text-red-500">*</span>
+          </label>
           <input type="date" value={form.acquisition_date ?? ''} onChange={(e) => set('acquisition_date', e.target.value || null)}
-            className="w-full px-3 py-2.5 border border-[#e5e7eb] rounded-lg text-[13px] outline-none focus:border-[#1a1a1a]" />
+            className={fieldClass('acquisition_date')} />
+          {errors.acquisition_date && <p className="text-[11px] text-red-500 mt-1">Required for MACRS classification</p>}
         </div>
       </div>
 
       <div className="border-t border-[#f3f4f6] pt-4">
         <h3 className="text-[12px] font-semibold text-[#6b7280] mb-3 uppercase tracking-wider">Cost Basis</h3>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-4 gap-4">
           <div>
             <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">Total Depreciable Cost *</label>
             <div className="relative">
@@ -439,7 +473,7 @@ function Step2({
             </div>
           </div>
           <div>
-            <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">Land Value (excluded from depreciation)</label>
+            <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">Land Value</label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9ca3af] text-[13px]">$</span>
               <input type="number" value={form.land_value ?? ''} onChange={(e) => set('land_value', e.target.value ? parseFloat(e.target.value) : null)}
@@ -457,7 +491,7 @@ function Step2({
             </div>
           </div>
           <div>
-            <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">Improvement / Renovation Cost</label>
+            <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">Improvement Cost</label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9ca3af] text-[13px]">$</span>
               <input type="number" value={form.improvement_cost ?? ''} onChange={(e) => set('improvement_cost', e.target.value ? parseFloat(e.target.value) : null)}
@@ -471,7 +505,7 @@ function Step2({
       <div>
         <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">Notes</label>
         <textarea value={form.notes ?? ''} onChange={(e) => set('notes', e.target.value)}
-          rows={3}
+          rows={2}
           className="w-full px-3 py-2.5 border border-[#e5e7eb] rounded-lg text-[13px] outline-none focus:border-[#1a1a1a] resize-none"
           placeholder="Any additional context about this property..." />
       </div>
@@ -481,8 +515,8 @@ function Step2({
           <ChevronLeft size={14} /> Back
         </button>
         <button
-          onClick={() => onSave(form)}
-          disabled={saving || !form.property_name.trim() || !form.address.trim()}
+          onClick={handleSave}
+          disabled={saving}
           className="flex items-center gap-2 px-5 py-2.5 bg-[#1a1a1a] text-white rounded-lg text-[13px] font-medium hover:bg-[#333] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {saving ? <Loader2 size={13} className="animate-spin" /> : null}
@@ -533,132 +567,148 @@ function Step3({
   };
 
   return (
-    <div className="max-w-2xl space-y-5">
+    <div className="space-y-5">
       <p className="text-[13px] text-[#6b7280]">
-        Upload invoices, construction budgets, cost breakdowns, or receipts. Supported: PDF, DOCX, TXT, CSV.
-        The AI will extract and classify line items automatically.
+        Upload invoices, construction budgets, or cost breakdowns — the AI will extract and classify line items automatically.
+        {" "}<span className="font-medium text-[#374151]">This step is optional.</span>{" "}
+        You can skip ahead and add line items manually.
       </p>
 
-      {/* Drop zone */}
-      <div
-        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={async (e) => {
-          e.preventDefault();
-          setDragOver(false);
-          await handleFiles(e.dataTransfer.files);
-        }}
-        onClick={() => inputRef.current?.click()}
-        className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${
-          dragOver ? 'border-[#1a1a1a] bg-[#f9f9f8]' : 'border-[#d1d5db] hover:border-[#9ca3af] hover:bg-[#fafafa]'
-        }`}
-      >
-        <input ref={inputRef} type="file" multiple accept=".pdf,.docx,.doc,.txt,.csv,.xlsx" className="hidden"
-          onChange={(e) => handleFiles(e.target.files)} />
-        {uploading ? (
-          <div className="flex flex-col items-center gap-2">
-            <Loader2 size={24} className="animate-spin text-[#9ca3af]" />
-            <p className="text-[13px] text-[#6b7280]">Uploading…</p>
-          </div>
-        ) : (
-          <>
-            <Upload size={28} className="mx-auto mb-3 text-[#9ca3af]" />
-            <p className="text-[13px] font-medium text-[#374151]">Drop files here or click to browse</p>
-            <p className="text-[11px] text-[#9ca3af] mt-1">PDF, DOCX, TXT, CSV · Up to 50MB each</p>
-          </>
-        )}
-      </div>
-
-      {/* Uploaded docs */}
-      {docs.length > 0 && (
-        <div className="space-y-2">
-          <h3 className="text-[12px] font-semibold text-[#6b7280] uppercase tracking-wider">Uploaded Documents ({docs.length})</h3>
-          {docs.map((doc) => (
-            <div key={doc.id} className="flex items-center gap-3 p-3 bg-[#f9f9f8] border border-[#e5e7eb] rounded-lg">
-              <FileText size={16} className="text-[#6b7280] shrink-0" />
-              <div className="flex-1 min-w-0">
-                <div className="text-[13px] font-medium text-[#1a1a1a] truncate">{doc.filename}</div>
-                <div className="text-[11px] text-[#9ca3af]">{fmtBytes(doc.size_bytes)}</div>
+      <div className="grid grid-cols-2 gap-6">
+        {/* Left: drop zone + uploaded list */}
+        <div className="space-y-4">
+          <div
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={async (e) => {
+              e.preventDefault();
+              setDragOver(false);
+              await handleFiles(e.dataTransfer.files);
+            }}
+            onClick={() => inputRef.current?.click()}
+            className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${
+              dragOver ? 'border-[#1a1a1a] bg-[#f9f9f8]' : 'border-[#d1d5db] hover:border-[#9ca3af] hover:bg-[#fafafa]'
+            }`}
+          >
+            <input ref={inputRef} type="file" multiple accept=".pdf,.docx,.doc,.txt,.csv,.xlsx" className="hidden"
+              onChange={(e) => handleFiles(e.target.files)} />
+            {uploading ? (
+              <div className="flex flex-col items-center gap-2">
+                <Loader2 size={24} className="animate-spin text-[#9ca3af]" />
+                <p className="text-[13px] text-[#6b7280]">Uploading…</p>
               </div>
-              <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
-                doc.status === 'ready' ? 'bg-emerald-50 text-emerald-700' :
-                doc.status === 'failed' ? 'bg-red-50 text-red-600' :
-                'bg-yellow-50 text-yellow-700'
-              }`}>
-                {doc.status}
-              </span>
-              <button onClick={() => onDelete(doc.id)}
-                className="p-1 rounded text-[#9ca3af] hover:text-red-500 hover:bg-red-50 transition-colors">
-                <Trash2 size={13} />
+            ) : (
+              <>
+                <Upload size={28} className="mx-auto mb-3 text-[#9ca3af]" />
+                <p className="text-[13px] font-medium text-[#374151]">Drop files here or click to browse</p>
+                <p className="text-[11px] text-[#9ca3af] mt-1">PDF, DOCX, TXT, CSV · Up to 50MB each</p>
+              </>
+            )}
+          </div>
+
+          {docs.length > 0 && (
+            <div className="space-y-2">
+              <h3 className="text-[12px] font-semibold text-[#6b7280] uppercase tracking-wider">Uploaded ({docs.length})</h3>
+              {docs.map((doc) => (
+                <div key={doc.id} className="flex items-center gap-3 p-3 bg-[#f9f9f8] border border-[#e5e7eb] rounded-lg">
+                  <FileText size={16} className="text-[#6b7280] shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[13px] font-medium text-[#1a1a1a] truncate">{doc.filename}</div>
+                    <div className="text-[11px] text-[#9ca3af]">{fmtBytes(doc.size_bytes)}</div>
+                  </div>
+                  <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
+                    doc.status === 'ready' ? 'bg-emerald-50 text-emerald-700' :
+                    doc.status === 'failed' ? 'bg-red-50 text-red-600' :
+                    'bg-yellow-50 text-yellow-700'
+                  }`}>
+                    {doc.status}
+                  </span>
+                  <button onClick={() => onDelete(doc.id)}
+                    className="p-1 rounded text-[#9ca3af] hover:text-red-500 hover:bg-red-50 transition-colors">
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Right: status + action */}
+        <div className="flex flex-col gap-4">
+          {analyzing && (
+            <div className="p-5 bg-gradient-to-br from-amber-50/50 to-orange-50/50 border border-amber-200/60 rounded-xl shadow-sm space-y-3">
+              <div className="flex items-center gap-3 text-[13px] text-amber-800 font-medium">
+                <Loader2 size={16} className="animate-spin shrink-0 text-amber-600" />
+                <span>{sseProgress || 'AI is analyzing documents and extracting line items…'}</span>
+              </div>
+              <div className="w-full bg-amber-200/40 h-1.5 rounded-full overflow-hidden">
+                <div className="bg-amber-600 h-full rounded-full transition-all duration-500" style={{
+                  width: sseProgress.toLowerCase().includes('pdf') ? '90%' :
+                         sseProgress.toLowerCase().includes('report') ? '80%' :
+                         sseProgress.toLowerCase().includes('class') ? '60%' :
+                         sseProgress.toLowerCase().includes('extract') ? '30%' : '15%'
+                }} />
+              </div>
+            </div>
+          )}
+
+          {taskCompleted && pdfDownloadUrl && (
+            <div className="p-5 bg-emerald-50 border border-emerald-200 rounded-xl shadow-sm space-y-3">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
+                  <Check size={16} />
+                </div>
+                <div>
+                  <h4 className="text-[14px] font-bold text-[#1a1a1a]">Extraction Complete</h4>
+                  <p className="text-[12px] text-emerald-800 mt-0.5">Line items have been extracted and classified.</p>
+                </div>
+              </div>
+              <button onClick={onNext}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-[12px] font-semibold hover:bg-emerald-700 transition-colors">
+                Review Line Items <ChevronRight size={14} />
               </button>
             </div>
-          ))}
-        </div>
-      )}
+          )}
 
-      {analyzing && (
-        <div className="p-5 bg-gradient-to-br from-amber-50/50 to-orange-50/50 border border-amber-200/60 rounded-xl shadow-sm space-y-3">
-          <div className="flex items-center gap-3 text-[13px] text-amber-800 font-medium">
-            <Loader2 size={16} className="animate-spin shrink-0 text-amber-600" />
-            <span>{sseProgress || 'AI is analyzing your documents and extracting line items… This may take a minute.'}</span>
-          </div>
-          <div className="w-full bg-amber-200/40 h-1.5 rounded-full overflow-hidden">
-            <div className="bg-amber-600 h-full rounded-full transition-all duration-500" style={{
-              width: sseProgress.toLowerCase().includes('pdf') ? '90%' :
-                     sseProgress.toLowerCase().includes('report') ? '80%' :
-                     sseProgress.toLowerCase().includes('class') ? '60%' :
-                     sseProgress.toLowerCase().includes('extract') ? '30%' : '15%'
-            }} />
-          </div>
-        </div>
-      )}
-
-      {taskCompleted && pdfDownloadUrl && (
-        <div className="p-5 bg-emerald-50 border border-emerald-200 rounded-xl shadow-sm space-y-4">
-          <div className="flex items-start gap-3">
-            <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
-              <Check size={16} />
-            </div>
-            <div>
-              <h4 className="text-[14px] font-bold text-[#1a1a1a]">Pipeline Completed Successfully</h4>
-              <p className="text-[12px] text-emerald-800 mt-0.5">
-                The extraction, classification, and depreciation report have been fully processed.
+          {!analyzing && !taskCompleted && (
+            <div className="p-5 bg-[#f9f9f8] border border-[#e5e7eb] rounded-xl space-y-3">
+              <p className="text-[13px] font-medium text-[#374151]">
+                {docs.length > 0 ? 'Ready to extract line items' : 'No documents uploaded'}
+              </p>
+              <p className="text-[12px] text-[#9ca3af]">
+                {docs.length > 0
+                  ? 'Click Analyze to have the AI extract and classify all cost items from your uploaded documents.'
+                  : 'You can add line items manually in the next step, or upload documents first for AI extraction.'}
               </p>
             </div>
-          </div>
-          <div className="flex flex-wrap gap-2.5">
-            <a
-              href={pdfDownloadUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-[12px] font-semibold hover:bg-emerald-700 transition-colors shadow-sm"
-            >
-              <Download size={14} />
-              Download PDF Report
-            </a>
-            <button
-              onClick={onNext}
-              className="inline-flex items-center gap-2 px-4 py-2 border border-[#e5e7eb] rounded-lg text-[12px] font-semibold text-[#374151] hover:bg-[#f9f9f8] transition-colors"
-            >
-              Review Line Items <ChevronRight size={14} />
-            </button>
-          </div>
+          )}
         </div>
-      )}
+      </div>
 
       <div className="flex gap-3 pt-2">
         <button onClick={onBack} className="flex items-center gap-2 px-4 py-2.5 border border-[#e5e7eb] rounded-lg text-[13px] font-medium text-[#6b7280] hover:bg-[#f9f9f8] transition-colors">
           <ChevronLeft size={14} /> Back
         </button>
-        <button
-          onClick={onAnalyze}
-          disabled={docs.length === 0 || analyzing}
-          className="flex items-center gap-2 px-5 py-2.5 bg-[#1a1a1a] text-white rounded-lg text-[13px] font-medium hover:bg-[#333] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          {analyzing ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
-          {analyzing ? 'Analyzing…' : 'Analyze Documents'}
-          {!analyzing && <ChevronRight size={14} />}
-        </button>
+        {docs.length > 0 && !analyzing && !taskCompleted && (
+          <button
+            onClick={onAnalyze}
+            disabled={analyzing}
+            className="flex items-center gap-2 px-5 py-2.5 bg-[#1a1a1a] text-white rounded-lg text-[13px] font-medium hover:bg-[#333] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <RefreshCw size={13} />
+            Analyze Documents
+            <ChevronRight size={14} />
+          </button>
+        )}
+        {!analyzing && (
+          <button
+            onClick={onNext}
+            className="flex items-center gap-2 px-5 py-2.5 border border-[#e5e7eb] rounded-lg text-[13px] font-medium text-[#6b7280] hover:bg-[#f9f9f8] transition-colors"
+          >
+            {docs.length === 0 ? 'Skip, add items manually' : 'Skip extraction'}
+            <ChevronRight size={14} />
+          </button>
+        )}
       </div>
     </div>
   );
@@ -916,52 +966,66 @@ function Step5({
   onBack: () => void;
 }) {
   return (
-    <div className="max-w-md space-y-5">
-      <div className="bg-white border border-[#e5e7eb] rounded-2xl p-6">
-        <div className="flex items-center gap-3 mb-5">
-          <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center">
-            <CreditCard size={20} className="text-emerald-600" />
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-6">
+        {/* Left: what's included */}
+        <div className="bg-[#f9f9f8] border border-[#e5e7eb] rounded-2xl p-6 space-y-4">
+          <h3 className="text-[14px] font-bold text-[#1a1a1a]">What's included</h3>
+          <div className="space-y-3">
+            {[
+              ['Full MACRS classification analysis', 'Every line item categorized per IRS GDS guidelines'],
+              ['Year-1 depreciation schedule', 'Accelerated deductions with 2026 bonus phase-down'],
+              ['IRS-compliant HTML/PDF report', 'Ready for your tax advisor or CPA'],
+              ['Editable line items', 'You reviewed and approved the analysis'],
+            ].map(([title, desc]) => (
+              <div key={title} className="flex items-start gap-3">
+                <div className="w-5 h-5 rounded-full bg-emerald-100 flex items-center justify-center shrink-0 mt-0.5">
+                  <Check size={11} className="text-emerald-600" />
+                </div>
+                <div>
+                  <p className="text-[13px] font-medium text-[#1a1a1a]">{title}</p>
+                  <p className="text-[11.5px] text-[#9ca3af]">{desc}</p>
+                </div>
+              </div>
+            ))}
           </div>
+        </div>
+
+        {/* Right: payment card */}
+        <div className="bg-white border border-[#e5e7eb] rounded-2xl p-6 flex flex-col justify-between">
           <div>
-            <div className="text-[15px] font-bold text-[#1a1a1a]">Cost Segregation Report</div>
-            <div className="text-[12px] text-[#9ca3af]">Professional tax study</div>
-          </div>
-        </div>
-
-        <div className="space-y-2 mb-5">
-          {[
-            'Full MACRS classification analysis',
-            'Year-1 depreciation schedule',
-            'IRS-compliant HTML/PDF report',
-            'Downloadable for your tax advisor',
-          ].map((feat) => (
-            <div key={feat} className="flex items-center gap-2.5 text-[13px] text-[#374151]">
-              <Check size={14} className="text-emerald-500 shrink-0" />
-              {feat}
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center">
+                <CreditCard size={20} className="text-emerald-600" />
+              </div>
+              <div>
+                <div className="text-[15px] font-bold text-[#1a1a1a]">Cost Segregation Study</div>
+                <div className="text-[12px] text-[#9ca3af]">One-time fee</div>
+              </div>
             </div>
-          ))}
-        </div>
 
-        <div className="border-t border-[#f3f4f6] pt-4 mb-5">
-          <div className="flex items-center justify-between text-[13px]">
-            <span className="text-[#6b7280]">Study fee</span>
-            <span className="font-bold text-[#1a1a1a] text-[18px]">$999.00</span>
+            <div className="border-t border-[#f3f4f6] py-4 mb-4">
+              <div className="flex items-center justify-between">
+                <span className="text-[13px] text-[#6b7280]">Study fee</span>
+                <span className="font-bold text-[#1a1a1a] text-[22px]">$999</span>
+              </div>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 mb-4 text-[12px] text-amber-800 flex items-start gap-2">
+              <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+              <span><strong>Test Mode:</strong> Payment bypassed — click to generate the report without charging.</span>
+            </div>
           </div>
-        </div>
 
-        <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 mb-4 text-[12px] text-amber-800 flex items-start gap-2">
-          <AlertTriangle size={14} className="shrink-0 mt-0.5" />
-          <span><strong>Test Mode:</strong> Payment is bypassed for demonstration. Click below to continue without charging.</span>
+          <button
+            onClick={onPay}
+            disabled={paying}
+            className="w-full py-3 bg-emerald-600 text-white rounded-xl text-[14px] font-semibold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+          >
+            {paying ? <Loader2 size={15} className="animate-spin" /> : <CreditCard size={15} />}
+            {paying ? 'Processing…' : 'Generate Report (Test Mode)'}
+          </button>
         </div>
-
-        <button
-          onClick={onPay}
-          disabled={paying}
-          className="w-full py-3 bg-emerald-600 text-white rounded-xl text-[14px] font-semibold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
-        >
-          {paying ? <Loader2 size={15} className="animate-spin" /> : <CreditCard size={15} />}
-          {paying ? 'Processing…' : 'Continue (Test Mode — Bypassed)'}
-        </button>
       </div>
 
       <button onClick={onBack} className="flex items-center gap-2 px-4 py-2.5 border border-[#e5e7eb] rounded-lg text-[13px] font-medium text-[#6b7280] hover:bg-[#f9f9f8] transition-colors">
@@ -1019,82 +1083,91 @@ function Step6({
   };
 
   return (
-    <div className="max-w-lg space-y-5">
-      <div className="bg-white border border-[#e5e7eb] rounded-2xl p-6 text-center">
-        <div className="w-14 h-14 rounded-2xl bg-emerald-50 flex items-center justify-center mx-auto mb-4">
-          <Download size={24} className="text-emerald-600" />
-        </div>
-        <h3 className="text-[16px] font-bold text-[#1a1a1a] mb-1">Your report is ready</h3>
-        <p className="text-[13px] text-[#6b7280] mb-5">
-          Generate your IRS MACRS cost segregation report. Download the PDF report or the HTML file to view, print, or share with your tax advisor.
-        </p>
-
-        {error && (
-          <div className="text-[12px] text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-4">
-            {error}
-          </div>
-        )}
-
-        {pdfDownloadUrl ? (
-          <div className="mb-4 space-y-3">
-            <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2.5 text-[12px] text-emerald-800 flex items-center gap-2">
-              <Check size={14} className="shrink-0 text-emerald-600" />
-              PDF Report is generated and ready.
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-6">
+        {/* Left: status + primary download */}
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-emerald-50 flex items-center justify-center shrink-0">
+              <Download size={22} className="text-emerald-600" />
             </div>
-            <a
-              href={pdfDownloadUrl.startsWith('/api/') ? `${pdfDownloadUrl}${pdfDownloadUrl.includes('?') ? '&' : '?'}token=${typeof window !== 'undefined' ? localStorage.getItem('accessToken') : ''}` : pdfDownloadUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-full py-3 bg-emerald-600 text-white rounded-xl text-[13px] font-semibold hover:bg-emerald-700 transition-colors flex items-center justify-center gap-2 shadow-sm"
-            >
-              <Download size={15} />
-              Download PDF Report
-            </a>
-          </div>
-        ) : (
-          <div className="mb-4 space-y-3">
-            <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 text-[12px] text-amber-800 flex items-center gap-2">
-              <Loader2 size={14} className="shrink-0 animate-spin" />
-              Generating PDF report in the background... This may take a moment.
+            <div>
+              <h3 className="text-[15px] font-bold text-[#1a1a1a]">
+                {pdfDownloadUrl ? 'Report Ready' : 'Generating Report…'}
+              </h3>
+              <p className="text-[12px] text-[#9ca3af]">IRS MACRS Cost Segregation Study</p>
             </div>
           </div>
-        )}
 
-        <div className="border-t border-[#f3f4f6] pt-4">
-          <p className="text-[11px] text-[#9ca3af] mb-3 uppercase tracking-wider">Report Options</p>
-          <div className="space-y-3">
-            <button onClick={openPreview}
-              className="w-full py-2.5 border border-[#e5e7eb] rounded-xl text-[13px] font-medium text-[#374151] hover:bg-[#f9f9f8] transition-colors">
-              Preview Report in Browser
-            </button>
-            {!html ? (
-              <button
-                onClick={generate}
-                disabled={generating}
-                className="w-full py-2.5 bg-[#f9f9f8] border border-[#e5e7eb] rounded-xl text-[13px] font-semibold hover:bg-[#f3f4f6] disabled:opacity-50 transition-colors flex items-center justify-center gap-2 text-[#374151]"
-              >
-                {generating ? <Loader2 size={14} className="animate-spin" /> : <BarChart3 size={14} />}
-                {generating ? 'Generating HTML…' : 'Generate Downloadable HTML'}
-              </button>
-            ) : (
-              <div className="space-y-2">
-                <button onClick={downloadHtml}
-                  className="w-full py-2.5 bg-[#1a1a1a] text-white rounded-xl text-[13px] font-semibold hover:bg-[#333] transition-colors flex items-center justify-center gap-2">
-                  <Download size={13} />
-                  Download HTML
-                </button>
-                <button onClick={generate} disabled={generating}
-                  className="w-full py-2 text-[12px] text-[#9ca3af] hover:text-[#374151] transition-colors flex items-center justify-center gap-1.5">
-                  <RefreshCw size={11} /> Regenerate HTML
-                </button>
+          {error && (
+            <div className="text-[12px] text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              {error}
+            </div>
+          )}
+
+          {pdfDownloadUrl ? (
+            <div className="space-y-3">
+              <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2.5 text-[12px] text-emerald-800 flex items-center gap-2">
+                <Check size={14} className="shrink-0 text-emerald-600" />
+                PDF report generated and ready to download.
               </div>
-            )}
-          </div>
+              <a
+                href={pdfDownloadUrl.startsWith('/api/') ? `${pdfDownloadUrl}${pdfDownloadUrl.includes('?') ? '&' : '?'}token=${typeof window !== 'undefined' ? localStorage.getItem('accessToken') : ''}` : pdfDownloadUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-3 bg-emerald-600 text-white rounded-xl text-[13px] font-semibold hover:bg-emerald-700 transition-colors flex items-center justify-center gap-2 shadow-sm"
+              >
+                <Download size={15} />
+                Download PDF Report
+              </a>
+            </div>
+          ) : (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-4 space-y-2">
+              <div className="flex items-center gap-2 text-[13px] text-amber-800 font-medium">
+                <Loader2 size={14} className="shrink-0 animate-spin" />
+                Generating PDF in the background…
+              </div>
+              <p className="text-[12px] text-amber-700">
+                This may take a minute. The page will update automatically when ready — you can close it and come back.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Right: additional options */}
+        <div className="bg-[#f9f9f8] border border-[#e5e7eb] rounded-2xl p-5 space-y-3">
+          <p className="text-[12px] font-semibold text-[#6b7280] uppercase tracking-wider">Report Options</p>
+          <button onClick={openPreview}
+            className="w-full py-2.5 bg-white border border-[#e5e7eb] rounded-xl text-[13px] font-medium text-[#374151] hover:bg-[#f9f9f8] transition-colors">
+            Preview in Browser
+          </button>
+          {!html ? (
+            <button
+              onClick={generate}
+              disabled={generating}
+              className="w-full py-2.5 bg-white border border-[#e5e7eb] rounded-xl text-[13px] font-semibold hover:bg-[#f3f4f6] disabled:opacity-50 transition-colors flex items-center justify-center gap-2 text-[#374151]"
+            >
+              {generating ? <Loader2 size={14} className="animate-spin" /> : <BarChart3 size={14} />}
+              {generating ? 'Generating HTML…' : 'Download HTML Version'}
+            </button>
+          ) : (
+            <div className="space-y-2">
+              <button onClick={downloadHtml}
+                className="w-full py-2.5 bg-[#1a1a1a] text-white rounded-xl text-[13px] font-semibold hover:bg-[#333] transition-colors flex items-center justify-center gap-2">
+                <Download size={13} />
+                Download HTML
+              </button>
+              <button onClick={generate} disabled={generating}
+                className="w-full py-2 text-[12px] text-[#9ca3af] hover:text-[#374151] transition-colors flex items-center justify-center gap-1.5">
+                <RefreshCw size={11} /> Regenerate HTML
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
       <button onClick={onBack} className="flex items-center gap-2 px-4 py-2.5 border border-[#e5e7eb] rounded-lg text-[13px] font-medium text-[#6b7280] hover:bg-[#f9f9f8] transition-colors">
-        <ChevronLeft size={14} /> Back
+        <ChevronLeft size={14} /> Back to Review
       </button>
     </div>
   );

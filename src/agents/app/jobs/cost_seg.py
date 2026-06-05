@@ -1,10 +1,10 @@
 """
 Arq jobs for Cost Segregation Agent.
 
-Phase 1: run_extraction extracts raw cost line items.
-Phase 2: run_classification enriches those items with IRS/MACRS classes.
+Phase 1: run_extraction  — extract raw cost line items from documents.
+Phase 2: run_classification — classify items using JSON ruleset + LLM.
+Phase 3: run_report      — generate HTML/PDF report via Claude Skills.
 """
-import asyncio
 import datetime
 import json
 import logging
@@ -14,14 +14,11 @@ from typing import Any
 from arq.connections import create_pool, RedisSettings
 from bs4 import BeautifulSoup
 import httpx
-import numpy as np
-from pgvector.psycopg import register_vector_async
 import psycopg
 from psycopg.types.json import Jsonb
 
 from app.integrations.llm import llm
 from app.config import settings
-from app.embeddings import embed_query
 from app.redis import publish, task_channel
 from app.http import update_task
 
@@ -250,14 +247,14 @@ async def run_classification(
     project_id: str,
     line_items: list[dict[str, Any]] | None = None,
 ) -> None:
-    """Arq job: classify extracted cost line items using IRS rule chunks and an LLM."""
+    """Arq job: classify extracted cost line items using the JSON ruleset and an LLM."""
     redis = ctx["redis"]
     http = ctx["http"]
     channel = task_channel(org_id, task_id)
     db_url = settings.DATABASE_URL.replace("postgresql+psycopg://", "postgresql://")
 
     await update_task(http, task_id, org_id, "running")
-    await publish(redis, channel, {"type": "progress", "message": "Starting IRS classification..."})
+    await publish(redis, channel, {"type": "progress", "message": "Starting MACRS classification..."})
 
     try:
         if line_items is None:
@@ -268,59 +265,34 @@ async def run_classification(
 
         await _set_project_status(db_url, org_id, project_id, "analyzing")
 
-        # Step 1: Load ALL IRS rule chunks from DB in a single query
-        await publish(redis, channel, {"type": "progress", "message": "Loading IRS rule library into memory..."})
-        irs_chunks = await _load_all_irs_chunks(db_url)
-        
-        if not irs_chunks:
-            logger.info("No IRS rule files found in the system. AI will fall back to general GDS MACRS classification.")
+        # Load the active JSON ruleset (most recently uploaded)
+        await publish(redis, channel, {"type": "progress", "message": "Loading classification ruleset..."})
+        ruleset_context = await _load_ruleset_text(db_url)
+        if ruleset_context:
+            logger.info("Ruleset loaded for classification (%d bytes).", len(ruleset_context))
         else:
-            logger.info(f"Loaded {len(irs_chunks)} IRS rule chunks from PDFs. Classification will be guided by these documents.")
+            logger.info("No ruleset found — using built-in MACRS taxonomy.")
 
-        # Step 2: Embed all item descriptions concurrently in one shot
-        await publish(redis, channel, {"type": "progress", "message": f"Embedding {len(line_items)} item descriptions..."})
-        item_vectors = await asyncio.gather(*[
-            embed_query(f"{item['description']} cost segregation MACRS recovery period asset class")
-            for item in line_items
-        ])
-
-        # Step 3: Compute top-5 IRS context for each item in-memory (numpy, no further DB calls)
-        contexts = [
-            _get_top_k_chunks(vector, irs_chunks, top_k=5)
-            for vector in item_vectors
-        ]
-
-        # Step 4: Classify in batches of 30 (bounded by LLM output token limit)
+        # Classify in batches of 30
         BATCH_SIZE = 30
         enriched: list[dict[str, Any]] = []
         total_batches = (len(line_items) + BATCH_SIZE - 1) // BATCH_SIZE
 
         for batch_num, start in enumerate(range(0, len(line_items), BATCH_SIZE), start=1):
             batch_items = line_items[start:start + BATCH_SIZE]
-            batch_contexts = contexts[start:start + BATCH_SIZE]
             await publish(
                 redis,
                 channel,
-                {
-                    "type": "progress",
-                    "message": f"Classifying batch {batch_num} of {total_batches} ({len(batch_items)} items)...",
-                },
+                {"type": "progress", "message": f"Classifying batch {batch_num} of {total_batches} ({len(batch_items)} items)..."},
             )
-            batch_results = await _classify_items_batch(batch_items, batch_contexts)
+            batch_results = await _classify_items_batch(batch_items, ruleset_context)
             enriched.extend(batch_results)
 
         await publish(redis, channel, {"type": "progress", "message": "Saving classified line items..."})
         await _save_workflow_items(db_url, org_id, project_id, enriched)
         await _set_project_status(db_url, org_id, project_id, "analysis_complete")
 
-        await publish(
-            redis,
-            channel,
-            {
-                "type": "progress",
-                "message": "Classification complete. Ready for user review.",
-            },
-        )
+        await publish(redis, channel, {"type": "progress", "message": "Classification complete. Ready for user review."})
         await publish(redis, channel, {"type": "done"})
 
     except Exception as exc:
@@ -373,111 +345,65 @@ def _normalize_line_items(line_items: list[dict[str, Any]]) -> list[dict[str, An
     return normalized
 
 
-async def _load_all_irs_chunks(db_url: str) -> list[dict[str, Any]]:
-    """Load all ready IRS rule chunks with embeddings from DB in a single query."""
+async def _load_ruleset_text(db_url: str) -> str | None:
+    """Return the raw text of the most recently uploaded ruleset, or None if absent."""
+    from app.s3 import download as s3_download
     async with await psycopg.AsyncConnection.connect(db_url) as conn:
-        await register_vector_async(conn)
         async with conn.transaction():
             cur = await conn.execute(
-                """
-                SELECT c.id, c.irs_rule_id, r.title, r.filename, c.content, c.embedding
-                FROM irs_rule_chunks c
-                JOIN irs_rules r ON r.id = c.irs_rule_id
-                WHERE r.status = 'ready'
-                  AND c.embedding IS NOT NULL
-                """,
+                "SELECT s3_key FROM cost_seg_rulesets WHERE status = 'ready' AND workflow_type = 'cost_seg' ORDER BY created_at DESC LIMIT 1"
             )
-            rows = await cur.fetchall()
-    return [
-        {
-            "chunk_id": str(row[0]),
-            "rule_id": str(row[1]),
-            "title": row[2],
-            "filename": row[3],
-            "content": row[4],
-            "embedding": np.array(row[5], dtype=np.float32),
-        }
-        for row in rows
-    ]
-
-
-def _get_top_k_chunks(
-    item_vector: list[float],
-    irs_chunks: list[dict[str, Any]],
-    top_k: int = 5,
-) -> list[dict[str, Any]]:
-    """Compute cosine similarity in-memory (numpy) and return the top-k IRS chunks."""
-    if not irs_chunks:
-        return []
-    query = np.array(item_vector, dtype=np.float32)
-    query_norm = query / (np.linalg.norm(query) + 1e-10)
-    embeddings = np.stack([c["embedding"] for c in irs_chunks])  # shape (M, D)
-    norms = np.linalg.norm(embeddings, axis=1, keepdims=True) + 1e-10
-    scores = (embeddings / norms) @ query_norm  # shape (M,)
-    top_indices = np.argsort(scores)[::-1][:top_k]
-    return [
-        {
-            "chunk_id": irs_chunks[idx]["chunk_id"],
-            "rule_id": irs_chunks[idx]["rule_id"],
-            "title": irs_chunks[idx]["title"],
-            "filename": irs_chunks[idx]["filename"],
-            "content": irs_chunks[idx]["content"],
-            "score": float(scores[idx]),
-        }
-        for idx in top_indices
-    ]
+            row = await cur.fetchone()
+    if not row or not row[0]:
+        return None
+    try:
+        body = await s3_download(row[0])
+        return body.decode("utf-8", errors="replace")
+    except Exception as exc:
+        logger.warning("Failed to load ruleset file: %s", exc)
+        return None
 
 
 async def _classify_items_batch(
     items: list[dict[str, Any]],
-    contexts: list[list[dict[str, Any]]],
+    ruleset_context: str | None,
 ) -> list[dict[str, Any]]:
-    """Classify a batch of items (up to 30) in a single LLM call, returning a list of classified dicts."""
-    items_sections = []
-    for i, (item, context) in enumerate(zip(items, contexts)):
-        context_text = "\n\n---\n\n".join(
-            f"Source: {c.get('title') or c.get('filename')}\nSimilarity: {c.get('score')}\n{c.get('content')}"
-            for c in context
-        ) or "No IRS rule chunks retrieved. Apply general GDS MACRS guidelines."
-        items_sections.append(
-            f"ITEM INDEX {i}:\n"
-            f"Line item: {json.dumps(item)}\n\n"
-            f"IRS context:\n{context_text}"
-        )
+    """Classify a batch of items (up to 30) in a single LLM call."""
+    items_text = "\n".join(
+        f"ITEM {i}: {json.dumps(item)}" for i, item in enumerate(items)
+    )
 
-    combined = ("\n\n" + "=" * 60 + "\n\n").join(items_sections)
+    ruleset_block = (
+        f"\n\nCLASSIFICATION RULESET:\n{ruleset_context}"
+        if ruleset_context
+        else "\n\nNo custom ruleset uploaded — apply standard IRS GDS MACRS guidelines."
+    )
 
     system_prompt = (
         "You are an expert tax and cost segregation classification agent.\n"
-        "Your task is to classify a batch of construction cost line items. "
-        "Each item is provided with retrieved IRS MACRS guideline context.\n\n"
-        "Respond ONLY with a valid JSON array (no markdown, no surrounding text). "
-        f"The array MUST contain EXACTLY {len(items)} elements in the same order as the input (index 0, 1, 2, ...). "
-        "Each element must be a JSON object with these keys:\n"
-        "- 'description': the original or a slightly clarified description of the item.\n"
-        "- 'class': the dynamic asset class name or classification (e.g. 'Asset Class 00.12 - Information Systems', 'Land Improvements', or 'Section 1250 Building').\n"
-        "- 'recovery_period': the GDS recovery period in years as an integer (e.g., 5, 7, 15, 39) or null if non-depreciable.\n"
-        "- 'category_id': choose from:\n"
-        "  * 'land' (non-depreciable land)\n"
-        "  * 'personal_property_5yr' (5-year)\n"
-        "  * 'personal_property_7yr' (7-year)\n"
-        "  * 'land_improvements_15yr' (15-year land improvements)\n"
-        "  * 'qualified_improvement_property_15yr' (15-year QIP)\n"
-        "  * 'building_39yr' (39-year building structural)\n"
-        "  * 'needs_review' (ambiguous)\n"
-        "  * 'excluded' (non-depreciable or non-capital)\n"
-        "- 'category_label': friendly label (e.g., 'Building - Section 1250 (39-year)').\n"
-        "- 'bonus_eligible': boolean, true if GDS recovery period <= 20 years.\n"
-        "- 'year1_deduction': first-year deduction amount (number). "
-        "2026 GDS MACRS: bonus = 20%. Standard rates: 5-yr=20%, 7-yr=14.29%, 15-yr Land=5%, 15-yr QIP=3.33%, 39-yr=2.56%. "
-        "Bonus eligible: year1 = (cost*0.20) + (cost*0.80*standard_rate). Not bonus: year1 = cost*standard_rate.\n"
-        "- 'confidence': float 0.0-1.0.\n"
-        "- 'notes': concise rationale citing specific IRS rule sections from the context."
+        "Classify each construction cost line item according to IRS GDS MACRS rules.\n"
+        "Use the CLASSIFICATION RULESET provided when available; otherwise apply standard MACRS."
+        + ruleset_block
+        + "\n\nRespond ONLY with a valid JSON array (no markdown, no extra text). "
+        f"The array MUST contain EXACTLY {len(items)} elements in input order. "
+        "Each element must have:\n"
+        "- 'description': original or clarified item description\n"
+        "- 'class': asset class name (e.g. 'Asset Class 00.12', 'Land Improvements')\n"
+        "- 'recovery_period': integer years (5/7/15/39) or null if non-depreciable\n"
+        "- 'category_id': one of: land | personal_property_5yr | personal_property_7yr | "
+        "land_improvements_15yr | qualified_improvement_property_15yr | building_39yr | needs_review | excluded\n"
+        "- 'category_label': friendly label\n"
+        "- 'bonus_eligible': boolean (true if recovery_period <= 20)\n"
+        "- 'year1_deduction': first-year deduction amount. "
+        "2026: bonus=20%. Rates: 5yr=20%, 7yr=14.29%, 15yr-land=5%, 15yr-QIP=3.33%, 39yr=2.56%. "
+        "Bonus: (cost*0.20)+(cost*0.80*rate). No bonus: cost*rate\n"
+        "- 'confidence': float 0.0–1.0\n"
+        "- 'notes': concise rationale referencing ruleset or IRS sections"
     )
 
     raw_response = await llm.complete([
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": f"Classify the following {len(items)} line items:\n\n{combined}"},
+        {"role": "user", "content": f"Classify these {len(items)} line items:\n\n{items_text}"},
     ])
 
     parsed = _clean_json(raw_response)
@@ -489,7 +415,7 @@ async def _classify_items_batch(
         )
 
     results = []
-    for i, (item, classification) in enumerate(zip(items, parsed)):
+    for item, classification in zip(items, parsed):
         cost = float(item["cost"])
 
         recovery_period_val = classification.get("recovery_period")
@@ -509,7 +435,7 @@ async def _classify_items_batch(
             year1_deduction = None
 
         confidence = _coerce_confidence(classification.get("confidence"))
-        notes = str(classification.get("notes") or "").strip() or "Classified based on similarity matched IRS rule context."
+        notes = str(classification.get("notes") or "").strip() or "Classified per MACRS guidelines."
 
         results.append({
             "description": str(classification.get("description") or item["description"]).strip(),
@@ -522,7 +448,6 @@ async def _classify_items_batch(
             "year1_deduction": year1_deduction,
             "confidence": confidence,
             "notes": notes,
-            "irs_context": contexts[i][:3],
         })
 
     return results
