@@ -1,4 +1,4 @@
-"""Bedrock RAG chat agent with Gemini fallback — structured output with API tool proposal support.
+"""RAG chat agent — Anthropic / Bedrock / Gemini — structured output with API tool proposal support.
 
 The agent may return either:
   {"type": "chat_response", "message": "..."}
@@ -130,6 +130,52 @@ async def _run_bedrock(
     return "".join(full_response)
 
 
+# ── Anthropic path ────────────────────────────────────────────────────────────
+
+async def _run_anthropic(
+    conversation: list[dict],
+    system_prompt: str,
+    has_api_modules: bool,
+    redis: aioredis.Redis,
+    channel: str,
+) -> str:
+    import anthropic
+
+    headers = {}
+    if settings.ANTHROPIC_WORKSPACE_ID:
+        headers["anthropic-workspace-id"] = settings.ANTHROPIC_WORKSPACE_ID
+
+    client = anthropic.AsyncAnthropic(
+        api_key=settings.ANTHROPIC_API_KEY,
+        base_url=settings.ANTHROPIC_BASE_URL,
+        default_headers=headers if headers else None,
+    )
+
+    messages = [
+        {"role": m["role"], "content": m["content"]}
+        for m in conversation
+    ]
+
+    full_response: list[str] = []
+    token_count = 0
+    async with client.messages.stream(
+        model=settings.CLAUDE_SKILLS_MODEL,
+        max_tokens=4096,
+        system=system_prompt,
+        messages=messages,
+    ) as stream:
+        async for text in stream.text_stream:
+            if text:
+                full_response.append(text)
+                token_count += 1
+                if not has_api_modules:
+                    await redis.publish(channel, json.dumps({"type": "token", "data": text}))
+                elif token_count % 10 == 1:
+                    await redis.publish(channel, json.dumps({"type": "heartbeat"}))
+
+    return "".join(full_response)
+
+
 # ── Gemini path ───────────────────────────────────────────────────────────────
 
 async def _run_gemini(
@@ -211,7 +257,11 @@ async def run_agent(
         )
 
     # Run the LLM
-    if settings.CHAT_MODEL == "bedrock":
+    if settings.CHAT_MODEL == "anthropic":
+        if not settings.ANTHROPIC_API_KEY:
+            raise ValueError("ANTHROPIC_API_KEY must be set when CHAT_MODEL='anthropic'")
+        raw = await _run_anthropic(conversation, system_prompt, has_api_modules, redis, channel)
+    elif settings.CHAT_MODEL == "bedrock":
         if not settings.BEDROCK_MODEL_ARN:
             raise ValueError("BEDROCK_MODEL_ARN must be set when CHAT_MODEL='bedrock'")
         raw = await _run_bedrock(conversation, system_prompt, has_api_modules, redis, channel)

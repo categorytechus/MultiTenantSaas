@@ -34,9 +34,9 @@ class Settings(BaseSettings):
     AWS_BEDROCK_REGION: str = "us-east-1"
     OPENAI_API_KEY: str = ""
 
-    # Set to 'gemini' to use Google Gemini instead of AWS Bedrock for chat and
-    # document metadata generation. Set to 'bedrock' (default) to keep using Bedrock.
-    CHAT_MODEL: str = "bedrock"  # 'bedrock' | 'gemini'
+    # Routes chat and document metadata generation: 'anthropic' uses ANTHROPIC_API_KEY,
+    # 'gemini' uses GEMINI_API_KEY, 'bedrock' uses AWS Bedrock (requires temp STS creds).
+    CHAT_MODEL: str = "anthropic"  # 'anthropic' | 'gemini' | 'bedrock'
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-2.5-flash"
 

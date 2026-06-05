@@ -1,8 +1,8 @@
 ---
-name: cost-seg-report
+name: costseg_report_v2
 description: >
   Generates IRS MACRS cost segregation study reports from structured property
-  and line-item data. Produces professional, print-ready HTML reports with
+  and line-item data. Produces professional reports in HTML code with
   executive summary, category breakdowns, detailed schedules, and narrative
   tax-savings analysis.
 ---
