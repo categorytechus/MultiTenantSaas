@@ -49,18 +49,18 @@ services:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/multitenant
       REDIS_URL: redis://redis:6379
       SECRET_KEY: ${SECRET_KEY:-dev-secret-change-in-prod}
-      BEDROCK_MODEL_ARN: ${BEDROCK_MODEL_ARN:-}
-      BEDROCK_MODEL_PROVIDER: ${BEDROCK_MODEL_PROVIDER:-anthropic}
-      AWS_BEDROCK_REGION: ${AWS_BEDROCK_REGION:-us-east-1}
+      ENVIRONMENT: production
+      CHAT_MODEL: ${CHAT_MODEL:-anthropic}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      ANTHROPIC_WORKSPACE_ID: ${ANTHROPIC_WORKSPACE_ID:-}
+      CLAUDE_SKILLS_COST_SEG_ID: ${CLAUDE_SKILLS_COST_SEG_ID:-}
+      CLAUDE_SKILLS_COST_SEG_VERSION: ${CLAUDE_SKILLS_COST_SEG_VERSION:-latest}
+      CLAUDE_SKILLS_MODEL: ${CLAUDE_SKILLS_MODEL:-claude-sonnet-4-6}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       S3_BUCKET: ${S3_BUCKET:-}
       AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
-      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
-      ENVIRONMENT: production
       LOCAL_UPLOAD_DIR: /tmp/uploads
     volumes:
       - uploads_data:/tmp/uploads
@@ -87,20 +87,19 @@ services:
       REDIS_URL: redis://redis:6379
       SERVER_URL: http://server:8000
       SECRET_KEY: ${SECRET_KEY:-dev-secret-change-in-prod}
-      BEDROCK_MODEL_ARN: ${BEDROCK_MODEL_ARN:-}
-      BEDROCK_MODEL_PROVIDER: ${BEDROCK_MODEL_PROVIDER:-anthropic}
-      AWS_BEDROCK_REGION: ${AWS_BEDROCK_REGION:-us-east-1}
+      ENVIRONMENT: production
+      CHAT_MODEL: ${CHAT_MODEL:-anthropic}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      ANTHROPIC_WORKSPACE_ID: ${ANTHROPIC_WORKSPACE_ID:-}
+      CLAUDE_SKILLS_COST_SEG_ID: ${CLAUDE_SKILLS_COST_SEG_ID:-}
+      CLAUDE_SKILLS_COST_SEG_VERSION: ${CLAUDE_SKILLS_COST_SEG_VERSION:-latest}
+      CLAUDE_SKILLS_MODEL: ${CLAUDE_SKILLS_MODEL:-claude-sonnet-4-6}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      CHAT_MODEL: ${CHAT_MODEL:-gemini}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       S3_BUCKET: ${S3_BUCKET:-}
       AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
-      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
-      ENVIRONMENT: production
       LOCAL_UPLOAD_DIR: /tmp/uploads
     volumes:
       - uploads_data:/tmp/uploads

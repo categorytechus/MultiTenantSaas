@@ -1,6 +1,6 @@
 """
 LLM client for the agents package.
-Routes to Gemini or Bedrock based on the CHAT_MODEL setting.
+Routes to Anthropic, Gemini, or Bedrock based on the CHAT_MODEL setting.
 Mirrors src/server/app/integrations/llm.py but uses agents' app.config.
 """
 import asyncio
@@ -17,7 +17,94 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-MOCK_RESPONSE = "I am a mock AI assistant. Please set BEDROCK_MODEL_ARN or GEMINI_API_KEY."
+MOCK_RESPONSE = "I am a mock AI assistant. Please set ANTHROPIC_API_KEY, GEMINI_API_KEY, or BEDROCK_MODEL_ARN."
+
+
+class AnthropicLLMClient:
+    def __init__(self) -> None:
+        self._async_client = None
+        self._sync_client = None
+        self._executor = ThreadPoolExecutor(max_workers=4)
+
+    def _extra_headers(self) -> dict:
+        return {"anthropic-workspace-id": settings.ANTHROPIC_WORKSPACE_ID} if settings.ANTHROPIC_WORKSPACE_ID else {}
+
+    def _get_async(self):
+        if not settings.ANTHROPIC_API_KEY:
+            return None
+        if self._async_client is None:
+            import anthropic
+            h = self._extra_headers()
+            self._async_client = anthropic.AsyncAnthropic(
+                api_key=settings.ANTHROPIC_API_KEY,
+                base_url=settings.ANTHROPIC_BASE_URL,
+                default_headers=h if h else None,
+            )
+        return self._async_client
+
+    def _get_sync(self):
+        if not settings.ANTHROPIC_API_KEY:
+            return None
+        if self._sync_client is None:
+            import anthropic
+            h = self._extra_headers()
+            self._sync_client = anthropic.Anthropic(
+                api_key=settings.ANTHROPIC_API_KEY,
+                base_url=settings.ANTHROPIC_BASE_URL,
+                default_headers=h if h else None,
+            )
+        return self._sync_client
+
+    def _format(self, messages: list[dict]) -> tuple[str | None, list[dict]]:
+        system_msg = None
+        formatted = []
+        for msg in messages:
+            if msg.get("role") == "system":
+                system_msg = msg["content"]
+            else:
+                formatted.append({"role": msg["role"], "content": msg["content"]})
+        return system_msg, formatted
+
+    async def stream(self, messages: list[dict]) -> AsyncIterator[str]:
+        client = self._get_async()
+        if client is None:
+            logger.warning("ANTHROPIC_API_KEY not set, returning mock response")
+            for word in MOCK_RESPONSE.split(" "):
+                yield word + " "
+                await asyncio.sleep(0.05)
+            return
+
+        system_msg, formatted = self._format(messages)
+        kwargs: dict = {"model": settings.CLAUDE_SKILLS_MODEL, "max_tokens": 4096, "messages": formatted}
+        if system_msg:
+            kwargs["system"] = system_msg
+
+        try:
+            async with client.messages.stream(**kwargs) as stream:
+                async for text in stream.text_stream:
+                    yield text
+        except Exception as exc:
+            logger.error("Anthropic stream error: %s", exc)
+            yield f"[Error: {exc}]"
+
+    async def complete(self, messages: list[dict]) -> str:
+        client = self._get_sync()
+        if client is None:
+            return MOCK_RESPONSE
+
+        system_msg, formatted = self._format(messages)
+        kwargs: dict = {"model": settings.CLAUDE_SKILLS_MODEL, "max_tokens": 4096, "messages": formatted}
+        if system_msg:
+            kwargs["system"] = system_msg
+
+        try:
+            response = await asyncio.get_running_loop().run_in_executor(
+                self._executor, lambda: client.messages.create(**kwargs)
+            )
+            return response.content[0].text
+        except Exception as exc:
+            logger.error("Anthropic complete error: %s", exc)
+            return f"[Error: {exc}]"
 
 
 class BedrockLLMClient:
@@ -175,11 +262,17 @@ class GeminiLLMClient:
 
 class LLMClient:
     def __init__(self) -> None:
+        self._anthropic = AnthropicLLMClient()
         self._bedrock = BedrockLLMClient()
         self._gemini = GeminiLLMClient()
 
     def _backend(self):
-        return self._gemini if settings.CHAT_MODEL.lower() == "gemini" else self._bedrock
+        m = settings.CHAT_MODEL.lower()
+        if m == "gemini":
+            return self._gemini
+        if m == "anthropic":
+            return self._anthropic
+        return self._bedrock
 
     async def stream(self, messages: list[dict]) -> AsyncIterator[str]:
         async for token in self._backend().stream(messages):
@@ -229,10 +322,12 @@ def _fallback_metadata(text: str, filename: str) -> dict:
 
 
 async def generate_document_metadata(text: str, filename: str) -> dict:
-    use_gemini = settings.CHAT_MODEL.lower() == "gemini"
-    if use_gemini and not settings.GEMINI_API_KEY:
+    m = settings.CHAT_MODEL.lower()
+    if m == "anthropic" and not settings.ANTHROPIC_API_KEY:
         return _fallback_metadata(text, filename)
-    if not use_gemini and not settings.BEDROCK_MODEL_ARN:
+    if m == "gemini" and not settings.GEMINI_API_KEY:
+        return _fallback_metadata(text, filename)
+    if m not in ("anthropic", "gemini") and not settings.BEDROCK_MODEL_ARN:
         return _fallback_metadata(text, filename)
 
     snippet = text[:3000]

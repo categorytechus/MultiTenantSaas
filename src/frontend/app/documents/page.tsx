@@ -8,6 +8,15 @@ import { PERMISSION_MODULE_ENABLED } from "../../src/lib/permissions";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+interface Ruleset {
+  id: string;
+  filename: string;
+  size_bytes: number | null;
+  status: string;
+  created_at: string;
+  updated_at?: string | null;
+}
+
 interface Document {
   id: string;
   filename: string;
@@ -757,10 +766,272 @@ function UploadModal({
   );
 }
 
+// ── Workflow definitions (extend this list to add more workflows) ─────────────
+
+const WORKFLOWS = [
+  {
+    type: "cost_seg",
+    name: "Cost Segregation",
+    description:
+      "Guides the AI when classifying costs into asset categories.",
+  },
+] as const;
+
+// ── Per-workflow ruleset card ─────────────────────────────────────────────────
+
+function WorkflowRulesetCard({
+  workflow,
+  isSuperAdmin,
+}: {
+  workflow: (typeof WORKFLOWS)[number];
+  isSuperAdmin: boolean;
+}) {
+  const [ruleset, setRuleset] = useState<Ruleset | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const uploadRef = useRef<HTMLInputElement>(null);
+  const replaceRef = useRef<HTMLInputElement>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await apiFetch<Ruleset[]>(`/rulesets?workflow_type=${workflow.type}`);
+      if (res.success) {
+        const list = Array.isArray(res.data) ? res.data : [];
+        setRuleset(list[0] ?? null); // most recent is active
+      }
+    } catch { /* ignore */ }
+    setLoading(false);
+  }, [workflow.type]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const uploadFile = async (file: File, replaceId?: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const token = localStorage.getItem("accessToken");
+      const form = new FormData();
+      form.append("file", file);
+      if (!replaceId) form.append("workflow_type", workflow.type);
+      const res = await fetch(
+        replaceId ? `/api/rulesets/${replaceId}` : "/api/rulesets",
+        {
+          method: replaceId ? "PUT" : "POST",
+          headers: { Authorization: token ? `Bearer ${token}` : "" },
+          body: form,
+        }
+      );
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d?.detail || (replaceId ? "Update failed" : "Upload failed"));
+      }
+      await load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Operation failed");
+    }
+    setBusy(false);
+  };
+
+  const handleDelete = async () => {
+    if (!ruleset) return;
+    if (!confirm(`Delete the ruleset for ${workflow.name}? This cannot be undone.`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await apiFetch(`/rulesets/${ruleset.id}`, { method: "DELETE" });
+      if (!res.success) throw new Error("Delete failed");
+      setRuleset(null);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Delete failed");
+    }
+    setBusy(false);
+  };
+
+  const handleDownload = () => {
+    if (!ruleset) return;
+    const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") : "";
+    const url = `/api/rulesets/${ruleset.id}/download${token ? `?token=${token}` : ""}`;
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = ruleset.filename;
+    a.click();
+  };
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+      {/* Card header */}
+      <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-gray-50/60">
+        <div>
+          <h3 className="text-[13.5px] font-semibold text-gray-900">{workflow.name}</h3>
+          <p className="text-[12px] text-gray-500 mt-0.5">{workflow.description}</p>
+        </div>
+        {isSuperAdmin && !ruleset && !loading && (
+          <>
+            <button
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#2f3640] text-white text-[12.5px] font-medium rounded-md hover:bg-[#1a1f28] transition-colors disabled:opacity-50"
+              onClick={() => uploadRef.current?.click()}
+              disabled={busy}
+            >
+              <svg width="13" height="13" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
+              </svg>
+              {busy ? "Uploading…" : "Upload Ruleset"}
+            </button>
+            <input
+              ref={uploadRef}
+              type="file"
+              accept=".json,.txt,.text"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) { uploadFile(f); e.target.value = ""; }
+              }}
+            />
+          </>
+        )}
+      </div>
+
+      {/* Card body */}
+      <div className="px-5 py-4">
+        {error && (
+          <div className="mb-3 text-[12px] text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+            {error}
+          </div>
+        )}
+
+        {loading ? (
+          <div className="flex items-center gap-2 text-gray-400 py-2">
+            <span className="w-4 h-4 rounded-full border-2 border-gray-200 border-t-violet-500 animate-spin" />
+            <span className="text-[12.5px]">Loading…</span>
+          </div>
+        ) : !ruleset ? (
+          <p className="text-[13px] text-gray-400 py-1">
+            No ruleset uploaded yet.{" "}
+            {isSuperAdmin
+              ? "Upload a JSON or text file to guide asset classification."
+              : "Contact a super admin to upload a ruleset."}
+          </p>
+        ) : (
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            {/* File info */}
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-lg bg-violet-50 flex items-center justify-center shrink-0">
+                <svg width="15" height="15" fill="none" stroke="#7c3aed" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              </div>
+              <div className="min-w-0">
+                <p className="text-[13px] font-medium text-gray-900 truncate max-w-[260px]">
+                  {ruleset.filename}
+                </p>
+                <p className="text-[11.5px] text-gray-400 mt-0.5">
+                  {formatFileSize(ruleset.size_bytes ?? 0)}
+                  {" · "}
+                  {new Date(ruleset.updated_at || ruleset.created_at).toLocaleDateString("en-US", {
+                    month: "short", day: "numeric", year: "numeric",
+                  })}
+                  {" · "}
+                  <span className={ruleset.status === "ready" ? "text-green-600" : "text-red-600"}>
+                    {ruleset.status === "ready" ? "Ready" : "Failed"}
+                  </span>
+                </p>
+              </div>
+              <span className="inline-block text-[10px] font-semibold bg-green-50 text-green-700 px-1.5 py-0.5 rounded shrink-0">
+                Active
+              </span>
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-1.5 items-center shrink-0">
+              <button
+                className="p-1.5 rounded-md border border-gray-200 bg-white text-gray-400 hover:text-gray-700 hover:border-gray-300 transition-colors"
+                title="Download"
+                onClick={handleDownload}
+              >
+                <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" />
+                </svg>
+              </button>
+
+              {isSuperAdmin && (
+                <>
+                  <button
+                    className="p-1.5 rounded-md border border-gray-200 bg-white text-gray-400 hover:text-violet-600 hover:border-violet-200 transition-colors disabled:opacity-40"
+                    title="Replace ruleset file"
+                    disabled={busy}
+                    onClick={() => replaceRef.current?.click()}
+                  >
+                    {busy ? (
+                      <span className="w-3.5 h-3.5 rounded-full border-2 border-violet-400 border-t-transparent animate-spin inline-block" />
+                    ) : (
+                      <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+                      </svg>
+                    )}
+                  </button>
+                  <input
+                    ref={replaceRef}
+                    type="file"
+                    accept=".json,.txt,.text"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) { uploadFile(f, ruleset.id); e.target.value = ""; }
+                    }}
+                  />
+                  <button
+                    className="p-1.5 rounded-md border border-gray-200 bg-white text-gray-400 hover:text-red-500 hover:border-red-200 transition-colors disabled:opacity-40"
+                    title="Delete ruleset"
+                    disabled={busy}
+                    onClick={handleDelete}
+                  >
+                    {busy ? (
+                      <span className="w-3.5 h-3.5 rounded-full border-2 border-red-400 border-t-transparent animate-spin inline-block" />
+                    ) : (
+                      <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
+                      </svg>
+                    )}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── RuleSet Section ───────────────────────────────────────────────────────────
+
+function RulesetSection({ isSuperAdmin }: { isSuperAdmin: boolean }) {
+  return (
+    <div>
+      <div className="mb-5">
+        <h2 className="text-[15px] font-semibold text-gray-900">Workflows</h2>
+        <p className="text-[13px] text-gray-500 mt-0.5">
+          Manage classification rulesets for each AI workflow. Upload a JSON or text file that
+          guides the AI during asset classification.
+        </p>
+      </div>
+      <div className="flex flex-col gap-4">
+        {WORKFLOWS.map((w) => (
+          <WorkflowRulesetCard key={w.type} workflow={w} isSuperAdmin={isSuperAdmin} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function DocumentsPage() {
   const router = useRouter();
+  const [activeTab, setActiveTab] = useState<"documents" | "ruleset">("documents");
+  const [userRole, setUserRole] = useState<string>("");
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -832,7 +1103,8 @@ export default function DocumentsPage() {
       try {
         const token = localStorage.getItem("accessToken");
         if (token) {
-          const { org_id } = JSON.parse(atob(token.split(".")[1])) as { org_id?: string };
+          const { org_id, role } = JSON.parse(atob(token.split(".")[1])) as { org_id?: string; role?: string };
+          if (role) setUserRole(role);
           if (org_id) {
             const rolesRes = await apiFetch<{ data: OrgRole[] }>(`/organizations/${org_id}/roles`);
             if (rolesRes.success) setOrgRoles(rolesRes.data.data);
@@ -890,35 +1162,60 @@ export default function DocumentsPage() {
     <Layout>
       <div className="p-8 max-w-[1200px]">
         {/* Header */}
-        <div className="flex items-start justify-between mb-6 flex-wrap gap-3">
+        <div className="flex items-start justify-between mb-4 flex-wrap gap-3">
           <div>
             <h1 className="text-xl font-bold text-gray-900 tracking-tight">Documents</h1>
-            <p className="text-[13px] text-gray-500 mt-1">Manage and search your knowledge base documents.</p>
+            <p className="text-[13px] text-gray-500 mt-1">Manage your knowledge base documents and cost-seg classification ruleset.</p>
           </div>
-          <div className="flex gap-2 flex-wrap">
-            <button
-              className="flex items-center gap-1.5 px-3 py-2 bg-white text-gray-800 text-[13px] font-medium rounded-md border border-gray-200 hover:bg-gray-50 transition-colors disabled:opacity-60"
-              onClick={handleRefresh}
-              disabled={refreshing}
-              title="Refresh document statuses"
-            >
-              <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24" className={refreshing ? "animate-spin" : ""}>
-                <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" />
-              </svg>
-              Refresh
-            </button>
-            <button
-              className="flex items-center gap-1.5 px-4 py-2 bg-[#2f3640] text-white text-[13px] font-medium rounded-md hover:bg-[#1a1f28] transition-colors"
-              onClick={() => setShowUploadModal(true)}
-            >
-              <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
-              </svg>
-              Upload Document
-            </button>
-          </div>
+          {activeTab === "documents" && (
+            <div className="flex gap-2 flex-wrap">
+              <button
+                className="flex items-center gap-1.5 px-3 py-2 bg-white text-gray-800 text-[13px] font-medium rounded-md border border-gray-200 hover:bg-gray-50 transition-colors disabled:opacity-60"
+                onClick={handleRefresh}
+                disabled={refreshing}
+                title="Refresh document statuses"
+              >
+                <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24" className={refreshing ? "animate-spin" : ""}>
+                  <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" />
+                </svg>
+                Refresh
+              </button>
+              <button
+                className="flex items-center gap-1.5 px-4 py-2 bg-[#2f3640] text-white text-[13px] font-medium rounded-md hover:bg-[#1a1f28] transition-colors"
+                onClick={() => setShowUploadModal(true)}
+              >
+                <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
+                </svg>
+                Upload Document
+              </button>
+            </div>
+          )}
         </div>
 
+        {/* Tabs — RuleSet tab only for super_admin and org_admin */}
+        {(userRole === "super_admin" || userRole === "org_admin") && (
+          <div className="flex gap-0 mb-6 border-b border-gray-200">
+            {(["documents", "ruleset"] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`px-5 py-2.5 text-[13px] font-medium border-b-2 -mb-px transition-colors ${
+                  activeTab === tab
+                    ? "border-gray-900 text-gray-900"
+                    : "border-transparent text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                {tab === "documents" ? "Documents" : "RuleSet"}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {activeTab === "ruleset" ? (
+          <RulesetSection isSuperAdmin={userRole === "super_admin"} />
+        ) : (
+          <>
         {/* Filters */}
         <div className="flex gap-3 items-center mb-5 flex-wrap">
           <input
@@ -1103,6 +1400,7 @@ export default function DocumentsPage() {
             </>
           )}
         </div>
+        </>)}
       </div>
 
       <UploadModal

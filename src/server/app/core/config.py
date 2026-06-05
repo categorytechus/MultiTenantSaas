@@ -34,11 +34,20 @@ class Settings(BaseSettings):
     AWS_BEDROCK_REGION: str = "us-east-1"
     OPENAI_API_KEY: str = ""
 
-    # Set to 'gemini' to use Google Gemini instead of AWS Bedrock for chat and
-    # document metadata generation. Set to 'bedrock' (default) to keep using Bedrock.
-    CHAT_MODEL: str = "bedrock"  # 'bedrock' | 'gemini'
+    # Routes chat and document metadata generation: 'anthropic' uses ANTHROPIC_API_KEY,
+    # 'gemini' uses GEMINI_API_KEY, 'bedrock' uses AWS Bedrock (requires temp STS creds).
+    CHAT_MODEL: str = "anthropic"  # 'anthropic' | 'gemini' | 'bedrock'
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-2.5-flash"
+
+    # Anthropic direct API — used exclusively for Claude Skills (report generation).
+    # Skills API is NOT available through Bedrock; requires a direct Anthropic key.
+    ANTHROPIC_API_KEY: str = ""
+    ANTHROPIC_BASE_URL: str | None = None
+    ANTHROPIC_WORKSPACE_ID: str | None = None
+    CLAUDE_SKILLS_COST_SEG_ID: str = ""       # Set after creating skill in Console
+    CLAUDE_SKILLS_COST_SEG_VERSION: str = "latest"
+    CLAUDE_SKILLS_MODEL: str = "claude-sonnet-4-20250514"
 
     ENVIRONMENT: str = "development"
     EMBEDDING_MODEL: str = "BAAI/bge-small-en-v1.5"

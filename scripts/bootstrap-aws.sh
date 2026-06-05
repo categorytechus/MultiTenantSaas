@@ -5,7 +5,8 @@
 set -euo pipefail
 
 REGION="${AWS_REGION:-us-east-1}"
-STATE_BUCKET="multitenant-saas-tfstate"
+ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+STATE_BUCKET="multitenant-saas-tfstate-${ACCOUNT_ID}"
 KEY_NAME="multi-tenant-saas-key"
 KEY_PATH="infra/${KEY_NAME}"
 OIDC_URL="https://token.actions.githubusercontent.com"
@@ -61,7 +62,8 @@ fi
 
 # ── 4. Terraform init + import pre-existing AWS resources ─────────────────────
 log "Running terraform init..."
-terraform -chdir="$INFRA_DIR" init -reconfigure
+terraform -chdir="$INFRA_DIR" init -reconfigure \
+  -backend-config="bucket=${STATE_BUCKET}"
 
 # Import SSH key pair if it already exists in AWS but not in Terraform state
 log "Checking key pair in Terraform state..."

@@ -68,3 +68,4 @@ temp/
 *.tmp
 *.dev
 src/web/.vite/
+*.env copy
