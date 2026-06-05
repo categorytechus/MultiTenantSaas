@@ -9,7 +9,8 @@ terraform {
   }
 
   backend "s3" {
-    bucket = "multitenant-saas-tfstate"
+    # bucket name is account-scoped; set via -backend-config or TF_CLI_ARGS_init
+    # e.g. multitenant-saas-tfstate-<account-id>
     key    = "prod/terraform.tfstate"
     region = "us-east-1"
   }
