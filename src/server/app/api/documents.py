@@ -18,7 +18,7 @@ from app.core.logging import get_logger
 from app.core.rbac import authorize
 from app.core.tenancy import RequestContext
 from app.integrations.s3 import delete as s3_delete, make_s3_key, presigned_get, upload
-from app.models.document import Document, DocumentChunk, DocumentStatus
+from app.models.document import Document, DocumentChunk, DocumentImage, DocumentStatus
 from app.services.audit import log_action
 from app.services.documents import (
     create_document,
@@ -55,6 +55,7 @@ class DocumentResponse(BaseModel):
     keywords: list[str] | None = None
     tags: dict | None = None
     description: str | None = None
+    image_count: int = 0
 
 
 def _doc_to_response(doc: Document, download_url: str | None = None) -> dict:
@@ -88,6 +89,7 @@ def _doc_to_response(doc: Document, download_url: str | None = None) -> dict:
         "keywords": kw if isinstance(kw, list) else None,
         "tags": tags,
         "description": doc.description,
+        "image_count": getattr(doc, "image_count", 0) or 0,
     }
 
 
@@ -99,6 +101,7 @@ async def _ingest_document_bg(
     filename: str = "document",
     source_url: str | None = None,
     web_url_id: UUID | None = None,
+    extract_images: bool = False,
 ) -> None:
     """
     Background ingestion: parse → chunk → embed → generate metadata → insert chunks → mark ready.
@@ -203,6 +206,10 @@ async def _ingest_document_bg(
         await _set_web_url_status("ready")
         logger.info("Ingestion complete", doc_id=str(document_id), chunks=len(chunks))
 
+        # ── Image extraction (PDF only, when requested) ────────────────────────
+        if extract_images and body and mime_type == "application/pdf":
+            await _ingest_images_bg(document_id, org_id, body, filename)
+
     except Exception as e:
         logger.error("Background ingestion failed", doc_id=str(document_id), error=str(e))
         await _set_status(DocumentStatus.FAILED.value)
@@ -212,6 +219,114 @@ async def _ingest_document_bg(
 async def _run_parallel(*coros):
     import asyncio
     return await asyncio.gather(*coros)
+
+
+async def _ingest_images_bg(
+    document_id: UUID,
+    org_id: UUID,
+    body: bytes,
+    filename: str,
+) -> None:
+    """
+    Extract, caption, upload, and index images from a PDF.
+    Runs after text ingestion completes so the document is already 'ready'.
+    """
+    from app.services.image_extraction import caption_images_batch, extract_images_from_pdf
+
+    logger.info("Starting image extraction", doc_id=str(document_id))
+    try:
+        # 1. Extract candidate images (heuristic-scored, deduped, size-filtered)
+        raw_images = await asyncio.to_thread(extract_images_from_pdf, body)
+        if not raw_images:
+            logger.info("No extractable images found", doc_id=str(document_id))
+            return
+
+        # 2. Batch caption all candidates in a single LLM call
+        captioned = await asyncio.to_thread(caption_images_batch, raw_images)
+        if not captioned:
+            logger.info("Captioning returned no results", doc_id=str(document_id))
+            return
+
+        # 3. Upload each image to S3 + embed caption + insert DB rows
+        from app.integrations.embeddings import embed_batch
+        captions_text = [c.model_caption or c.image.pdf_caption or "" for c in captioned]
+        embeddings = await embed_batch(captions_text)
+
+        now = datetime.now(timezone.utc)
+        image_count = 0
+
+        async with db_session(org_id) as sess:
+            for i, (captioned_img, embedding) in enumerate(zip(captioned, embeddings)):
+                img = captioned_img.image
+                caption_text = captioned_img.model_caption or img.pdf_caption or ""
+
+                # Build combined chunk content for embedding
+                combined = f"{caption_text}"
+                if img.pdf_caption and img.pdf_caption != captioned_img.model_caption:
+                    combined = f"{img.pdf_caption}\n{caption_text}"
+
+                # Upload to S3
+                ext = img.format.lower().replace("jpeg", "jpg")
+                img_s3_key = f"orgs/{org_id}/documents/{document_id}/images/{img.page}_{img.image_index}.{ext}"
+                try:
+                    await upload(
+                        img_s3_key,
+                        img.image_bytes,
+                        tags={"org_id": str(org_id), "document_id": str(document_id)},
+                    )
+                except Exception as e:
+                    logger.warning("Failed to upload image to S3", key=img_s3_key, error=str(e))
+                    continue
+
+                # Insert document_images row
+                doc_image = DocumentImage(
+                    org_id=org_id,
+                    document_id=document_id,
+                    s3_key=img_s3_key,
+                    page_number=img.page,
+                    image_index=img.image_index,
+                    width=img.width,
+                    height=img.height,
+                    format=img.format.lower(),
+                    pdf_caption=img.pdf_caption or None,
+                    model_caption=captioned_img.model_caption or None,
+                    priority_score=img.priority_score,
+                    content_hash=img.content_hash,  # Store SHA-256 hash for deduplication
+                    created_at=now,
+                )
+                sess.add(doc_image)
+                await sess.flush()  # get doc_image.id
+
+                # Insert image chunk for RAG
+                sess.add(DocumentChunk(
+                    org_id=org_id,
+                    document_id=document_id,
+                    chunk_index=10000 + i,  # offset to not collide with text chunks
+                    content=combined,
+                    embedding=embedding,
+                    chunk_type="image",
+                    image_id=doc_image.id,
+                    created_at=now,
+                ))
+                image_count += 1
+
+            # Update documents.image_count
+            if image_count > 0:
+                await sess.execute(
+                    sa_text(
+                        "UPDATE documents SET image_count = :cnt, updated_at = :ts "
+                        "WHERE id = CAST(:id AS uuid)"
+                    ),
+                    {"cnt": image_count, "ts": now, "id": str(document_id)},
+                )
+
+        logger.info(
+            "Image extraction complete",
+            doc_id=str(document_id),
+            image_count=image_count,
+        )
+    except Exception as e:
+        logger.error("Image extraction failed", doc_id=str(document_id), error=str(e), exc_info=True)
 
 
 @router.get("", response_model=list[DocumentResponse])
@@ -261,6 +376,7 @@ async def upload_document(
     access_roles: str = Form(""),   # comma-separated list of role names
     description: str = Form(""),
     is_confidential: str = Form("false"),
+    extract_images: str = Form("false"),
     ctx: RequestContext = authorize("documents:upload"),
 ) -> Any:
     """
@@ -310,9 +426,51 @@ async def upload_document(
 
     await upload(s3_key, body, tags={"org_id": str(ctx.org_id), "document_id": str(doc_id)})
 
-    background_tasks.add_task(_ingest_document_bg, doc_id, ctx.org_id, body, mime_type, filename)
+    background_tasks.add_task(
+        _ingest_document_bg, doc_id, ctx.org_id, body, mime_type, filename,
+        extract_images=(extract_images.lower() == "true"),
+    )
 
     return {"task_id": None, "document": doc_snapshot}
+
+
+@router.get("/{doc_id}/images/{image_id}")
+async def serve_document_image(
+    doc_id: UUID,
+    image_id: UUID,
+    ctx: RequestContext = authorize("documents:read"),
+    session: AsyncSession = Depends(get_db),
+):
+    """Redirect to a presigned S3 URL for the given document image."""
+    from fastapi.responses import RedirectResponse
+
+    result = await session.execute(
+        sa_text(
+            "SELECT s3_key FROM document_images "
+            "WHERE id = CAST(:img_id AS uuid) AND document_id = CAST(:doc_id AS uuid)"
+        ),
+        {"img_id": str(image_id), "doc_id": str(doc_id)},
+    )
+    row = result.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    s3_key = row[0]
+
+    from app.integrations.s3 import _is_local_mode, _local_path, presigned_get
+
+    if _is_local_mode():
+        from fastapi.responses import FileResponse
+        local_path = _local_path(s3_key)
+        if not local_path.exists():
+            raise HTTPException(status_code=404, detail="Image file not found on disk")
+        # Determine media type from extension
+        ext = local_path.suffix.lower().lstrip(".")
+        media_type = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}"
+        return FileResponse(str(local_path), media_type=media_type)
+
+    url = await presigned_get(s3_key)
+    return RedirectResponse(url)
 
 
 class IngestUrlRequest(BaseModel):

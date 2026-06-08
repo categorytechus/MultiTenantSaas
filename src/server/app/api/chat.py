@@ -204,6 +204,10 @@ async def stream_chat(
                     token = event["data"]
                     lines = "\n".join(f"data: {line}" for line in token.split("\n"))
                     yield f"{lines}\n\n"
+                elif event_type == "replace_content":
+                    # Image placeholders resolved — send full text as named SSE event
+                    payload = json.dumps(event["data"])
+                    yield f"event: replace_content\ndata: {payload}\n\n"
                 elif event_type == "heartbeat":
                     # SSE comment — browsers ignore it but it keeps the connection alive
                     # during silent API-tool-mode LLM generation.

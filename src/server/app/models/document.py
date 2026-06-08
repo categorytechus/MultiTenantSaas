@@ -43,6 +43,27 @@ class Document(SQLModel, table=True):
         default=None,
         sa_column=Column(sa.UUID(), ForeignKey("workflow_sessions.id"), nullable=True),
     )
+    # Count of images extracted from this document (0 for non-PDF or when extraction skipped)
+    image_count: int = Field(default=0, sa_column=Column(sa.Integer, nullable=False, server_default="0"))
+
+
+class DocumentImage(SQLModel, table=True):
+    __tablename__ = "document_images"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    org_id: UUID = Field(foreign_key="orgs.id", nullable=False)
+    document_id: UUID = Field(foreign_key="documents.id", nullable=False)
+    s3_key: str = Field(sa_column=Column(sa.Text, nullable=False))
+    page_number: int = Field(nullable=False)
+    image_index: int = Field(nullable=False)
+    width: int | None = Field(default=None)
+    height: int | None = Field(default=None)
+    format: str | None = Field(default=None)        # 'png', 'jpeg', etc.
+    pdf_caption: str | None = Field(default=None, sa_column=Column(sa.Text, nullable=True))
+    model_caption: str | None = Field(default=None, sa_column=Column(sa.Text, nullable=True))
+    priority_score: float = Field(default=0.0)
+    content_hash: str | None = Field(default=None, max_length=64, index=True)  # SHA-256 hash of image bytes
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class DocumentChunk(SQLModel, table=True):
@@ -58,3 +79,13 @@ class DocumentChunk(SQLModel, table=True):
         sa_column=Column(Vector(384), nullable=True),
     )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    # 'text' for normal text chunks, 'image' for image caption chunks
+    chunk_type: str = Field(
+        default="text",
+        sa_column=Column(sa.String(10), nullable=False, server_default="text"),
+    )
+    # FK to document_images — only set when chunk_type='image'
+    image_id: UUID | None = Field(
+        default=None,
+        sa_column=Column(sa.UUID(), ForeignKey("document_images.id"), nullable=True),
+    )

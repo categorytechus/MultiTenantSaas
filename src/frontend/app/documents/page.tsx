@@ -34,6 +34,7 @@ interface Document {
   created_at: string;
   updated_at?: string;
   upload_source?: string;
+  image_count?: number;
 }
 
 interface OrgRole {
@@ -50,6 +51,7 @@ interface PerFileMeta {
   allRoles: boolean;       // "all roles" toggle — overrides accessRoles
   description: string;
   isConfidential: boolean;
+  extractImages: boolean;  // PDF only — extract embedded images for AI chat
 }
 
 interface QueuedFile {
@@ -115,7 +117,7 @@ const ALLOWED_TYPES = [
 const MAX_FILE_SIZE = 15 * 1024 * 1024;
 
 function defaultMeta(): PerFileMeta {
-  return { docType: "", accessRoles: [], allRoles: true, description: "", isConfidential: false };
+  return { docType: "", accessRoles: [], allRoles: true, description: "", isConfidential: false, extractImages: false };
 }
 
 // ── File Accordion Item ───────────────────────────────────────────────────────
@@ -127,6 +129,7 @@ function FileAccordion({
   onRemove,
   onMetaChange,
   onToggle,
+  imageModuleEnabled,
 }: {
   qf: QueuedFile;
   orgRoles: OrgRole[];
@@ -134,6 +137,7 @@ function FileAccordion({
   onRemove: (id: string) => void;
   onMetaChange: (id: string, meta: PerFileMeta) => void;
   onToggle: (id: string) => void;
+  imageModuleEnabled: boolean;
 }) {
   const typeLabel = getFileTypeLabel(qf.file.type);
   const canEdit = !uploading && qf.status === "pending";
@@ -309,6 +313,25 @@ function FileAccordion({
             />
             <span className="text-[11.5px] text-gray-700">Confidential</span>
           </label>
+
+          {/* Extract images checkbox — PDF only */}
+          {qf.file.type === "application/pdf" && (
+            <label className={`flex items-center gap-2 select-none ${imageModuleEnabled ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
+              <input
+                type="checkbox"
+                className="w-3.5 h-3.5 accent-sky-600"
+                checked={qf.meta.extractImages}
+                onChange={(e) => onMetaChange(qf.id, { ...qf.meta, extractImages: e.target.checked })}
+                disabled={!imageModuleEnabled}
+              />
+              <span className="text-[11.5px] text-gray-700">Extract images from PDF</span>
+              {imageModuleEnabled ? (
+                <span className="text-[10px] text-gray-400">(enables image search in AI chat)</span>
+              ) : (
+                <span className="text-[10px] text-red-500">(not enabled for your org)</span>
+              )}
+            </label>
+          )}
         </div>
       )}
     </div>
@@ -548,11 +571,13 @@ function UploadModal({
   onClose,
   orgRoles,
   onSuccess,
+  imageModuleEnabled,
 }: {
   open: boolean;
   onClose: () => void;
   orgRoles: OrgRole[];
   onSuccess: () => void;
+  imageModuleEnabled: boolean;
 }) {
   const [queue, setQueue] = useState<QueuedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -620,6 +645,7 @@ function UploadModal({
       formData.append("access_roles", rolesValue);
       formData.append("description", qf.meta.description);
       formData.append("is_confidential", qf.meta.isConfidential ? "true" : "false");
+      formData.append("extract_images", qf.meta.extractImages ? "true" : "false");
 
       const res = await fetch("/api/documents", {
         method: "POST",
@@ -730,6 +756,7 @@ function UploadModal({
                     onRemove={removeFile}
                     onMetaChange={updateMeta}
                     onToggle={toggleAccordion}
+                    imageModuleEnabled={imageModuleEnabled}
                   />
                 ))}
               </div>
@@ -1046,6 +1073,14 @@ export default function DocumentsPage() {
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const itemsPerPage = 10;
 
+  const imageModuleEnabled = (() => {
+    if (typeof window === "undefined") return false;
+    if (sessionStorage.getItem("userModulesUnrestricted")) return true;
+    const raw = sessionStorage.getItem("userModules");
+    if (!raw) return false;
+    try { return (JSON.parse(raw) as string[]).includes("ai_images"); } catch { return false; }
+  })();
+
   // Permission guard
   useEffect(() => {
     if (!PERMISSION_MODULE_ENABLED) return;
@@ -1083,11 +1118,33 @@ export default function DocumentsPage() {
   }, []);
 
   const startPollingIfNeeded = useCallback((docs: Document[]) => {
-    const hasInProgress = docs.some((d) => d.status === "processing" || d.status === "pending");
+    // Poll if any documents are processing/pending OR if any ready documents have status='ready'
+    // but uploaded in the last 2 minutes (might be extracting images in background)
+    const now = Date.now();
+    const twoMinutesAgo = now - 2 * 60 * 1000;
+    const hasInProgress = docs.some((d) => {
+      if (d.status === "processing" || d.status === "pending") return true;
+      // Also poll for recently uploaded 'ready' docs that might be extracting images
+      if (d.status === "ready" && d.created_at) {
+        const createdTime = new Date(d.created_at).getTime();
+        return createdTime > twoMinutesAgo;
+      }
+      return false;
+    });
+
     if (hasInProgress && !pollingRef.current) {
       pollingRef.current = setInterval(async () => {
         const updated = await fetchDocuments(true);
-        const stillInProgress = updated.some((d) => d.status === "processing" || d.status === "pending");
+        const nowCheck = Date.now();
+        const twoMinutesAgoCheck = nowCheck - 2 * 60 * 1000;
+        const stillInProgress = updated.some((d) => {
+          if (d.status === "processing" || d.status === "pending") return true;
+          if (d.status === "ready" && d.created_at) {
+            const createdTime = new Date(d.created_at).getTime();
+            return createdTime > twoMinutesAgoCheck;
+          }
+          return false;
+        });
         if (!stillInProgress && pollingRef.current) {
           clearInterval(pollingRef.current);
           pollingRef.current = null;
@@ -1298,6 +1355,14 @@ export default function DocumentsPage() {
                                       {doc.tags["doc-type"]}
                                     </span>
                                   )}
+                                  {(doc.image_count ?? 0) > 0 && (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-sky-50 text-sky-700 px-1.5 py-0.5 rounded">
+                                      <svg width="10" height="10" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
+                                      </svg>
+                                      {doc.image_count} image{doc.image_count !== 1 ? "s" : ""}
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -1408,6 +1473,7 @@ export default function DocumentsPage() {
         onClose={() => setShowUploadModal(false)}
         orgRoles={orgRoles}
         onSuccess={handleUploadSuccess}
+        imageModuleEnabled={imageModuleEnabled}
       />
       <DeleteModal doc={deleteDoc} onClose={() => setDeleteDoc(null)} onConfirm={handleDelete} />
       <EditDocumentModal

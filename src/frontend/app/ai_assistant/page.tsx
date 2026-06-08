@@ -108,9 +108,8 @@ function SessionItem({
   return (
     <div
       onClick={onSelect}
-      className={`group relative flex items-center gap-2 px-3 py-2.5 rounded-lg cursor-pointer transition-colors mb-0.5 ${
-        active ? 'bg-white shadow-sm' : 'hover:bg-white/70'
-      }`}
+      className={`group relative flex items-center gap-2 px-3 py-2.5 rounded-lg cursor-pointer transition-colors mb-0.5 ${active ? 'bg-white shadow-sm' : 'hover:bg-white/70'
+        }`}
     >
       <MessageSquare size={13} className="shrink-0 text-gray-400" />
 
@@ -173,9 +172,37 @@ function SessionItem({
 // ── Markdown message content ───────────────────────────────────────────────────
 
 function MarkdownContent({ content, streaming }: { content: string; streaming?: boolean }) {
+  // Resolve /api/ image paths to include the auth token so the server can
+  // validate the request (same approach as the download link).
+  const resolveImgSrc = (src: string | undefined): string => {
+    if (!src) return '';
+    if (src.startsWith('/api/')) {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+      return token ? `${src}?token=${token}` : src;
+    }
+    return src;
+  };
+
   return (
     <div className="markdown-content">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          img: (props) => (
+            <span className="block my-3">
+              <img
+                src={resolveImgSrc(typeof props.src === 'string' ? props.src : undefined)}
+                alt={props.alt || 'Image'}
+                className="max-w-full rounded-lg border border-gray-200 shadow-sm"
+                style={{ maxHeight: '400px', objectFit: 'contain' }}
+              />
+              {props.alt && <span className="block text-[11.5px] text-gray-400 mt-1 italic">{props.alt}</span>}
+            </span>
+          ),
+        }}
+      >
+        {content}
+      </ReactMarkdown>
       {streaming && (
         <span className="inline-block w-1.5 h-4 bg-gray-500 rounded-sm ml-0.5 animate-pulse align-text-bottom" />
       )}
@@ -199,8 +226,27 @@ function StreamingMarkdown({
   // state updates so that the component mounts with streaming already false.
   const [pos, setPos] = useState(() => (isNew ? 0 : content.length));
   const contentRef = useRef(content);
+  const prevContentRef = useRef(content);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   contentRef.current = content;
+
+  // Detect when content is *replaced* (e.g. by a replace_content SSE event)
+  // rather than simply appended to.  When the new content is not an extension
+  // of the old content the typewriter has already played for the token-streamed
+  // version, so we jump pos straight to the full length.
+  useEffect(() => {
+    const prev = prevContentRef.current;
+    prevContentRef.current = content;
+
+    // Skip the very first render (nothing to compare against)
+    if (prev === content) return;
+
+    // Normal token-append: new content starts with old content
+    if (content.startsWith(prev)) return;
+
+    // Content was replaced wholesale — jump pos to show it all immediately
+    setPos(content.length);
+  }, [content]);
 
   const startDrainRef = useRef((charsPerTick: number) => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -412,6 +458,12 @@ export default function AIAssistantPage() {
       });
     }
 
+    // Close any existing SSE connection before starting a new one
+    if (esRef.current) {
+      esRef.current.close();
+      esRef.current = null;
+    }
+
     // Add placeholder assistant message
     const assistantId = `a-${Date.now()}`;
     assistantIdRef.current = assistantId;
@@ -437,8 +489,8 @@ export default function AIAssistantPage() {
         setStreaming(false);
         setMessages((prev) =>
           prev
-            .map((m) => m.id === assistantId ? { ...m, streaming: false } : m)
-            .filter((m) => m.id !== assistantId || m.content.trim() !== ''),
+            .map((m) => m.id === assistantIdRef.current ? { ...m, streaming: false } : m)
+            .filter((m) => m.role !== 'assistant' || m.content.trim() !== '')
         );
         return;
       }
@@ -450,7 +502,7 @@ export default function AIAssistantPage() {
         const errText = data.replace('[ERROR]', '').trim() || 'An error occurred.';
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === assistantId
+            m.id === assistantIdRef.current
               ? { ...m, content: `Sorry, something went wrong: ${errText}`, streaming: false }
               : m,
           ),
@@ -460,10 +512,20 @@ export default function AIAssistantPage() {
 
       setMessages((prev) =>
         prev.map((m) =>
-          m.id === assistantId ? { ...m, content: m.content + data } : m,
+          m.id === assistantIdRef.current ? { ...m, content: m.content + data } : m,
         ),
       );
     };
+
+    // ── Named SSE: replace_content (image resolution) ─────────────────────────
+    es.addEventListener('replace_content', (event) => {
+      const resolved = JSON.parse((event as MessageEvent).data) as string;
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantIdRef.current ? { ...m, content: resolved } : m,
+        ),
+      );
+    });
 
     // ── Named SSE: api_task_proposal ──────────────────────────────────────────
     es.addEventListener('api_task_proposal', (event) => {
@@ -475,11 +537,11 @@ export default function AIAssistantPage() {
           prev.map((m) =>
             m.id === assistantIdRef.current
               ? {
-                  ...m,
-                  streaming: false,
-                  content: `I need your permission to proceed: **${proposal.description || proposal.title}**`,
-                  proposal,
-                }
+                ...m,
+                streaming: false,
+                content: `I need your permission to proceed: **${proposal.description || proposal.title}**`,
+                proposal,
+              }
               : m,
           ),
         );
@@ -512,11 +574,11 @@ export default function AIAssistantPage() {
             return prev.map((m) =>
               m.id === assistantIdRef.current
                 ? {
-                    ...m,
-                    id: `exec-ok-${ev.execution_id}`,
-                    streaming: false,
-                    content: ev.summary || '✅ API action completed.',
-                  }
+                  ...m,
+                  id: `exec-ok-${ev.execution_id}`,
+                  streaming: false,
+                  content: ev.summary || '✅ API action completed.',
+                }
                 : m
             );
           } else {
@@ -541,11 +603,11 @@ export default function AIAssistantPage() {
             return prev.map((m) =>
               m.id === assistantIdRef.current
                 ? {
-                    ...m,
-                    id: `exec-ok-parse-err-${Date.now()}`,
-                    streaming: false,
-                    content: '✅ API action completed (result unavailable).',
-                  }
+                  ...m,
+                  id: `exec-ok-parse-err-${Date.now()}`,
+                  streaming: false,
+                  content: '✅ API action completed (result unavailable).',
+                }
                 : m
             );
           } else {
@@ -577,11 +639,11 @@ export default function AIAssistantPage() {
             return prev.map((m) =>
               m.id === assistantIdRef.current
                 ? {
-                    ...m,
-                    id: `exec-err-${ev.execution_id}`,
-                    streaming: false,
-                    content: `❌ API action failed: ${ev.error || 'Unknown error'}`,
-                  }
+                  ...m,
+                  id: `exec-err-${ev.execution_id}`,
+                  streaming: false,
+                  content: `❌ API action failed: ${ev.error || 'Unknown error'}`,
+                }
                 : m
             );
           } else {
@@ -606,11 +668,11 @@ export default function AIAssistantPage() {
             return prev.map((m) =>
               m.id === assistantIdRef.current
                 ? {
-                    ...m,
-                    id: `exec-err-parse-err-${Date.now()}`,
-                    streaming: false,
-                    content: '❌ API action failed (details unavailable).',
-                  }
+                  ...m,
+                  id: `exec-err-parse-err-${Date.now()}`,
+                  streaming: false,
+                  content: '❌ API action failed (details unavailable).',
+                }
                 : m
             );
           } else {
@@ -848,9 +910,8 @@ export default function AIAssistantPage() {
 
           {/* Input area */}
           <div className="border-t border-[#e8e6e2] px-4 py-3.5 shrink-0 bg-white">
-            <div className={`flex items-end gap-2.5 bg-[#fafaf9] border rounded-xl px-3.5 py-2.5 transition-all ${
-              streaming ? 'border-gray-200' : 'border-gray-200 focus-within:border-violet-400 focus-within:shadow-[0_0_0_3px_rgba(139,92,246,0.08)]'
-            }`}>
+            <div className={`flex items-end gap-2.5 bg-[#fafaf9] border rounded-xl px-3.5 py-2.5 transition-all ${streaming ? 'border-gray-200' : 'border-gray-200 focus-within:border-violet-400 focus-within:shadow-[0_0_0_3px_rgba(139,92,246,0.08)]'
+              }`}>
               <textarea
                 ref={textareaRef}
                 placeholder="Message AI assistant…"
