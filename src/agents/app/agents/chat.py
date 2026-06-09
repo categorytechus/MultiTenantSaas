@@ -308,6 +308,23 @@ async def _run_gemini(
 
 
 
+# ── Module check helper ───────────────────────────────────────────────────────
+
+async def _check_module_enabled(client, org_id: str, module_id: str) -> bool:
+    """Check if module is enabled for org via internal API."""
+    import httpx
+
+    try:
+        resp = await client.post(
+            "/internal/modules/check",
+            json={"org_id": org_id, "module_id": module_id}
+        )
+        resp.raise_for_status()
+        return resp.json().get("enabled", False)
+    except Exception:
+        return False  # Fail closed
+
+
 # ── Public entry point ────────────────────────────────────────────────────────
 
 async def run_agent(
@@ -320,6 +337,8 @@ async def run_agent(
     workflow: str | None = None,
     trace_id: str | None = None,
     image_rendering_enabled: bool = False,
+    org_id: str | None = None,
+    http_client = None,
 ) -> AgentResult:
     """
     Stream a Bedrock (or Gemini) response and return an AgentResult.
@@ -363,7 +382,13 @@ async def run_agent(
 
     # Text chunks (existing format: [filename]\ncontent)
     for c in text_chunks:
-        all_context_parts.append(f"[{c['filename']}]\n{c['content']}")
+        header = f"[{c['filename']}]"
+        if "tags" in c and isinstance(c["tags"], dict) and "base_urls" in c["tags"]:
+            base_urls = c["tags"]["base_urls"]
+            if base_urls:
+                base_urls_str = ", ".join(base_urls) if isinstance(base_urls, list) else str(base_urls)
+                header += f" [base_urls: {base_urls_str}]"
+        all_context_parts.append(f"{header}\n{c['content']}")
 
     # Image chunks (appended after text)
     all_context_parts.extend(image_context_parts)
@@ -384,6 +409,19 @@ async def run_agent(
     # Append image instructions when image chunks are present
     if image_ref_map:
         system_prompt += get_prompt("chat", "with-images", workflow)
+
+    # Append link instructions when ai_links module is enabled
+    if org_id and http_client:
+        has_link_module = await _check_module_enabled(http_client, org_id, "ai_links")
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Link module check for org {org_id}: {has_link_module}")
+        if has_link_module:
+            logger.info("Appending link-instructions to system prompt")
+            system_prompt += get_prompt("chat", "link-instructions", workflow)
+        else:
+            logger.warning(f"ai_links module not enabled for org {org_id}")
+
     # Run the LLM
     if settings.CHAT_MODEL == "anthropic":
         if not settings.ANTHROPIC_API_KEY:

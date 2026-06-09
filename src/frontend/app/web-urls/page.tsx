@@ -31,6 +31,7 @@ interface UrlMetadata {
   accessRoles: string[];  // empty = unrestricted (all roles)
   allRoles: boolean;      // "all roles" toggle — overrides accessRoles
   description: string;
+  baseUrls: string;
 }
 
 interface OrgRole {
@@ -72,11 +73,13 @@ function MetadataFields({
   onChange,
   orgRoles,
   disabled,
+  linkModuleEnabled,
 }: {
   metadata: UrlMetadata;
   onChange: (m: UrlMetadata) => void;
   orgRoles: OrgRole[];
   disabled?: boolean;
+  linkModuleEnabled: boolean;
 }) {
   const toggleRole = (roleName: string) => {
     const has = metadata.accessRoles.includes(roleName);
@@ -155,16 +158,20 @@ function MetadataFields({
         )}
       </div>
 
-      <div>
-        <label className="block text-[13px] font-medium text-gray-800 mb-1.5">Description</label>
-        <textarea
-          className="w-full px-3 py-2.5 border border-gray-300 rounded-md text-[13px] text-gray-900 outline-none focus:border-violet-500 transition-colors resize-y min-h-[72px] disabled:opacity-50"
-          value={metadata.description}
-          onChange={(e) => onChange({ ...metadata, description: e.target.value })}
-          placeholder="Add a description for this URL..."
-          disabled={disabled}
-        />
-      </div>
+      {linkModuleEnabled && (
+        <div>
+          <label className="block text-[13px] font-medium text-gray-800 mb-1.5">Base URLs</label>
+          <input
+            type="text"
+            className="w-full px-3 py-2.5 border border-gray-300 rounded-md text-[13px] text-gray-900 outline-none focus:border-violet-500 transition-colors disabled:opacity-50"
+            value={metadata.baseUrls}
+            onChange={(e) => onChange({ ...metadata, baseUrls: e.target.value })}
+            placeholder="e.g. https://example.com, https://docs.example.com"
+            disabled={disabled}
+          />
+          <p className="text-[11.5px] text-gray-400 mt-1">Comma-separated list of URLs. Used by AI to resolve relative links inside the document.</p>
+        </div>
+      )}
 
       <div>
         <label className={`flex items-center gap-2.5 cursor-pointer select-none ${disabled ? "opacity-50 pointer-events-none" : ""}`}>
@@ -232,6 +239,9 @@ function UrlModal({
   currentUserId,
   editingUrl,
   onSuccess,
+  userRole,
+  orgs,
+  linkModuleEnabled,
 }: {
   open: boolean;
   onClose: () => void;
@@ -239,14 +249,20 @@ function UrlModal({
   currentUserId: string;
   editingUrl: WebUrl | null;
   onSuccess: (url: WebUrl) => void;
+  userRole: string;
+  orgs: { id: string; name: string }[];
+  linkModuleEnabled: boolean;
 }) {
   const [inputUrl, setInputUrl] = useState("");
+  const [selectedOrgId, setSelectedOrgId] = useState("");
+  const [uploadOrgRoles, setUploadOrgRoles] = useState<OrgRole[]>(orgRoles);
   const [metadata, setMetadata] = useState<UrlMetadata>({
     docType: "",
     isConfidential: false,
     accessRoles: [],
     allRoles: true,
     description: "",
+    baseUrls: "",
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -269,14 +285,25 @@ function UrlModal({
         accessRoles: savedRoles,
         allRoles: savedRoles.length === 0,
         description: editingUrl.description || "",
+        baseUrls: Array.isArray(editingUrl.tags?.base_urls) ? editingUrl.tags.base_urls.join(", ") : (editingUrl.tags?.base_urls as string) || "",
       });
     } else {
       setInputUrl("");
-      setMetadata({ docType: "", isConfidential: false, accessRoles: [], allRoles: true, description: "" });
+      setMetadata({ docType: "", isConfidential: false, accessRoles: [], allRoles: true, description: "", baseUrls: "" });
     }
     setError(null);
     setSuccess(false);
   }, [editingUrl, open]);
+
+  useEffect(() => {
+    if (selectedOrgId && userRole === "super_admin") {
+      apiFetch<{ data: OrgRole[] }>(`/organizations/${selectedOrgId}/roles`).then((res) => {
+        if (res.success) setUploadOrgRoles(res.data.data);
+      });
+    } else {
+      setUploadOrgRoles(orgRoles);
+    }
+  }, [selectedOrgId, orgRoles, userRole]);
 
   const handleClose = () => {
     if (!saving) { setError(null); setSuccess(false); onClose(); }
@@ -294,15 +321,25 @@ function UrlModal({
     setError(null);
     setSaving(true);
     try {
+      if (!isEdit && userRole === "super_admin" && !selectedOrgId) {
+        setError("Please select an organization");
+        return;
+      }
+
       const roles = metadata.allRoles ? [] : metadata.accessRoles;
       const tags: Record<string, unknown> = {
         "doc-type": metadata.docType.trim(),
         confidential: metadata.isConfidential ? "true" : "false",
         roles,
+        base_urls: metadata.baseUrls.trim() || null,
       };
       if (currentUserId) tags["user-id"] = currentUserId;
 
-      const body = JSON.stringify({ url: inputUrl.trim(), tags, description: metadata.description });
+      const bodyPayload: any = { url: inputUrl.trim(), tags, description: metadata.description };
+      if (!isEdit && userRole === "super_admin" && selectedOrgId) {
+        bodyPayload.org_id = selectedOrgId;
+      }
+      const body = JSON.stringify(bodyPayload);
       const res = isEdit
         ? await apiFetch(`/web-urls/${editingUrl!.id}`, { method: "PUT", body })
         : await apiFetch("/web-urls", { method: "POST", body });
@@ -355,7 +392,26 @@ function UrlModal({
               />
             </div>
 
-            <MetadataFields metadata={metadata} onChange={setMetadata} orgRoles={orgRoles} disabled={saving} />
+            {!isEdit && userRole === "super_admin" && (
+              <div className="mb-4">
+                <label className="block text-[13px] font-medium text-gray-800 mb-1.5">
+                  Organization <span className="text-red-500">*</span>
+                </label>
+                <select
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-[13px] text-gray-900 outline-none focus:border-violet-500 transition-colors"
+                  value={selectedOrgId}
+                  onChange={(e) => setSelectedOrgId(e.target.value)}
+                  disabled={saving}
+                >
+                  <option value="">Select Organization</option>
+                  {orgs.map((o) => (
+                    <option key={o.id} value={o.id}>{o.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <MetadataFields metadata={metadata} onChange={setMetadata} orgRoles={uploadOrgRoles} disabled={saving} linkModuleEnabled={linkModuleEnabled} />
 
             {error && (
               <div className="mt-3 text-[12.5px] text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">
@@ -388,13 +444,23 @@ export default function WebUrlPage() {
   const [editingUrl, setEditingUrl] = useState<WebUrl | null>(null);
   const [deleteItem, setDeleteItem] = useState<WebUrl | null>(null);
   const [currentUserId, setCurrentUserId] = useState("");
+  const [userRole, setUserRole] = useState("");
   const [orgRoles, setOrgRoles] = useState<OrgRole[]>([]);
+  const [orgs, setOrgs] = useState<{ id: string; name: string }[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const itemsPerPage = 10;
+
+  const linkModuleEnabled = (() => {
+    if (typeof window === "undefined") return false;
+    if (sessionStorage.getItem("userModulesUnrestricted")) return true;
+    const raw = sessionStorage.getItem("userModules");
+    if (!raw) return false;
+    try { return (JSON.parse(raw) as string[]).includes("link_embed"); } catch { return false; }
+  })();
 
   // Permission guard
   useEffect(() => {
@@ -473,7 +539,12 @@ export default function WebUrlPage() {
       try {
         const token = localStorage.getItem("accessToken");
         if (token) {
-          const { org_id } = JSON.parse(atob(token.split(".")[1])) as { org_id?: string };
+          const { org_id, role } = JSON.parse(atob(token.split(".")[1])) as { org_id?: string; role?: string };
+          if (role) setUserRole(role);
+          if (role === "super_admin") {
+            const orgRes = await apiFetch<{ data: { id: string; name: string }[] }>("/organizations");
+            if (orgRes.success) setOrgs(orgRes.data.data);
+          }
           if (org_id) {
             const rolesRes = await apiFetch<{ data: OrgRole[] }>(`/organizations/${org_id}/roles`);
             if (rolesRes.success) setOrgRoles(rolesRes.data.data);
@@ -743,6 +814,9 @@ export default function WebUrlPage() {
         currentUserId={currentUserId}
         editingUrl={editingUrl}
         onSuccess={handleSuccess}
+        userRole={userRole}
+        orgs={orgs}
+        linkModuleEnabled={linkModuleEnabled}
       />
       <DeleteModal
         urlItem={deleteItem}

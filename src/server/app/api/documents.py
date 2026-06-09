@@ -377,6 +377,8 @@ async def upload_document(
     description: str = Form(""),
     is_confidential: str = Form("false"),
     extract_images: str = Form("false"),
+    base_urls: str = Form(""),
+    org_id: str | None = Form(None),
     ctx: RequestContext = authorize("documents:upload"),
 ) -> Any:
     """
@@ -403,11 +405,17 @@ async def upload_document(
         "confidential": "true" if is_confidential.lower() == "true" else "false",
         "user-id": str(ctx.user_id),
     }
+    if base_urls.strip():
+        tags["base_urls"] = [u.strip() for u in base_urls.split(",") if u.strip()]
 
-    async with db_session(ctx.org_id) as session:
+    target_org_id = ctx.org_id
+    if org_id and ctx.role and ctx.role.value == "super_admin":
+        target_org_id = UUID(org_id)
+
+    async with db_session(target_org_id) as session:
         doc = await create_document(
             session,
-            org_id=ctx.org_id,
+            org_id=target_org_id,
             user_id=ctx.user_id,
             filename=filename,
             s3_key="",
@@ -416,7 +424,7 @@ async def upload_document(
             tags=tags,
             description=description.strip() or None,
         )
-        s3_key = make_s3_key(str(ctx.org_id), str(doc.id), ext)
+        s3_key = make_s3_key(str(target_org_id), str(doc.id), ext)
         doc.s3_key = s3_key
         session.add(doc)
         await session.flush()
@@ -424,10 +432,10 @@ async def upload_document(
         doc_snapshot = _doc_to_response(doc)
         await log_action(session, ctx, "document.upload", "document", str(doc_id), {"filename": filename})
 
-    await upload(s3_key, body, tags={"org_id": str(ctx.org_id), "document_id": str(doc_id)})
+    await upload(s3_key, body, tags={"org_id": str(target_org_id), "document_id": str(doc_id)})
 
     background_tasks.add_task(
-        _ingest_document_bg, doc_id, ctx.org_id, body, mime_type, filename,
+        _ingest_document_bg, doc_id, target_org_id, body, mime_type, filename,
         extract_images=(extract_images.lower() == "true"),
     )
 
@@ -531,7 +539,7 @@ async def get_doc(
         if _is_local_mode():
             download_url = f"/api/documents/{doc.id}/download"
         else:
-            download_url = await presigned_get(doc.s3_key)
+            download_url = await presigned_get(doc.s3_key, filename=doc.filename, content_type=doc.mime_type)
     else:
         download_url = None
     return _doc_to_response(doc, download_url)
@@ -560,7 +568,7 @@ async def download_doc_file(
             media_type=doc.mime_type or "application/octet-stream"
         )
     else:
-        url = await presigned_get(doc.s3_key)
+        url = await presigned_get(doc.s3_key, filename=doc.filename, content_type=doc.mime_type)
         return RedirectResponse(url)
 
 

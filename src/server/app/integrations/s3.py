@@ -97,7 +97,7 @@ async def delete(key: str) -> None:
             raise
 
 
-async def presigned_get(key: str, expires: int = 3600) -> str:
+async def presigned_get(key: str, expires: int = 3600, filename: str | None = None, content_type: str | None = None) -> str:
     """
     Generate a presigned URL for GET access to an S3 object.
     For local mode, returns a local file URL.
@@ -107,9 +107,15 @@ async def presigned_get(key: str, expires: int = 3600) -> str:
         return f"file://{local_path}"
 
     s3 = _get_s3_client()
+    params: dict[str, Any] = {"Bucket": settings.S3_BUCKET, "Key": key}
+    if filename:
+        params["ResponseContentDisposition"] = f'inline; filename="{filename}"'
+    if content_type:
+        params["ResponseContentType"] = content_type
+
     url = s3.generate_presigned_url(
         "get_object",
-        Params={"Bucket": settings.S3_BUCKET, "Key": key},
+        Params=params,
         ExpiresIn=expires,
     )
     return url

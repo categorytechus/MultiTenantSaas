@@ -27,6 +27,7 @@ class WebUrlCreateRequest(BaseModel):
     url: str
     tags: dict | None = None
     description: str | None = None
+    org_id: str | None = None
 
 
 class WebUrlUpdateRequest(BaseModel):
@@ -34,6 +35,7 @@ class WebUrlUpdateRequest(BaseModel):
     url: str
     tags: dict | None = None
     description: str | None = None
+    org_id: str | None = None
 
 
 def _to_row(item: WebUrl) -> dict:
@@ -83,13 +85,17 @@ async def create_web_url(
 
     title = parsed.netloc if "://" in url_stripped else url_stripped
     
-    # Capture all values we need in plain Python vars BEFORE the session closes.
-    # db_session auto-commits when the `async with` block exits, so by the time
-    # the background task starts, the rows are already committed to the DB.
+    if body.tags and "base_urls" in body.tags and isinstance(body.tags["base_urls"], str):
+        body.tags["base_urls"] = [u.strip() for u in body.tags["base_urls"].split(",") if u.strip()]
+    
+    target_org_id = ctx.org_id
+    if body.org_id and ctx.role and ctx.role.value == "super_admin":
+        target_org_id = UUID(body.org_id)
+        
     web_url_snapshot: dict = {}
-    async with db_session(ctx.org_id) as doc_session:
+    async with db_session(target_org_id) as doc_session:
         web_url_row = WebUrl(
-            org_id=ctx.org_id,
+            org_id=target_org_id,
             uploaded_by=ctx.user_id,
             url=url_stripped,
             title=title[:500],
@@ -102,7 +108,7 @@ async def create_web_url(
 
         doc = await create_url_document(
             doc_session,
-            org_id=ctx.org_id,
+            org_id=target_org_id,
             user_id=ctx.user_id,
             source_url=url_stripped,
         )
@@ -144,7 +150,7 @@ async def create_web_url(
     background_tasks.add_task(
         _ingest_document_bg,
         doc_id,
-        ctx.org_id,
+        target_org_id,
         None,                  # no file bytes
         None,                  # no mime_type
         doc_snapshot["filename"],
@@ -169,6 +175,9 @@ async def update_web_url(
     row = await session.get(WebUrl, url_id)
     if not row or row.org_id != ctx.org_id:
         raise HTTPException(status_code=404, detail="Web URL not found")
+
+    if body.tags and "base_urls" in body.tags and isinstance(body.tags["base_urls"], str):
+        body.tags["base_urls"] = [u.strip() for u in body.tags["base_urls"].split(",") if u.strip()]
 
     row.url = body.url.strip()
     row.tags = body.tags or {}

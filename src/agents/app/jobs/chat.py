@@ -100,6 +100,8 @@ async def run_chat(
             workflow=workflow,
             trace_id=str(uuid.uuid4()),
             image_rendering_enabled=image_rendering_enabled,
+            org_id=org_id,
+            http_client=http,
         )
 
         if result.type == "api_task_proposal" and result.proposal:
