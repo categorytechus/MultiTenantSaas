@@ -1,0 +1,18 @@
+aws_region = "us-east-1"
+project_name      = "mtsaas"
+environment       = "prod"
+ec2_instance_type = "t3.medium"
+key_name          = "multi-tenant-saas-key"
+
+db_name           = "app"
+db_username       = "appuser"
+db_password       = "higheredu2026"
+db_instance_class = "db.t3.micro"
+
+redis_node_type   = "cache.t3.micro"
+
+github_org        = "categorytechus"
+github_repo       = "MultiTenantSaas"
+
+# Restrict SSH to your office/VPN IP for production
+allowed_ssh_cidrs = ["0.0.0.0/0","103.186.40.195/32"]

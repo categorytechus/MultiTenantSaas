@@ -15,9 +15,13 @@ data "aws_ami" "amazon_linux_2023" {
   }
 }
 
+locals {
+  ssh_public_key_path = var.ssh_public_key_path != "" ? var.ssh_public_key_path : "${path.module}/${var.key_name}.pub"
+}
+
 resource "aws_key_pair" "app" {
   key_name   = var.key_name
-  public_key = file("${path.module}/${var.key_name}.pub")
+  public_key = file(local.ssh_public_key_path)
 }
 
 resource "aws_instance" "app" {

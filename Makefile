@@ -1,48 +1,76 @@
-.PHONY: help dev dev-detach db-up migrate migrate-docker migrate-new install server agents frontend prod prod-detach prod-frontend clean logs-server logs-agents logs-frontend logs-prod-frontend ecr-login redeploy-ecr upload-env url
+.PHONY: help dev dev-detach db-up migrate migrate-docker migrate-new install server agents frontend prod prod-detach prod-frontend clean logs-server logs-agents logs-frontend logs-prod-frontend ecr-login redeploy-ecr upload-env url tf-init tf-plan tf-apply new-client cleanup-orphans
 
 PYTHON := python3
 UV := uv
-SERVER_DIR := src/server
-AGENTS_DIR := src/agents
+SERVER_DIR  := src/server
+AGENTS_DIR  := src/agents
 FRONTEND_DIR := src/frontend
+
+# ── Client selection ──────────────────────────────────────────────────────────
+# Each client has a directory under clients/ with config.env, backend.hcl,
+# terraform.tfvars, prod.env, and an SSH key.
+#
+# Usage:  make <target> CLIENT=823954030825
+#         make <target> CLIENT=acme-corp
+#
+# Defaults to the first directory found under clients/.
+CLIENT     ?= $(firstword $(shell ls clients/ 2>/dev/null | grep -v '^\.' | grep -v '^_'))
+CLIENT_DIR  = clients/$(CLIENT)
+
+# Load region / account from client config (KEY=value lines, no spaces around =)
+-include $(CLIENT_DIR)/config.env
 
 AWS_REGION   ?= us-east-1
 AWS_ACCOUNT  ?= $(shell aws sts get-caller-identity --query Account --output text 2>/dev/null)
+KEY_NAME     ?= multi-tenant-saas-key
 ECR_REGISTRY ?= $(AWS_ACCOUNT).dkr.ecr.$(AWS_REGION).amazonaws.com
 IMAGE_TAG    ?= $(shell git rev-parse --short HEAD)
+
+# Paths that differ per client — must be absolute so terraform -chdir=infra can resolve them
+# SSH_KEY can be overridden: make redeploy-ecr CLIENT=x SSH_KEY=/path/to/other.pem
+TF_BACKEND  ?= $(abspath $(CLIENT_DIR)/backend.hcl)
+TF_VARS     ?= $(abspath $(CLIENT_DIR)/terraform.tfvars)
+PROD_ENV    ?= $(abspath $(CLIENT_DIR)/prod.env)
+SSH_KEY     ?= $(abspath $(CLIENT_DIR)/$(KEY_NAME).pem)
 
 help:
 	@echo "Multi-Tenant AI SaaS — available targets:"
 	@echo ""
-	@echo "Docker Compose (recommended):"
+	@echo "Client management:"
+	@echo "  make new-client CLIENT=<id> REGION=<aws-region>"
+	@echo "                       Scaffold a new client under clients/<id>/"
+	@echo "  make cleanup-orphans CLIENT=<id>"
+	@echo "                       Remove cross-VPC orphaned AWS resources for a client"
+	@echo ""
+	@echo "Terraform (per-client):"
+	@echo "  make tf-init   CLIENT=<id>   terraform init with client backend"
+	@echo "  make tf-plan   CLIENT=<id>   terraform plan with client vars"
+	@echo "  make tf-apply  CLIENT=<id>   terraform apply with client vars"
+	@echo ""
+	@echo "Docker Compose (local dev):"
 	@echo "  make dev             Start all 4 services (server, agents, frontend, db)"
 	@echo "  make dev-detach      Same, detached"
 	@echo "  make db-up           Start only Postgres + Redis"
-	@echo "  make clean           Remove containers and volumes (fixes PG data dir / version mismatch)"
+	@echo "  make clean           Remove containers and volumes"
 	@echo ""
 	@echo "Local dev (requires Postgres + Redis via make db-up):"
 	@echo "  make install         Install all dependencies (uv sync + npm install)"
 	@echo "  make server          FastAPI server on :8000"
-	@echo "  make agents          Arq worker — document ingest + AI chat agents (src/agents)"
+	@echo "  make agents          Arq worker"
 	@echo "  make frontend        Next.js dev server on :3000"
 	@echo ""
 	@echo "Database:"
-	@echo "  make migrate              alembic upgrade head (default chain, host → localhost:5432)"
-	@echo "  make migrate-docker       same, inside Docker (uses @postgres; no host port needed)"
+	@echo "  make migrate              alembic upgrade head"
+	@echo "  make migrate-docker       same, inside Docker"
 	@echo "  make migrate-new msg='...'  autogenerate migration"
 	@echo ""
 	@echo "Logs (Docker):"
-	@echo "  make logs-server     FastAPI server logs"
-	@echo "  make logs-agents     Agents worker logs (ingest + chat)"
-	@echo "  make logs-frontend   Next.js frontend logs"
-	@echo ""
-	@echo "Production (EC2 / local prod build):"
-	@echo "  make prod            Build & run all services; migrations run automatically before server starts"
-	@echo "  make prod-detach     Same, detached"
-	@echo "  make prod-frontend   Build & run production frontend Docker container only"
+	@echo "  make logs-server / logs-agents / logs-frontend"
 	@echo ""
 	@echo "Deploy:"
-	@echo "  make redeploy-ecr    Build + push 3 images to ECR, SSH deploy to EC2"
+	@echo "  make redeploy-ecr CLIENT=<id>   Build + push ECR images, SSH deploy to EC2"
+	@echo "  make upload-env   CLIENT=<id>   Push clients/<id>/prod.env to EC2"
+	@echo "  make url          CLIENT=<id>   Show EC2 URLs for a client"
 	@echo ""
 
 # ── Full stack via Docker Compose ──────────────────────────────────────────
@@ -155,30 +183,55 @@ logs-frontend:
 logs-prod-frontend:
 	docker logs -f mtsaas-frontend-prod
 
+# ── Terraform (per-client) ────────────────────────────────────────────────────
+
+tf-init:
+	terraform -chdir=infra init -reconfigure -backend-config=$(TF_BACKEND)
+
+tf-plan:
+	terraform -chdir=infra plan -var-file=$(TF_VARS) \
+	  -var="ssh_public_key_path=$(abspath $(CLIENT_DIR)/$(KEY_NAME).pub)"
+
+tf-apply:
+	terraform -chdir=infra apply -var-file=$(TF_VARS) \
+	  -var="ssh_public_key_path=$(abspath $(CLIENT_DIR)/$(KEY_NAME).pub)"
+
+# ── Client management ─────────────────────────────────────────────────────────
+
+new-client:
+	@test -n "$(CLIENT)" || (echo "Usage: make new-client CLIENT=<id> [AWS_REGION=<region>]" && exit 1)
+	bash scripts/new-client.sh $(CLIENT) $(AWS_REGION)
+
+cleanup-orphans:
+	bash scripts/cleanup-orphans.sh $(CLIENT_DIR)
+
 # ── ECR / prod deploy ─────────────────────────────────────────────────────────
 
 EC2_USER := ec2-user
 EC2_IP   ?= $(shell aws ec2 describe-instances \
-               --filters "Name=tag:Name,Values=mtsaas-prod-app" "Name=instance-state-name,Values=running" \
+               --region $(AWS_REGION) \
+               --filters "Name=tag:Project,Values=$(shell grep project_name $(TF_VARS) 2>/dev/null | awk -F'"' '{print $$2}')" \
+                         "Name=instance-state-name,Values=running" \
                --query "Reservations[0].Instances[0].PublicIpAddress" --output text 2>/dev/null)
-SSH_KEY  ?= infra/multi-tenant-saas-key.pem
 
 url:
-	@IP=$(shell terraform -chdir=infra output -raw ec2_public_ip 2>/dev/null); \
-	if [ -z "$$IP" ]; then echo "No EC2 instance found. Has terraform apply been run?"; exit 1; fi; \
+	@IP=$(EC2_IP); \
+	if [ -z "$$IP" ] || [ "$$IP" = "None" ]; then \
+	  echo "No running EC2 instance found for CLIENT=$(CLIENT). Has terraform apply been run?"; exit 1; \
+	fi; \
 	echo ""; \
 	echo "  Frontend : http://$$IP:3000"; \
 	echo "  API      : http://$$IP:8000"; \
-	echo "  SSH      : ssh -i infra/multi-tenant-saas-key.pem ec2-user@$$IP"; \
+	echo "  SSH      : ssh -i $(SSH_KEY) $(EC2_USER)@$$IP"; \
 	echo ""
 
 ecr-login:
 	aws ecr get-login-password --region $(AWS_REGION) | docker login --username AWS --password-stdin $(ECR_REGISTRY)
 
 upload-env:
-	@test -f infra/prod.env || (echo "ERROR: infra/prod.env not found. Copy infra/prod.env.example and fill in the values." && exit 1)
-	@echo "Uploading infra/prod.env to EC2 ($(EC2_IP))..."
-	scp -i $(SSH_KEY) -o StrictHostKeyChecking=no infra/prod.env \
+	@test -f $(PROD_ENV) || (echo "ERROR: $(PROD_ENV) not found. Copy infra/prod.env.example and fill in the values." && exit 1)
+	@echo "Uploading $(PROD_ENV) to EC2 ($(EC2_IP))..."
+	scp -i $(SSH_KEY) -o StrictHostKeyChecking=no $(PROD_ENV) \
 	    $(EC2_USER)@$(EC2_IP):/opt/app/.env
 	@echo "Done. .env updated on server."
 
