@@ -8,16 +8,18 @@ terraform {
     }
   }
 
-  backend "s3" {
-    # bucket name is account-scoped; set via -backend-config or TF_CLI_ARGS_init
-    # e.g. multitenant-saas-tfstate-<account-id>
-    key    = "prod/terraform.tfstate"
-    region = "us-east-1"
-  }
+  # Partial backend config — bucket/region/key are supplied at init time.
+  # Run:  terraform -chdir=infra init -reconfigure -backend-config=<client-dir>/backend.hcl
+  # Or:   make tf-init CLIENT=<client-id>
+  backend "s3" {}
 }
 
 provider "aws" {
   region = var.aws_region
+
+  endpoints {
+    s3 = "https://s3.${var.aws_region}.amazonaws.com"
+  }
 
   default_tags {
     tags = {
