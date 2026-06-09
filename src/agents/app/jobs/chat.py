@@ -12,12 +12,15 @@ Flow:
   7b. api_task_proposal: save proposal via /internal, publish SSE event, mark succeeded
 """
 from typing import Any
+import logging
 import uuid
 
 import httpx
 import psycopg
 import redis.asyncio as aioredis
 from pgvector.psycopg import register_vector_async
+
+logger = logging.getLogger(__name__)
 
 from app.agents.chat import run_agent
 from app.config import settings
@@ -52,6 +55,8 @@ async def run_chat(
     try:
         db_url = settings.DATABASE_URL.replace("postgresql+psycopg://", "postgresql://")
         permission_exists = False
+        chunks: list[dict] = []
+        image_rendering_enabled = False
 
         async with await psycopg.AsyncConnection.connect(db_url) as conn:
             await register_vector_async(conn)
@@ -71,6 +76,18 @@ async def run_chat(
                 query_vector = await embed_query(message)
                 chunks = await retrieve_chunks(conn, query_vector, user_role=user_role)
 
+                # Check if the org has the ai_images module enabled
+                ai_images_cur = await conn.execute(
+                    "SELECT 1 FROM org_modules WHERE org_id = %s AND module_id = 'ai_images'",
+                    [org_id],
+                )
+                image_rendering_enabled = (await ai_images_cur.fetchone()) is not None
+
+        # If ai_images is disabled, strip image chunks from context so they
+        # don't appear in the system prompt at all
+        if not image_rendering_enabled:
+            chunks = [c for c in chunks if c.get("chunk_type", "text") != "image"]
+
         # Load enabled API modules — safe metadata only, no auth secrets
         api_modules = await load_api_modules(http, org_id)
 
@@ -82,6 +99,7 @@ async def run_chat(
             channel=channel,
             workflow=workflow,
             trace_id=str(uuid.uuid4()),
+            image_rendering_enabled=image_rendering_enabled,
         )
 
         if result.type == "api_task_proposal" and result.proposal:
@@ -130,12 +148,30 @@ async def run_chat(
         else:
             # Normal chat response — tokens already streamed to Redis by run_agent
             sources = [{"filename": c["filename"], "score": round(c["score"], 4)} for c in chunks]
+
+            message_to_save = result.message or ""
+
+            # Defensive: ensure we're not saving raw JSON wrapper
+            if message_to_save.strip().startswith('{"type":'):
+                logger.error("Attempted to save JSON wrapper to DB. Extracting message field.")
+                try:
+                    import json
+                    parsed = json.loads(message_to_save)
+                    message_to_save = parsed.get("message", "[Error: Could not extract message from response]")
+                except Exception:
+                    message_to_save = "[Error: Response formatting issue]"
+
             await save_assistant_message(
-                http, session_id, org_id, result.message or "", sources
+                http, session_id, org_id, message_to_save, sources
             )
 
         await update_task(http, task_id, org_id, "succeeded",
                           output={"content": result.message or ""})
+        # Only delay if we published replace_content events (image resolution)
+        # Short delay allows replace_content event to flush through Redis -> SSE pipeline
+        import asyncio
+        if image_rendering_enabled and chunks:
+            await asyncio.sleep(0.1)
         await publish(redis, channel, {"type": "done"})
 
     except Exception as exc:
