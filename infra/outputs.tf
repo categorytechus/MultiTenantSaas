@@ -10,7 +10,7 @@ output "ec2_public_dns" {
 
 output "ssh_command" {
   description = "SSH command to connect to the app server"
-  value       = "ssh -i infra/${var.key_name}.pem ec2-user@${aws_eip.app.public_ip}"
+  value       = "ssh -i <client-dir>/${var.key_name}.pem ec2-user@${aws_eip.app.public_ip}"
 }
 
 output "ecr_backend_url" {

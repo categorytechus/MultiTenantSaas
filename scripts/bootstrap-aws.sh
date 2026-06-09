@@ -32,6 +32,7 @@ if [ -z "$CLIENT_DIR" ] || [ ! -d "$CLIENT_DIR" ]; then
   echo "  2. Pass it directly: $0 clients/<client-id>"
   exit 1
 fi
+CLIENT_DIR="$(cd "$CLIENT_DIR" && pwd)"
 
 # ── Load client config ─────────────────────────────────────────────────────────
 # shellcheck source=/dev/null

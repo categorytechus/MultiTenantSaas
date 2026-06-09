@@ -26,11 +26,12 @@ KEY_NAME     ?= multi-tenant-saas-key
 ECR_REGISTRY ?= $(AWS_ACCOUNT).dkr.ecr.$(AWS_REGION).amazonaws.com
 IMAGE_TAG    ?= $(shell git rev-parse --short HEAD)
 
-# Paths that differ per client
-TF_BACKEND   = $(CLIENT_DIR)/backend.hcl
-TF_VARS      = $(CLIENT_DIR)/terraform.tfvars
-PROD_ENV     = $(CLIENT_DIR)/prod.env
-SSH_KEY      = $(CLIENT_DIR)/$(KEY_NAME).pem
+# Paths that differ per client — must be absolute so terraform -chdir=infra can resolve them
+# SSH_KEY can be overridden: make redeploy-ecr CLIENT=x SSH_KEY=/path/to/other.pem
+TF_BACKEND  ?= $(abspath $(CLIENT_DIR)/backend.hcl)
+TF_VARS     ?= $(abspath $(CLIENT_DIR)/terraform.tfvars)
+PROD_ENV    ?= $(abspath $(CLIENT_DIR)/prod.env)
+SSH_KEY     ?= $(abspath $(CLIENT_DIR)/$(KEY_NAME).pem)
 
 help:
 	@echo "Multi-Tenant AI SaaS — available targets:"
@@ -188,10 +189,12 @@ tf-init:
 	terraform -chdir=infra init -reconfigure -backend-config=$(TF_BACKEND)
 
 tf-plan:
-	terraform -chdir=infra plan -var-file=$(TF_VARS)
+	terraform -chdir=infra plan -var-file=$(TF_VARS) \
+	  -var="ssh_public_key_path=$(abspath $(CLIENT_DIR)/$(KEY_NAME).pub)"
 
 tf-apply:
-	terraform -chdir=infra apply -var-file=$(TF_VARS)
+	terraform -chdir=infra apply -var-file=$(TF_VARS) \
+	  -var="ssh_public_key_path=$(abspath $(CLIENT_DIR)/$(KEY_NAME).pub)"
 
 # ── Client management ─────────────────────────────────────────────────────────
 

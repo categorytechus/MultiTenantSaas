@@ -28,6 +28,12 @@ variable "key_name" {
   default     = "multi-tenant-saas-key"
 }
 
+variable "ssh_public_key_path" {
+  description = "Absolute path to the SSH public key file. Defaults to infra/<key_name>.pub"
+  type        = string
+  default     = ""
+}
+
 variable "db_name" {
   description = "PostgreSQL database name"
   type        = string

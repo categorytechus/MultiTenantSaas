@@ -111,8 +111,6 @@ allowed_ssh_cidrs = ["YOUR.IP.ADDRESS/32"] # run: curl ifconfig.me
 
 Everything else can stay as the defaults.
 
-**`clients/<client-id>/prod.env`** — fill this after Step 3 once you have Terraform outputs.
-
 ---
 
 ### Step 3 — Bootstrap (one-time only)
@@ -134,16 +132,6 @@ make tf-apply CLIENT=<client-id>
 ```
 
 Review the plan and type `yes`. Takes ~10–15 minutes (RDS is the slow part).
-
-When it finishes, print the values you'll need for the env file:
-
-```bash
-terraform -chdir=infra output -raw ec2_public_ip   # server IP
-terraform -chdir=infra output -raw database_url    # DATABASE_URL
-terraform -chdir=infra output redis_url            # REDIS_URL
-terraform -chdir=infra output s3_bucket            # S3_BUCKET
-terraform -chdir=infra output ecr_registry         # ECR_REGISTRY
-```
 
 ---
 
@@ -210,7 +198,7 @@ Each client directory is independent — different AWS accounts, regions, or env
 
 ```
 clients/
-  823954030825/    # production (us-east-1)
+  demo-one/    # production (us-east-1)
   acme-corp/       # client A  (ap-south-1)
   staging/         # staging   (us-east-1)
 ```

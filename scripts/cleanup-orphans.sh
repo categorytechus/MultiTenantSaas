@@ -26,6 +26,7 @@ if [ -z "$CLIENT_DIR" ] || [ ! -d "$CLIENT_DIR" ]; then
   echo "  $0 clients/<client-id>"
   exit 1
 fi
+CLIENT_DIR="$(cd "$CLIENT_DIR" && pwd)"
 
 # shellcheck source=/dev/null
 source "${CLIENT_DIR}/config.env"

@@ -1,4 +1,4 @@
-aws_region        = "us-east-1"
+aws_region = "us-east-1"
 project_name      = "mtsaas"
 environment       = "prod"
 ec2_instance_type = "t3.medium"
@@ -6,7 +6,7 @@ key_name          = "multi-tenant-saas-key"
 
 db_name           = "app"
 db_username       = "appuser"
-db_password       = "CHANGE_ME_strong_password_here"
+db_password       = "higheredu2026"
 db_instance_class = "db.t3.micro"
 
 redis_node_type   = "cache.t3.micro"
