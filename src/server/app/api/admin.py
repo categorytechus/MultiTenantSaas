@@ -335,7 +335,6 @@ async def delete_organization(
     await _del("documents")
     # other org-scoped tables
     await _del("web_urls")
-    await _del("cost_seg_rulesets")
     # RBAC: role_permissions/role_org_permissions that reference custom org roles, then the roles
     await _del("user_roles", "organization_id")
     await _del("role_org_permissions")
