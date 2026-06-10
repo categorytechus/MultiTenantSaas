@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Layout from "../../../components/Layout";
 import { apiFetch } from "../../../src/lib/api";
 import { assignableMemberRoles } from "../../../src/lib/org-member-roles";
+import { copyToClipboard } from "../../../src/lib/clipboard";
 
 interface Role {
   id: string;
@@ -110,7 +111,7 @@ export default function CreateUserPage() {
 
   const handleCopy = () => {
     if (normalizedLink) {
-      navigator.clipboard.writeText(normalizedLink).catch(() => {});
+      copyToClipboard(normalizedLink);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -147,7 +148,7 @@ export default function CreateUserPage() {
                 {window.location.origin + '/auth/signin'}
               </div>
               <button
-                onClick={() => { navigator.clipboard.writeText(window.location.origin + '/auth/signin').catch(() => {}); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+                onClick={() => { copyToClipboard(window.location.origin + '/auth/signin'); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
                 style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
                   width: '100%', padding: '9px 16px', borderRadius: 8, cursor: 'pointer',
@@ -171,7 +172,7 @@ export default function CreateUserPage() {
                 style={{ width: '100%', background: '#f5f4f1', border: '1px solid #e5e5e5', color: '#1a1a1a' }}
                 onClick={() => {
                   const msg = `Hi there!\n\nYou have been added to our organization. You can log in using your existing account here:\n\n${window.location.origin}/auth/signin\n\nBest regards,`;
-                  navigator.clipboard.writeText(msg).catch(() => {});
+                  copyToClipboard(msg);
                   setCopiedMessage(true);
                   setTimeout(() => setCopiedMessage(false), 2000);
                 }}

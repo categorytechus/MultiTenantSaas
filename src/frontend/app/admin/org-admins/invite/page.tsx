@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Layout from '../../../../components/Layout';
 import { apiFetch } from '../../../../src/lib/api';
+import { copyToClipboard } from '../../../../src/lib/clipboard';
 
 interface Org { id: string; name: string; slug: string; }
 
@@ -91,7 +92,7 @@ export default function InviteOrgAdminPage() {
 
   const handleCopy = () => {
     if (normalizedSignupLink) {
-      navigator.clipboard.writeText(normalizedSignupLink).catch(() => {});
+      copyToClipboard(normalizedSignupLink);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
