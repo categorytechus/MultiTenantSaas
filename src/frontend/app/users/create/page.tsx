@@ -110,7 +110,7 @@ export default function CreateUserPage() {
 
   const handleCopy = () => {
     if (normalizedLink) {
-      navigator.clipboard.writeText(normalizedLink);
+      navigator.clipboard.writeText(normalizedLink).catch(() => {});
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -148,10 +148,10 @@ export default function CreateUserPage() {
                   fontFamily: 'monospace', fontSize: 12.5, color: '#374151',
                   background: '#f9f9f8', wordBreak: 'break-all', lineHeight: 1.5,
                 }}>
-                  {(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000') + '/auth/signin'}
+                  {window.location.origin + '/auth/signin'}
                 </div>
                 <button
-                  onClick={() => { navigator.clipboard.writeText((process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000') + '/auth/signin'); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+                  onClick={() => { navigator.clipboard.writeText(window.location.origin + '/auth/signin').catch(() => {}); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
                   style={{
                     padding: '10px 14px', background: copied ? '#f0fdf4' : '#f5f4f1',
                     border: 'none', borderLeft: '1px solid #e5e5e5', cursor: 'pointer',
@@ -169,8 +169,8 @@ export default function CreateUserPage() {
                 className="btn"
                 style={{ width: '100%', background: '#f5f4f1', border: '1px solid #e5e5e5', color: '#1a1a1a' }}
                 onClick={() => {
-                  const msg = `Hi there!\n\nYou have been added to our organization. You can log in using your existing account here:\n\n${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/auth/signin\n\nBest regards,`;
-                  navigator.clipboard.writeText(msg);
+                  const msg = `Hi there!\n\nYou have been added to our organization. You can log in using your existing account here:\n\n${window.location.origin}/auth/signin\n\nBest regards,`;
+                  navigator.clipboard.writeText(msg).catch(() => {});
                   setCopiedMessage(true);
                   setTimeout(() => setCopiedMessage(false), 2000);
                 }}
@@ -269,7 +269,7 @@ export default function CreateUserPage() {
                 style={{ width: '100%', background: '#f5f4f1', border: '1px solid #e5e5e5', color: '#1a1a1a' }}
                 onClick={() => {
                   const msg = `Hi there!\n\nAn account has been created for you. Please use the following link to set your password and log in:\n\n${normalizedLink}\n\nBest regards,`;
-                  navigator.clipboard.writeText(msg);
+                  navigator.clipboard.writeText(msg).catch(() => {});
                   setCopiedMessage(true);
                   setTimeout(() => setCopiedMessage(false), 2000);
                 }}
