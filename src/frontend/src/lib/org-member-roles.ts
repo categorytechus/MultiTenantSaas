@@ -1,4 +1,4 @@
-const ASSIGNABLE_SYSTEM_ROLES = new Set(["org_admin", "user", "viewer"]);
+const ASSIGNABLE_SYSTEM_ROLES = new Set(["org_admin", "viewer"]);
 
 export function assignableMemberRoles<T extends { is_system: boolean; name: string }>(
   roles: T[],

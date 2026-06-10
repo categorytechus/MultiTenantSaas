@@ -309,20 +309,56 @@ async def delete_organization(
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
 
-    # Cascade: delete memberships, invite tokens, org modules, then the org
-    await session.execute(
-        text("DELETE FROM org_memberships WHERE org_id = :oid"),
-        {"oid": org_id},
-    )
-    await session.execute(
-        text("DELETE FROM invite_tokens WHERE org_id = :oid"),
-        {"oid": org_id},
-    )
-    if await _org_modules_table_exists(session):
+    async def _del(table: str, col: str = "org_id") -> None:
+        """Delete rows from `table` where `col` = org_id, only if the table exists."""
+        exists = await session.execute(text(f"SELECT to_regclass('public.{table}')"))
+        if exists.scalar_one_or_none() is not None:
+            await session.execute(
+                text(f"DELETE FROM {table} WHERE {col} = :oid"),
+                {"oid": org_id},
+            )
+
+    # Delete in FK dependency order (children before parents).
+    # api_execution_logs → api_task_proposals → agent_tasks
+    await _del("api_execution_logs")
+    await _del("api_task_proposals")
+    await _del("agent_tasks")
+    # workflow children → workflow_sessions
+    await _del("workflow_outputs")
+    await _del("workflow_items")
+    await _del("workflow_sessions")
+    # chat children → chat_sessions
+    await _del("chat_messages")
+    await _del("chat_sessions")
+    # document children → documents
+    await _del("document_chunks")
+    await _del("documents")
+    # other org-scoped tables
+    await _del("web_urls")
+    await _del("cost_seg_rulesets")
+    # RBAC: role_permissions/role_org_permissions that reference custom org roles, then the roles
+    await _del("user_roles", "organization_id")
+    await _del("role_org_permissions")
+    exists = await session.execute(text("SELECT to_regclass('public.role_permissions')"))
+    if exists.scalar_one_or_none() is not None:
         await session.execute(
-            text("DELETE FROM org_modules WHERE org_id = :oid"),
+            text("DELETE FROM role_permissions WHERE role_id IN (SELECT id FROM roles WHERE organization_id = :oid)"),
             {"oid": org_id},
         )
+    await session.execute(
+        text("DELETE FROM roles WHERE organization_id = :oid"),
+        {"oid": org_id},
+    )
+    # refresh tokens scoped to this org
+    await session.execute(
+        text("DELETE FROM refresh_tokens WHERE org_id = :oid"),
+        {"oid": org_id},
+    )
+    # membership, invites, modules
+    await session.execute(text("DELETE FROM org_memberships WHERE org_id = :oid"), {"oid": org_id})
+    await session.execute(text("DELETE FROM invite_tokens WHERE org_id = :oid"), {"oid": org_id})
+    await _del("org_modules")
+
     await session.delete(org)
     await session.flush()
 
@@ -515,8 +551,12 @@ async def list_org_admins(
     result = await session.execute(query)
     rows = result.all()
 
+    from app.core.identity import is_super_admin_user as _is_sa
+
     by_user: dict[str, OrgAdminRow] = {}
     for user, org, mem in rows:
+        if _is_sa(user.id):
+            continue  # super admins are not org admins
         uid = str(user.id)
         entry = by_user.get(uid)
         if not entry:
@@ -555,6 +595,12 @@ async def create_org_admin(
     user = existing.scalars().first()
 
     if user:
+        from app.core.identity import is_super_admin_user as _is_sa
+        if _is_sa(user.id):
+            raise HTTPException(
+                status_code=400,
+                detail="Super admins cannot be added as org admins",
+            )
         mr = await session.execute(
             select(OrgMembership).where(
                 OrgMembership.user_id == user.id,
