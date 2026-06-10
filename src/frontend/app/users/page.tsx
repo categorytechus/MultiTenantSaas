@@ -358,7 +358,7 @@ export default function UsersPage() {
               {resetTempPassword}
             </div>
             <div className="modal-actions">
-              <button className="btn btn-primary" onClick={() => { navigator.clipboard.writeText(resetTempPassword).catch(() => {}); setResetCopied(true); setTimeout(() => setResetCopied(false), 2000); }}>
+              <button className="btn btn-primary" onClick={() => { copyToClipboard(resetTempPassword); setResetCopied(true); setTimeout(() => setResetCopied(false), 2000); }}>
                 {resetCopied ? "Copied!" : "Copy Password"}
               </button>
               <button className="btn" style={{ background: "#f5f4f1", color: "#1a1a1a", border: "none" }} onClick={() => setResetTempPassword(null)}>Done</button>
