@@ -48,6 +48,7 @@ def _to_row(item: WebUrl) -> dict:
         "status": item.status,
         "created_at": item.created_at.isoformat(),
         "processing_speed": None,
+        "org_id": str(item.org_id) if hasattr(item, "org_id") and item.org_id else None,
     }
 
 

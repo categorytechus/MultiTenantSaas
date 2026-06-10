@@ -23,6 +23,7 @@ interface WebUrl {
   status: string;
   created_at: string;
   processing_speed?: string;
+  org_id?: string;
 }
 
 interface UrlMetadata {
@@ -459,7 +460,7 @@ export default function WebUrlPage() {
     if (sessionStorage.getItem("userModulesUnrestricted")) return true;
     const raw = sessionStorage.getItem("userModules");
     if (!raw) return false;
-    try { return (JSON.parse(raw) as string[]).includes("link_embed"); } catch { return false; }
+    try { return (JSON.parse(raw) as string[]).includes("ai_links"); } catch { return false; }
   })();
 
   // Permission guard
@@ -664,7 +665,9 @@ export default function WebUrlPage() {
                 <table className="w-full border-collapse min-w-[700px]">
                   <thead className="bg-gray-50">
                     <tr>
-                      {["URL", "Title", "Category", "Status", "Date Added", "Actions"].map((h) => (
+                      {(userRole === "super_admin"
+                        ? ["URL", "Organization", "Title", "Category", "Status", "Date Added", "Actions"]
+                        : ["URL", "Title", "Category", "Status", "Date Added", "Actions"]).map((h) => (
                         <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
                           {h}
                         </th>
@@ -710,6 +713,13 @@ export default function WebUrlPage() {
                               })()}
                             </div>
                           </td>
+
+                          {/* Organization (Super Admin Only) */}
+                          {userRole === "super_admin" && (
+                            <td className="px-4 py-3 text-[12px] text-gray-500">
+                              {orgs.find(o => o.id === u.org_id)?.name || "Unknown"}
+                            </td>
+                          )}
 
                           {/* Title */}
                           <td className="px-4 py-3 text-[13px] text-gray-700 max-w-[200px]">

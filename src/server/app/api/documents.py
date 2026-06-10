@@ -56,6 +56,7 @@ class DocumentResponse(BaseModel):
     tags: dict | None = None
     description: str | None = None
     image_count: int = 0
+    org_id: str | None = None
 
 
 def _doc_to_response(doc: Document, download_url: str | None = None) -> dict:
@@ -90,6 +91,7 @@ def _doc_to_response(doc: Document, download_url: str | None = None) -> dict:
         "tags": tags,
         "description": doc.description,
         "image_count": getattr(doc, "image_count", 0) or 0,
+        "org_id": str(doc.org_id) if hasattr(doc, "org_id") and doc.org_id else None,
     }
 
 
