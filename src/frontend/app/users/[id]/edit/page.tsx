@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter, useParams } from "next/navigation";
+import { useRouter, useParams, useSearchParams } from "next/navigation";
 import Layout from "../../../../components/Layout";
 import { apiFetch } from "../../../../src/lib/api";
 import { assignableMemberRoles } from "../../../../src/lib/org-member-roles";
@@ -24,6 +24,7 @@ interface OrgUserListItem {
 export default function EditUserPage() {
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const id = params?.id as string;
 
   const [name, setName] = useState("");
@@ -58,7 +59,7 @@ export default function EditUserPage() {
         const isSA = ut === "super_admin";
         setIsSuperAdmin(isSA);
         setIsOrgAdmin(!isSA && jwtRoles.includes("org_admin"));
-        const oid = payload.org_id;
+        const oid = payload.org_id || searchParams?.get("orgId") || "";
         if (!oid) { setError("No org context"); setFetchingData(false); return; }
         setOrgId(oid);
 
@@ -77,20 +78,37 @@ export default function EditUserPage() {
             setEmail(u.email);
             setStatus(u.status);
 
+            // The server may return pseudo-roles like {id: "tenant_admin", name: "org_admin"}
+            // for users who have only a membership role but no user_roles entry.
+            // Always resolve to a real UUID from the assignable list.
             const rbacRoles = u.roles || [];
-            if (rbacRoles.length > 0) {
-              setCurrentRoles(rbacRoles);
-              setSelectedRoleId(rbacRoles[0].id);
-            } else {
-              // Fallback: find the role in the assignable list by matching the display name
-              // derived from membership.role (org_role).
+            let matchedRole: Role | null = null;
+
+            // 1. UUID match — user has a real user_roles entry
+            for (const r of rbacRoles) {
+              const found = assignable.find((a) => a.id === r.id);
+              if (found) { matchedRole = found; break; }
+            }
+            // 2. Name match — handles pseudo-role {id: "tenant_admin", name: "org_admin"}
+            if (!matchedRole) {
+              for (const r of rbacRoles) {
+                const found = assignable.find((a) => a.name === r.name);
+                if (found) { matchedRole = found; break; }
+              }
+            }
+            // 3. Derive from org_role membership field
+            if (!matchedRole) {
               const orgRoleToName: Record<string, string> = { tenant_admin: "org_admin" };
               const lookupName = orgRoleToName[u.org_role ?? ""] ?? u.org_role;
-              const matchedRole = lookupName ? assignable.find((r) => r.name === lookupName) : null;
-              if (matchedRole) {
-                setCurrentRoles([matchedRole]);
-                setSelectedRoleId(matchedRole.id);
-              }
+              matchedRole = lookupName ? (assignable.find((r) => r.name === lookupName) ?? null) : null;
+            }
+
+            if (matchedRole) {
+              setCurrentRoles([matchedRole]);
+              setSelectedRoleId(matchedRole.id);
+            } else {
+              setCurrentRoles([]);
+              setSelectedRoleId("");
             }
           } else {
             setError("User not found");

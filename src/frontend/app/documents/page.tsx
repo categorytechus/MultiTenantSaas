@@ -781,10 +781,10 @@ const WORKFLOWS = [
 
 function WorkflowRulesetCard({
   workflow,
-  isSuperAdmin,
+  isAdmin,
 }: {
   workflow: (typeof WORKFLOWS)[number];
-  isSuperAdmin: boolean;
+  isAdmin: boolean;
 }) {
   const [ruleset, setRuleset] = useState<Ruleset | null>(null);
   const [loading, setLoading] = useState(true);
@@ -867,7 +867,7 @@ function WorkflowRulesetCard({
           <h3 className="text-[13.5px] font-semibold text-gray-900">{workflow.name}</h3>
           <p className="text-[12px] text-gray-500 mt-0.5">{workflow.description}</p>
         </div>
-        {isSuperAdmin && !ruleset && !loading && (
+        {isAdmin && !ruleset && !loading && (
           <>
             <button
               className="flex items-center gap-1.5 px-3 py-1.5 bg-[#2f3640] text-white text-[12.5px] font-medium rounded-md hover:bg-[#1a1f28] transition-colors disabled:opacity-50"
@@ -909,9 +909,9 @@ function WorkflowRulesetCard({
         ) : !ruleset ? (
           <p className="text-[13px] text-gray-400 py-1">
             No ruleset uploaded yet.{" "}
-            {isSuperAdmin
+            {isAdmin
               ? "Upload a JSON or text file to guide asset classification."
-              : "Contact a super admin to upload a ruleset."}
+              : "No ruleset configured for this organization."}
           </p>
         ) : (
           <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -955,7 +955,7 @@ function WorkflowRulesetCard({
                 </svg>
               </button>
 
-              {isSuperAdmin && (
+              {isAdmin && (
                 <>
                   <button
                     className="p-1.5 rounded-md border border-gray-200 bg-white text-gray-400 hover:text-violet-600 hover:border-violet-200 transition-colors disabled:opacity-40"
@@ -1007,7 +1007,7 @@ function WorkflowRulesetCard({
 
 // ── RuleSet Section ───────────────────────────────────────────────────────────
 
-function RulesetSection({ isSuperAdmin }: { isSuperAdmin: boolean }) {
+function RulesetSection({ isAdmin }: { isAdmin: boolean }) {
   return (
     <div>
       <div className="mb-5">
@@ -1019,7 +1019,7 @@ function RulesetSection({ isSuperAdmin }: { isSuperAdmin: boolean }) {
       </div>
       <div className="flex flex-col gap-4">
         {WORKFLOWS.map((w) => (
-          <WorkflowRulesetCard key={w.type} workflow={w} isSuperAdmin={isSuperAdmin} />
+          <WorkflowRulesetCard key={w.type} workflow={w} isAdmin={isAdmin} />
         ))}
       </div>
     </div>
@@ -1213,7 +1213,7 @@ export default function DocumentsPage() {
         )}
 
         {activeTab === "ruleset" ? (
-          <RulesetSection isSuperAdmin={userRole === "super_admin"} />
+          <RulesetSection isAdmin={userRole === "super_admin" || userRole === "org_admin"} />
         ) : (
           <>
         {/* Filters */}
