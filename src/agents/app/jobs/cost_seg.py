@@ -265,9 +265,9 @@ async def run_classification(
 
         await _set_project_status(db_url, org_id, project_id, "analyzing")
 
-        # Load the active JSON ruleset (most recently uploaded)
+        # Load the active JSON ruleset (most recently uploaded for this org)
         await publish(redis, channel, {"type": "progress", "message": "Loading classification ruleset..."})
-        ruleset_context = await _load_ruleset_text(db_url)
+        ruleset_context = await _load_ruleset_text(db_url, org_id)
         if ruleset_context:
             logger.info("Ruleset loaded for classification (%d bytes).", len(ruleset_context))
         else:
@@ -345,13 +345,14 @@ def _normalize_line_items(line_items: list[dict[str, Any]]) -> list[dict[str, An
     return normalized
 
 
-async def _load_ruleset_text(db_url: str) -> str | None:
-    """Return the raw text of the most recently uploaded ruleset, or None if absent."""
+async def _load_ruleset_text(db_url: str, org_id: str) -> str | None:
+    """Return the raw text of the most recently uploaded ruleset for this org, or None if absent."""
     from app.s3 import download as s3_download
     async with await psycopg.AsyncConnection.connect(db_url) as conn:
         async with conn.transaction():
             cur = await conn.execute(
-                "SELECT s3_key FROM cost_seg_rulesets WHERE status = 'ready' AND workflow_type = 'cost_seg' ORDER BY created_at DESC LIMIT 1"
+                "SELECT s3_key FROM cost_seg_rulesets WHERE status = 'ready' AND workflow_type = 'cost_seg' AND org_id = %s ORDER BY created_at DESC LIMIT 1",
+                (org_id,),
             )
             row = await cur.fetchone()
     if not row or not row[0]:

@@ -96,9 +96,16 @@ async def get_request_context(
 
 
 async def get_required_context(
+    request: Request,
     ctx: RequestContext = Depends(get_request_context),
 ) -> RequestContext:
-    if ctx.user_id is None or ctx.org_id is None:
+    if ctx.user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if ctx.org_id is None and ctx.role != Role.SUPER_ADMIN:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required",
