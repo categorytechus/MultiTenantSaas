@@ -707,14 +707,19 @@ async def list_all_users(
     session: AsyncSession = Depends(get_db),
 ):
     from app.core.identity import is_super_admin_user
-    
-    # Get all memberships to extract roles
-    memberships_result = await session.execute(select(OrgMembership.user_id, OrgMembership.role))
+
+    # Get all memberships with org names
+    memberships_result = await session.execute(
+        select(OrgMembership.user_id, OrgMembership.role, Org.id, Org.name)
+        .join(Org, Org.id == OrgMembership.org_id)
+    )
     user_roles: dict[UUID, set[str]] = {}
-    for uid, role in memberships_result.all():
-        if uid not in user_roles:
-            user_roles[uid] = set()
-        user_roles[uid].add(role)
+    user_orgs: dict[UUID, list[dict[str, str]]] = {}
+    for uid, role, oid, oname in memberships_result.all():
+        user_roles.setdefault(uid, set()).add(role)
+        orgs_list = user_orgs.setdefault(uid, [])
+        if not any(o["id"] == str(oid) for o in orgs_list):
+            orgs_list.append({"id": str(oid), "name": oname})
 
     result = await session.execute(select(User).order_by(User.created_at.desc()))
     users = result.scalars().all()
@@ -750,6 +755,7 @@ async def list_all_users(
             "created_at": user.created_at.isoformat() if user.created_at else None,
             "last_login_at": None,
             "roles": unique_roles,
+            "orgs": user_orgs.get(user.id, []),
         })
         
     return UsersListEnvelope(data=data)
