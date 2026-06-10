@@ -303,9 +303,6 @@ export default function Layout({ children }: LayoutProps) {
     if (pathname === "/admin/super-admins") return { section: "Administration", page: "Super Admins" };
     if (pathname === "/admin/super-admins/create") return { section: "Administration", page: "Create Super Admin" };
     if (pathname.startsWith("/admin/super-admins/")) return { section: "Administration", page: "Edit Super Admin" };
-    if (pathname === "/admin/org-admins") return { section: "Administration", page: "Org Admins" };
-    if (pathname === "/admin/org-admins/create") return { section: "Administration", page: "Create Org Admin" };
-    if (pathname.startsWith("/admin/org-admins/")) return { section: "Administration", page: "Edit Org Admin" };
     if (pathname === "/admin/organizations") return { section: "Administration", page: "Organizations" };
     if (pathname === "/admin/organizations/create") return { section: "Administration", page: "Create Organization" };
     if (pathname.startsWith("/admin/organizations/")) return { section: "Administration", page: "Edit Organization" };
@@ -357,7 +354,6 @@ export default function Layout({ children }: LayoutProps) {
               <div>
                 <div className="px-2 mb-1.5 text-[10px] font-semibold text-[#b0aaa0] uppercase tracking-wider">Administration</div>
                 <NavItem href="/admin/super-admins" active={pathname.startsWith("/admin/super-admins")} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M12 14c-6 0-8 2-8 4v1h16v-1c0-2-2-4-8-4z"/><path d="M18.5 2.5l.5 2 2 .5-2 .5-.5 2-.5-2-2-.5 2-.5z"/></svg>}>Super Admins</NavItem>
-                <NavItem href="/admin/org-admins" active={pathname.startsWith("/admin/org-admins")} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>}>Org Admins</NavItem>
                 <NavItem href="/admin/organizations" active={pathname.startsWith("/admin/organizations")} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>}>Organizations</NavItem>
                 <NavItem href="/admin/org-permissions" active={pathname.startsWith("/admin/org-permissions")} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>}>Permissions</NavItem>
 

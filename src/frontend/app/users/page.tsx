@@ -16,6 +16,7 @@ interface OrgUser {
   created_at: string;
   last_login_at: string | null;
   roles: { id: string; name: string }[];
+  orgs?: { id: string; name: string }[];
 }
 
 export default function UsersPage() {
@@ -24,6 +25,8 @@ export default function UsersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [orgId, setOrgId] = useState("");
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [roleFilter, setRoleFilter] = useState("all");
   const [deleteTarget, setDeleteTarget] = useState<OrgUser | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [passwordTarget, setPasswordTarget] = useState<OrgUser | null>(null);
@@ -44,6 +47,7 @@ export default function UsersPage() {
       const jwtRoles: string[] = jwtPayload.roles ?? [];
       setCurrentUserType(jwtRoles.includes("org_admin") ? "org_admin" : ut);
       isSuper = ut === "super_admin";
+      setIsSuperAdmin(isSuper);
       if (ut !== "super_admin" && !jwtRoles.includes("org_admin")) {
         router.push("/dashboard"); return;
       }
@@ -103,9 +107,9 @@ export default function UsersPage() {
     finally { setResettingPassword(false); }
   };
 
-  const isSuperAdmin = currentUserType === "super_admin";
   const isOrgAdmin = currentUserType === "org_admin";
   const canResetPassword = isSuperAdmin || isOrgAdmin;
+  const noOrgContext = isSuperAdmin && !orgId;
 
   const formatDate = (d: string | null) => {
     if (!d) return "—";
@@ -113,8 +117,8 @@ export default function UsersPage() {
   };
 
   const getRoleTags = (u: OrgUser) => {
+    if (u.user_type === "super_admin") return ["super_admin"];
     if (u.roles?.length) return u.roles.map((r) => r.name);
-    // Fallback: derive display name from membership.role (org_role)
     const orgRoleDisplay: Record<string, string> = {
       tenant_admin: "org_admin",
       super_admin: "super_admin",
@@ -124,6 +128,22 @@ export default function UsersPage() {
     const display = orgRoleDisplay[u.org_role] ?? u.org_role;
     return display ? [display] : [];
   };
+
+  // Collect unique role values from current data for filter chips
+  const allRoleNames = Array.from(
+    new Set(
+      users
+        .filter((u) => u.user_type !== "super_admin")
+        .flatMap((u) => getRoleTags(u))
+    )
+  ).sort();
+
+  const filteredUsers = users
+    .filter((u) => u.user_type !== "super_admin")
+    .filter((u) => {
+      if (roleFilter === "all") return true;
+      return getRoleTags(u).includes(roleFilter);
+    });
 
   return (
     <Layout>
@@ -164,8 +184,38 @@ export default function UsersPage() {
           </div>
         ) : (
           <div className="card">
-            {users.length === 0 ? (
-              <div className="empty">No users in this organization yet. Create or invite the first one.</div>
+            {/* Role filter chips */}
+            {allRoleNames.length > 0 && (
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
+                {["all", ...allRoleNames].map((r) => (
+                  <button
+                    key={r}
+                    onClick={() => setRoleFilter(r)}
+                    style={{
+                      padding: "4px 12px",
+                      borderRadius: 20,
+                      fontSize: 12,
+                      fontWeight: 500,
+                      border: "1px solid",
+                      cursor: "pointer",
+                      transition: "all .12s",
+                      borderColor: roleFilter === r ? "#1a1a1a" : "#e5e5e5",
+                      background: roleFilter === r ? "#1a1a1a" : "#fff",
+                      color: roleFilter === r ? "#fff" : "#555",
+                    }}
+                  >
+                    {r === "all" ? "All" : r}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {filteredUsers.length === 0 ? (
+              <div className="empty">
+                {roleFilter === "all"
+                  ? "No users in this organization yet. Create or invite the first one."
+                  : `No users with role "${roleFilter}".`}
+              </div>
             ) : (
               <div className="table-responsive-wrap">
                 <table className="table">
@@ -174,6 +224,7 @@ export default function UsersPage() {
                       <th>Name</th>
                       <th>Email</th>
                       <th>Roles</th>
+                      {noOrgContext && <th>Organization</th>}
                       <th>Status</th>
                       <th>Created</th>
                       <th>Last login</th>
@@ -181,7 +232,7 @@ export default function UsersPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {users.filter((u) => u.user_type !== "super_admin").map((u) => {
+                    {filteredUsers.map((u) => {
                       const roleTags = getRoleTags(u);
                       return (
                         <tr key={u.id}>
@@ -203,46 +254,49 @@ export default function UsersPage() {
                               <span style={{ color: "#ccc", fontSize: "12px" }}>No roles</span>
                             )}
                           </td>
+                          {noOrgContext && (
+                            <td style={{ color: "#555", fontSize: 13 }}>
+                              {u.orgs && u.orgs.length > 0
+                                ? u.orgs.map((o) => o.name).join(", ")
+                                : <span style={{ color: "#ccc" }}>—</span>}
+                            </td>
+                          )}
                           <td>
                             <span className={`badge badge-${u.status}`}>{u.status}</span>
                           </td>
                           <td style={{ color: "#777" }}>{formatDate(u.created_at)}</td>
                           <td style={{ color: "#777" }}>{formatDate(u.last_login_at)}</td>
                           <td>
-                            <div className="actions">
-                              {orgId ? (
-                                <>
+                            {orgId ? (
+                              <div className="actions">
+                                <button
+                                  className="btn btn-sm"
+                                  style={{ background: "#f5f4f1", color: "#1a1a1a", border: "none" }}
+                                  title="Edit user"
+                                  onClick={() => router.push(`/users/${u.id}/edit`)}
+                                >
+                                  <Pencil size={13} />
+                                  Edit
+                                </button>
+                                {canResetPassword && (
                                   <button
                                     className="btn btn-sm"
                                     style={{ background: "#f5f4f1", color: "#1a1a1a", border: "none" }}
-                                    title="Edit user"
-                                    onClick={() => router.push(`/users/${u.id}/edit`)}
+                                    title="Reset password"
+                                    onClick={() => setPasswordTarget(u)}
                                   >
-                                    <Pencil size={13} />
-                                    Edit
+                                    <KeyRound size={13} />
                                   </button>
-                                  {canResetPassword && (
-                                    <button
-                                      className="btn btn-sm"
-                                      style={{ background: "#f5f4f1", color: "#1a1a1a", border: "none" }}
-                                      title="Reset password"
-                                      onClick={() => setPasswordTarget(u)}
-                                    >
-                                      <KeyRound size={13} />
-                                    </button>
-                                  )}
-                                  <button
-                                    className="btn btn-sm btn-danger"
-                                    title="Delete user"
-                                    onClick={() => setDeleteTarget(u)}
-                                  >
-                                    <Trash2 size={13} />
-                                  </button>
-                                </>
-                              ) : (
-                                <span style={{ color: "#9a9a9a", fontSize: "12px" }}>Select org to manage</span>
-                              )}
-                            </div>
+                                )}
+                                <button
+                                  className="btn btn-sm btn-danger"
+                                  title="Delete user"
+                                  onClick={() => setDeleteTarget(u)}
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
+                            ) : null}
                           </td>
                         </tr>
                       );
@@ -298,7 +352,7 @@ export default function UsersPage() {
               {resetTempPassword}
             </div>
             <div className="modal-actions">
-              <button className="btn btn-primary" onClick={() => { navigator.clipboard.writeText(resetTempPassword); setResetCopied(true); setTimeout(() => setResetCopied(false), 2000); }}>
+              <button className="btn btn-primary" onClick={() => { navigator.clipboard.writeText(resetTempPassword).catch(() => {}); setResetCopied(true); setTimeout(() => setResetCopied(false), 2000); }}>
                 {resetCopied ? "Copied!" : "Copy Password"}
               </button>
               <button className="btn" style={{ background: "#f5f4f1", color: "#1a1a1a", border: "none" }} onClick={() => setResetTempPassword(null)}>Done</button>
