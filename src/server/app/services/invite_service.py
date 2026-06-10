@@ -39,6 +39,17 @@ def _custom_role_id_from_invite(role_str: str) -> UUID | None:
         return None
 
 
+def _system_role_to_membership_role(role_name: str) -> str | None:
+    """Map a system RBAC role name to the OrgMembership role string, or None for custom roles."""
+    _map = {
+        "org_admin": Role.TENANT_ADMIN.value,
+        "tenant_admin": Role.TENANT_ADMIN.value,
+        "user": Role.USER.value,
+        "viewer": Role.VIEWER.value,
+    }
+    return _map.get(role_name)
+
+
 async def _assign_custom_role_if_any(
     session: AsyncSession,
     *,
@@ -49,6 +60,9 @@ async def _assign_custom_role_if_any(
     role_id = _custom_role_id_from_invite(invite_role)
     if role_id is None:
         return
+
+    from app.models.org import OrgMembership
+    from app.models.rbac import RbacRole
 
     table_exists = await session.execute(text("SELECT to_regclass('public.user_roles')"))
     if table_exists.scalar_one_or_none() is not None:
@@ -62,12 +76,25 @@ async def _assign_custom_role_if_any(
             ),
             {"user_id": user_id, "role_id": role_id, "org_id": org_id},
         )
+        # For system roles (org_admin, user, viewer) also mirror into OrgMembership.role
+        # so that login_user and refresh_tokens issue the correct JWT claims.
+        role_row = await session.get(RbacRole, role_id)
+        if role_row and role_row.is_system:
+            membership_role = _system_role_to_membership_role(role_row.name)
+            if membership_role:
+                m = await session.execute(
+                    select(OrgMembership).where(
+                        OrgMembership.user_id == user_id,
+                        OrgMembership.org_id == org_id,
+                    )
+                )
+                membership = m.scalars().first()
+                if membership and membership.role != membership_role:
+                    membership.role = membership_role
+                    session.add(membership)
         return
 
     # Compatibility fallback for schemas without user_roles table.
-    from app.models.org import OrgMembership
-    from app.models.rbac import RbacRole
-
     role = await session.get(RbacRole, role_id)
     if role and (role.is_system or role.organization_id == org_id):
         m = await session.execute(
@@ -78,7 +105,8 @@ async def _assign_custom_role_if_any(
         )
         membership = m.scalars().first()
         if membership:
-            membership.role = role.name
+            fallback_role = _system_role_to_membership_role(role.name) or role.name
+            membership.role = fallback_role
             session.add(membership)
 
 
