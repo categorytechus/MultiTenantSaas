@@ -233,7 +233,11 @@ export default function Layout({ children }: LayoutProps) {
         sessionStorage.removeItem("userModules");
         sessionStorage.removeItem("userModulesUnrestricted");
         setCur({ ...org, role: res.data.data.organization.role });
-        window.location.reload();
+        if (isSuperAdmin) {
+          window.location.href = "/dashboard";
+        } else {
+          window.location.reload();
+        }
       }
     } finally { setSwitching(false); setOpen(false); }
   };
