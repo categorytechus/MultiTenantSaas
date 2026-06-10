@@ -358,6 +358,19 @@ async def delete_organization(
     await session.execute(text("DELETE FROM invite_tokens WHERE org_id = :oid"), {"oid": org_id})
     await _del("org_modules")
 
+    # Delete users who now have no remaining memberships (i.e. only belonged to this org)
+    # and are not super admins.
+    _orphan_subq = """
+        SELECT id FROM users
+        WHERE id NOT IN (SELECT user_id FROM org_memberships)
+        AND id NOT IN (SELECT user_id FROM super_admin_allowlist)
+    """
+    oi_exists = await session.execute(text("SELECT to_regclass('public.oauth_identities')"))
+    if oi_exists.scalar_one_or_none() is not None:
+        await session.execute(text(f"DELETE FROM oauth_identities WHERE user_id IN ({_orphan_subq})"))
+    await session.execute(text(f"DELETE FROM refresh_tokens WHERE user_id IN ({_orphan_subq})"))
+    await session.execute(text(f"DELETE FROM users WHERE id IN ({_orphan_subq})"))
+
     await session.delete(org)
     await session.flush()
 

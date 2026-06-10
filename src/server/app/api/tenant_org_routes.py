@@ -57,6 +57,8 @@ def _require_tenant_admin(ctx: RequestContext) -> None:
 
 
 def _ensure_org_context(ctx: RequestContext, organization_id: UUID) -> None:
+    if ctx.role == Role.SUPER_ADMIN:
+        return
     if ctx.org_id != organization_id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Token organization does not match path")
 
