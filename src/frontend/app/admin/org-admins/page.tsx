@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Layout from "../../../components/Layout";
 import { apiFetch } from "../../../src/lib/api";
+import { copyToClipboard } from "../../../src/lib/clipboard";
 import { Pencil, Trash2, KeyRound } from "lucide-react";
 
 interface OrgRef {
@@ -483,7 +484,7 @@ export default function OrgAdminsPage() {
               <button
                 className="btn btn-primary"
                 onClick={() => {
-                  navigator.clipboard.writeText(resetTempPassword);
+                  copyToClipboard(resetTempPassword);
                   setResetCopied(true);
                   setTimeout(() => setResetCopied(false), 2000);
                 }}

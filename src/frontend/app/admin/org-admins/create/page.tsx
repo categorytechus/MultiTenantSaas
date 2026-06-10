@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Layout from '../../../../components/Layout';
 import { apiFetch } from '../../../../src/lib/api';
+import { copyToClipboard } from '../../../../src/lib/clipboard';
 
 interface Org { id: string; name: string; slug: string; }
 
@@ -85,7 +86,7 @@ export default function CreateOrgAdminPage() {
 
   const handleCopy = () => {
     if (setPasswordLink) {
-      navigator.clipboard.writeText(setPasswordLink);
+      copyToClipboard(setPasswordLink);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -126,7 +127,7 @@ export default function CreateOrgAdminPage() {
                   {(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000') + '/auth/signin'}
                 </div>
                 <button
-                  onClick={() => { navigator.clipboard.writeText((process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000') + '/auth/signin'); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+                  onClick={() => { copyToClipboard(window.location.origin + '/auth/signin'); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
                   style={{
                     padding: '10px 14px', background: copied ? '#f0fdf4' : '#f5f4f1',
                     border: 'none', borderLeft: '1px solid #e5e5e5', cursor: 'pointer',

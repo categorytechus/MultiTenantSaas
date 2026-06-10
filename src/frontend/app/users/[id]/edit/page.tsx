@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
+import { copyToClipboard } from "../../../../src/lib/clipboard";
 import Layout from "../../../../components/Layout";
 import { apiFetch } from "../../../../src/lib/api";
 import { assignableMemberRoles } from "../../../../src/lib/org-member-roles";
@@ -255,7 +256,7 @@ export default function EditUserPage() {
                       </div>
                       <button
                         type="button"
-                        onClick={() => { navigator.clipboard.writeText(tempPassword); setPwdCopied(true); setTimeout(() => setPwdCopied(false), 2000); }}
+                        onClick={() => { copyToClipboard(tempPassword); setPwdCopied(true); setTimeout(() => setPwdCopied(false), 2000); }}
                         className="px-4 py-2.5 border-l border-[#e5e5e5] text-[13px] font-medium text-[#555] hover:bg-[#f5f4f1] transition-colors whitespace-nowrap"
                       >
                         {pwdCopied ? "✓ Copied" : "Copy"}

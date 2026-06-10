@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Layout from "../../../components/Layout";
 import { apiFetch } from "../../../src/lib/api";
 import { assignableMemberRoles } from "../../../src/lib/org-member-roles";
+import { copyToClipboard } from "../../../src/lib/clipboard";
 
 interface Role {
   id: string;
@@ -88,7 +89,7 @@ export default function InviteUserPage() {
 
   const handleCopy = () => {
     if (normalizedSignupLink) {
-      navigator.clipboard.writeText(normalizedSignupLink);
+      copyToClipboard(normalizedSignupLink);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -170,7 +171,7 @@ export default function InviteUserPage() {
                 style={{ width: '100%', background: '#f5f4f1', border: '1px solid #e5e5e5', color: '#1a1a1a' }}
                 onClick={() => {
                   const msg = `Hi there!\n\nYou've been invited to join the platform. Please use the following link to create your account and set your password:\n\n${normalizedSignupLink}\n\nBest regards,`;
-                  navigator.clipboard.writeText(msg);
+                  copyToClipboard(msg);
                   setCopiedMessage(true);
                   setTimeout(() => setCopiedMessage(false), 2000);
                 }}
