@@ -8,7 +8,7 @@ import { apiFetch } from '../../src/lib/api';
 interface MeUser {
   id: string;
   email: string;
-  full_name: string;
+  name: string;
   user_type: 'super_admin' | 'user';
   status: string;
 }
@@ -48,7 +48,7 @@ export default function ProfilePage() {
         }
         const me = res.data.data;
         setUser(me);
-        setName(me.full_name || '');
+        setName(me.name || '');
         // Derive role label from JWT
         try {
           const payload = JSON.parse(atob(token.split('.')[1]));
@@ -58,7 +58,6 @@ export default function ProfilePage() {
             setIsAdmin(true);
           } else if (roles.includes('org_admin')) {
             setRoleLabel('Org Admin');
-            setIsAdmin(true);
           } else {
             setRoleLabel('User');
           }
@@ -90,7 +89,7 @@ export default function ProfilePage() {
 
       const updatedUser = res.data.data;
       setUser(updatedUser);
-      setName(updatedUser.full_name || '');
+      setName(updatedUser.name || '');
       setProfileMessage(res.data.message || 'Profile updated successfully');
     } catch {
       setProfileError('Failed to update profile');
@@ -118,8 +117,8 @@ export default function ProfilePage() {
       const res = await apiFetch<{ message?: string }>('/auth/change-password', {
         method: 'POST',
         body: JSON.stringify({
-          currentPassword,
-          newPassword,
+          current_password: currentPassword,
+          new_password: newPassword,
         }),
       });
 

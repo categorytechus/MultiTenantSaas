@@ -298,6 +298,35 @@ async def update_organization(
     }
 
 
+@router.delete("/organizations/{org_id}", status_code=204)
+async def delete_organization(
+    org_id: UUID,
+    ctx: RequestContext = Depends(require_super_admin_user),
+    session: AsyncSession = Depends(get_db),
+) -> None:
+    _ = ctx
+    org = await session.get(Org, org_id)
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    # Cascade: delete memberships, invite tokens, org modules, then the org
+    await session.execute(
+        text("DELETE FROM org_memberships WHERE org_id = :oid"),
+        {"oid": org_id},
+    )
+    await session.execute(
+        text("DELETE FROM invite_tokens WHERE org_id = :oid"),
+        {"oid": org_id},
+    )
+    if await _org_modules_table_exists(session):
+        await session.execute(
+            text("DELETE FROM org_modules WHERE org_id = :oid"),
+            {"oid": org_id},
+        )
+    await session.delete(org)
+    await session.flush()
+
+
 @router.get("/super-admins")
 async def list_super_admins(
     ctx: RequestContext = Depends(require_super_admin_user),

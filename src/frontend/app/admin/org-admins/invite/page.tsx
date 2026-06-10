@@ -79,9 +79,19 @@ export default function InviteOrgAdminPage() {
     }
   };
 
+  const normalizedSignupLink = (() => {
+    if (!signupLink) return null;
+    try {
+      const parsed = new URL(signupLink);
+      return `${window.location.origin}${parsed.pathname}${parsed.search}`;
+    } catch {
+      return signupLink.replace(/^https?:\/\/[^/]+/, window.location.origin);
+    }
+  })();
+
   const handleCopy = () => {
-    if (signupLink) {
-      navigator.clipboard.writeText(signupLink);
+    if (normalizedSignupLink) {
+      navigator.clipboard.writeText(normalizedSignupLink).catch(() => {});
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -159,7 +169,7 @@ export default function InviteOrgAdminPage() {
                   fontFamily: 'monospace', fontSize: 12.5, color: '#374151',
                   background: '#f9f9f8', wordBreak: 'break-all', lineHeight: 1.5,
                 }}>
-                  {signupLink}
+                  {normalizedSignupLink}
                 </div>
                 <button
                   onClick={handleCopy}
