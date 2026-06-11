@@ -35,6 +35,7 @@ ROLE_PERMISSIONS: dict[Role, Set[str]] = {
         "web_urls:create",
         "web_urls:update",
         "web_urls:delete",
+        "link_embed:view",
     },
     Role.USER: {
         "documents:upload",
@@ -43,6 +44,7 @@ ROLE_PERMISSIONS: dict[Role, Set[str]] = {
         "agents:read",
         "cost_seg:read",
         "cost_seg:create",
+        "link_embed:view",
     },
     Role.VIEWER: {"documents:read", "agents:read", "cost_seg:read"},
 }

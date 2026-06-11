@@ -34,6 +34,8 @@ interface Document {
   created_at: string;
   updated_at?: string;
   upload_source?: string;
+  image_count?: number;
+  org_id?: string;
 }
 
 interface OrgRole {
@@ -50,6 +52,8 @@ interface PerFileMeta {
   allRoles: boolean;       // "all roles" toggle — overrides accessRoles
   description: string;
   isConfidential: boolean;
+  extractImages: boolean;  // PDF only — extract embedded images for AI chat
+  baseUrls: string;        // new field for multiple base urls
 }
 
 interface QueuedFile {
@@ -112,10 +116,10 @@ const ALLOWED_TYPES = [
   "application/vnd.ms-powerpoint",
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 ];
-const MAX_FILE_SIZE = 15 * 1024 * 1024;
+const MAX_FILE_SIZE = 50 * 1024 * 1024;
 
 function defaultMeta(): PerFileMeta {
-  return { docType: "", accessRoles: [], allRoles: true, description: "", isConfidential: false };
+  return { docType: "", accessRoles: [], allRoles: true, description: "", isConfidential: false, extractImages: false, baseUrls: "" };
 }
 
 // ── File Accordion Item ───────────────────────────────────────────────────────
@@ -127,6 +131,8 @@ function FileAccordion({
   onRemove,
   onMetaChange,
   onToggle,
+  imageModuleEnabled,
+  linkModuleEnabled,
 }: {
   qf: QueuedFile;
   orgRoles: OrgRole[];
@@ -134,6 +140,8 @@ function FileAccordion({
   onRemove: (id: string) => void;
   onMetaChange: (id: string, meta: PerFileMeta) => void;
   onToggle: (id: string) => void;
+  imageModuleEnabled: boolean;
+  linkModuleEnabled: boolean;
 }) {
   const typeLabel = getFileTypeLabel(qf.file.type);
   const canEdit = !uploading && qf.status === "pending";
@@ -288,6 +296,21 @@ function FileAccordion({
             )}
           </div>
 
+          {/* Base URLs */}
+          {linkModuleEnabled && (
+            <div>
+              <label className="block text-[11.5px] font-medium text-gray-700 mb-1">Base URLs</label>
+              <input
+                type="text"
+                className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-[12px] text-gray-900 outline-none focus:border-violet-500 transition-colors"
+                value={qf.meta.baseUrls}
+                onChange={(e) => onMetaChange(qf.id, { ...qf.meta, baseUrls: e.target.value })}
+                placeholder="e.g. https://example.com, https://docs.example.com"
+              />
+              <p className="text-[10px] text-gray-400 mt-0.5">Comma-separated. Used by AI to resolve relative links inside the document.</p>
+            </div>
+          )}
+
           {/* Description */}
           <div>
             <label className="block text-[11.5px] font-medium text-gray-700 mb-1">Description</label>
@@ -309,6 +332,25 @@ function FileAccordion({
             />
             <span className="text-[11.5px] text-gray-700">Confidential</span>
           </label>
+
+          {/* Extract images checkbox — PDF only */}
+          {qf.file.type === "application/pdf" && (
+            <label className={`flex items-center gap-2 select-none ${imageModuleEnabled ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
+              <input
+                type="checkbox"
+                className="w-3.5 h-3.5 accent-sky-600"
+                checked={qf.meta.extractImages}
+                onChange={(e) => onMetaChange(qf.id, { ...qf.meta, extractImages: e.target.checked })}
+                disabled={!imageModuleEnabled}
+              />
+              <span className="text-[11.5px] text-gray-700">Extract images from PDF</span>
+              {imageModuleEnabled ? (
+                <span className="text-[10px] text-gray-400">(enables image search in AI chat)</span>
+              ) : (
+                <span className="text-[10px] text-red-500">(not enabled for your org)</span>
+              )}
+            </label>
+          )}
         </div>
       )}
     </div>
@@ -377,16 +419,19 @@ function EditDocumentModal({
   orgRoles,
   onClose,
   onSuccess,
+  linkModuleEnabled,
 }: {
   doc: Document | null;
   orgRoles: OrgRole[];
   onClose: () => void;
   onSuccess: () => void;
+  linkModuleEnabled: boolean;
 }) {
   const [docType, setDocType] = useState("");
   const [accessRoles, setAccessRoles] = useState<string[]>([]);
   const [allRoles, setAllRoles] = useState(true);
   const [description, setDescription] = useState("");
+  const [baseUrls, setBaseUrls] = useState("");
   const [isConfidential, setIsConfidential] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -398,6 +443,8 @@ function EditDocumentModal({
       : typeof doc.tags?.roles === "string" && doc.tags.roles
         ? (doc.tags.roles as string).split(",").map((r) => r.trim()).filter(Boolean)
         : [];
+    const savedBaseUrls = doc.tags?.base_urls;
+    setBaseUrls(Array.isArray(savedBaseUrls) ? savedBaseUrls.join(", ") : savedBaseUrls || "");
     setDocType(doc.tags?.["doc-type"] || "");
     setAccessRoles(savedRoles);
     setAllRoles(savedRoles.length === 0);
@@ -427,6 +474,7 @@ function EditDocumentModal({
           access_roles: allRoles ? [] : accessRoles,
           description: description.trim() || null,
           is_confidential: isConfidential,
+          base_urls: baseUrls.trim() || null,
         }),
       });
       if (!res.success) throw new Error(res.error || "Failed to save");
@@ -500,6 +548,22 @@ function EditDocumentModal({
           {!allRoles && <p className="text-[11.5px] text-gray-400 mt-1.5">Select one or more roles.</p>}
         </div>
 
+        {/* Base URLs */}
+        {linkModuleEnabled && (
+          <div className="mb-4">
+            <label className="block text-[13px] font-medium text-gray-800 mb-1.5">Base URLs</label>
+            <input
+              type="text"
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-md text-[13px] text-gray-900 outline-none focus:border-violet-500 transition-colors disabled:opacity-50"
+              value={baseUrls}
+              onChange={(e) => setBaseUrls(e.target.value)}
+              placeholder="e.g. https://example.com, https://docs.example.com"
+              disabled={saving}
+            />
+            <p className="text-[11px] text-gray-400 mt-1">Comma-separated list of URLs.</p>
+          </div>
+        )}
+
         {/* Description */}
         <div className="mb-4">
           <label className="block text-[13px] font-medium text-gray-800 mb-1.5">Description</label>
@@ -548,18 +612,38 @@ function UploadModal({
   onClose,
   orgRoles,
   onSuccess,
+  imageModuleEnabled,
+  linkModuleEnabled,
+  userRole,
+  orgs,
 }: {
   open: boolean;
   onClose: () => void;
   orgRoles: OrgRole[];
   onSuccess: () => void;
+  imageModuleEnabled: boolean;
+  linkModuleEnabled: boolean;
+  userRole: string;
+  orgs: { id: string; name: string }[];
 }) {
   const [queue, setQueue] = useState<QueuedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [allDone, setAllDone] = useState(false);
+  const [selectedOrgId, setSelectedOrgId] = useState("");
+  const [uploadOrgRoles, setUploadOrgRoles] = useState<OrgRole[]>(orgRoles);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (selectedOrgId && userRole === "super_admin") {
+      apiFetch<{ data: OrgRole[] }>(`/organizations/${selectedOrgId}/roles`).then((res) => {
+        if (res.success) setUploadOrgRoles(res.data.data);
+      });
+    } else {
+      setUploadOrgRoles(orgRoles);
+    }
+  }, [selectedOrgId, orgRoles, userRole]);
 
   const reset = () => {
     setQueue([]);
@@ -580,7 +664,7 @@ function UploadModal({
         continue;
       }
       if (file.size > MAX_FILE_SIZE) {
-        errs.push(`"${file.name}" — exceeds 15MB limit`);
+        errs.push(`"${file.name}" — exceeds 50MB limit`);
         continue;
       }
       valid.push({
@@ -619,7 +703,12 @@ function UploadModal({
       const rolesValue = qf.meta.allRoles ? "" : qf.meta.accessRoles.join(",");
       formData.append("access_roles", rolesValue);
       formData.append("description", qf.meta.description);
+      formData.append("base_urls", qf.meta.baseUrls.trim());
       formData.append("is_confidential", qf.meta.isConfidential ? "true" : "false");
+      formData.append("extract_images", qf.meta.extractImages ? "true" : "false");
+      if (userRole === "super_admin" && selectedOrgId) {
+        formData.append("org_id", selectedOrgId);
+      }
 
       const res = await fetch("/api/documents", {
         method: "POST",
@@ -636,6 +725,10 @@ function UploadModal({
   };
 
   const handleUploadAll = async () => {
+    if (userRole === "super_admin" && !selectedOrgId) {
+      setError("Please select an organization");
+      return;
+    }
     const pending = queue.filter((f) => f.status === "pending");
     if (pending.length === 0) { setError("Please add at least one file"); return; }
 
@@ -691,6 +784,25 @@ function UploadModal({
           </div>
         ) : (
           <>
+            {userRole === "super_admin" && (
+              <div className="mb-4">
+                <label className="block text-[13px] font-medium text-gray-800 mb-1.5">
+                  Organization <span className="text-red-500">*</span>
+                </label>
+                <select
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-[13px] text-gray-900 outline-none focus:border-violet-500 transition-colors"
+                  value={selectedOrgId}
+                  onChange={(e) => setSelectedOrgId(e.target.value)}
+                  disabled={uploading}
+                >
+                  <option value="">Select Organization</option>
+                  {orgs.map((o) => (
+                    <option key={o.id} value={o.id}>{o.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             {/* Drop zone */}
             <div
               className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all mb-4 ${isDragging ? "border-violet-500 bg-violet-50" : "border-gray-200 bg-gray-50 hover:border-violet-400 hover:bg-violet-50/40"}`}
@@ -715,7 +827,7 @@ function UploadModal({
               <p className="text-[13px] font-medium text-gray-600">
                 Drop files here or <span className="text-violet-600 underline">browse</span>
               </p>
-              <p className="text-[11.5px] text-gray-400 mt-1">PDF, DOC, DOCX, PPT, PPTX · max 15MB</p>
+              <p className="text-[11.5px] text-gray-400 mt-1">PDF, DOC, DOCX, PPT, PPTX · max 50MB</p>
             </div>
 
             {/* File accordions */}
@@ -725,11 +837,13 @@ function UploadModal({
                   <FileAccordion
                     key={qf.id}
                     qf={qf}
-                    orgRoles={orgRoles}
+                    orgRoles={uploadOrgRoles}
                     uploading={uploading}
                     onRemove={removeFile}
                     onMetaChange={updateMeta}
                     onToggle={toggleAccordion}
+                    imageModuleEnabled={imageModuleEnabled}
+                    linkModuleEnabled={linkModuleEnabled}
                   />
                 ))}
               </div>
@@ -1039,12 +1153,29 @@ export default function DocumentsPage() {
   const [deleteDoc, setDeleteDoc] = useState<Document | null>(null);
   const [editDoc, setEditDoc] = useState<Document | null>(null);
   const [orgRoles, setOrgRoles] = useState<OrgRole[]>([]);
+  const [orgs, setOrgs] = useState<{ id: string; name: string }[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const itemsPerPage = 10;
+
+  const imageModuleEnabled = (() => {
+    if (typeof window === "undefined") return false;
+    if (sessionStorage.getItem("userModulesUnrestricted")) return true;
+    const raw = sessionStorage.getItem("userModules");
+    if (!raw) return false;
+    try { return (JSON.parse(raw) as string[]).includes("ai_images"); } catch { return false; }
+  })();
+
+  const linkModuleEnabled = (() => {
+    if (typeof window === "undefined") return false;
+    if (sessionStorage.getItem("userModulesUnrestricted")) return true;
+    const raw = sessionStorage.getItem("userModules");
+    if (!raw) return false;
+    try { return (JSON.parse(raw) as string[]).includes("ai_links"); } catch { return false; }
+  })();
 
   // Permission guard
   useEffect(() => {
@@ -1083,11 +1214,33 @@ export default function DocumentsPage() {
   }, []);
 
   const startPollingIfNeeded = useCallback((docs: Document[]) => {
-    const hasInProgress = docs.some((d) => d.status === "processing" || d.status === "pending");
+    // Poll if any documents are processing/pending OR if any ready documents have status='ready'
+    // but uploaded in the last 2 minutes (might be extracting images in background)
+    const now = Date.now();
+    const twoMinutesAgo = now - 2 * 60 * 1000;
+    const hasInProgress = docs.some((d) => {
+      if (d.status === "processing" || d.status === "pending") return true;
+      // Also poll for recently uploaded 'ready' docs that might be extracting images
+      if (d.status === "ready" && d.created_at) {
+        const createdTime = new Date(d.created_at).getTime();
+        return createdTime > twoMinutesAgo;
+      }
+      return false;
+    });
+
     if (hasInProgress && !pollingRef.current) {
       pollingRef.current = setInterval(async () => {
         const updated = await fetchDocuments(true);
-        const stillInProgress = updated.some((d) => d.status === "processing" || d.status === "pending");
+        const nowCheck = Date.now();
+        const twoMinutesAgoCheck = nowCheck - 2 * 60 * 1000;
+        const stillInProgress = updated.some((d) => {
+          if (d.status === "processing" || d.status === "pending") return true;
+          if (d.status === "ready" && d.created_at) {
+            const createdTime = new Date(d.created_at).getTime();
+            return createdTime > twoMinutesAgoCheck;
+          }
+          return false;
+        });
         if (!stillInProgress && pollingRef.current) {
           clearInterval(pollingRef.current);
           pollingRef.current = null;
@@ -1105,6 +1258,10 @@ export default function DocumentsPage() {
         if (token) {
           const { org_id, role } = JSON.parse(atob(token.split(".")[1])) as { org_id?: string; role?: string };
           if (role) setUserRole(role);
+          if (role === "super_admin") {
+            const orgRes = await apiFetch<{ data: { id: string; name: string }[] }>("/organizations");
+            if (orgRes.success) setOrgs(orgRes.data.data);
+          }
           if (org_id) {
             const rolesRes = await apiFetch<{ data: OrgRole[] }>(`/organizations/${org_id}/roles`);
             if (rolesRes.success) setOrgRoles(rolesRes.data.data);
@@ -1245,7 +1402,9 @@ export default function DocumentsPage() {
                 <table className="w-full border-collapse min-w-[700px]">
                   <thead className="bg-gray-50">
                     <tr>
-                      {["File Name", "Category", "Type", "Size", "Status", "Date Modified", "Actions"].map((h) => (
+                      {(userRole === "super_admin" 
+                        ? ["File Name", "Organization", "Category", "Type", "Size", "Status", "Date Modified", "Actions"]
+                        : ["File Name", "Category", "Type", "Size", "Status", "Date Modified", "Actions"]).map((h) => (
                         <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
                           {h}
                         </th>
@@ -1298,10 +1457,25 @@ export default function DocumentsPage() {
                                       {doc.tags["doc-type"]}
                                     </span>
                                   )}
+                                  {(doc.image_count ?? 0) > 0 && (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-sky-50 text-sky-700 px-1.5 py-0.5 rounded">
+                                      <svg width="10" height="10" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
+                                      </svg>
+                                      {doc.image_count} image{doc.image_count !== 1 ? "s" : ""}
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                             </div>
                           </td>
+
+                          {/* Organization (Super Admin Only) */}
+                          {userRole === "super_admin" && (
+                            <td className="px-4 py-3 text-[12px] text-gray-500">
+                              {orgs.find(o => o.id === doc.org_id)?.name || "Unknown"}
+                            </td>
+                          )}
 
                           {/* Category */}
                           <td className="px-4 py-3">
@@ -1408,6 +1582,10 @@ export default function DocumentsPage() {
         onClose={() => setShowUploadModal(false)}
         orgRoles={orgRoles}
         onSuccess={handleUploadSuccess}
+        imageModuleEnabled={imageModuleEnabled}
+        linkModuleEnabled={linkModuleEnabled}
+        userRole={userRole}
+        orgs={orgs}
       />
       <DeleteModal doc={deleteDoc} onClose={() => setDeleteDoc(null)} onConfirm={handleDelete} />
       <EditDocumentModal
@@ -1415,6 +1593,7 @@ export default function DocumentsPage() {
         orgRoles={orgRoles}
         onClose={() => setEditDoc(null)}
         onSuccess={async () => { setEditDoc(null); await fetchDocuments(true); }}
+        linkModuleEnabled={linkModuleEnabled}
       />
     </Layout>
   );

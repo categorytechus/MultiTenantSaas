@@ -871,7 +871,7 @@ function Step4({
                           </button>
                         </div>
                       ) : (
-                        <div className="flex gap-1 opacity-0 group-hover:opacity-100">
+                        <div className="flex gap-1">
                           <button onClick={() => startEdit(item)} className="p-1 text-[#9ca3af] hover:text-[#374151] hover:bg-[#f3f4f6] rounded transition-colors">
                             <Pencil size={12} />
                           </button>
@@ -1351,6 +1351,11 @@ export default function CostSegWizardPage() {
           await loadAll();
           return;
         }
+        // Report job failed and reset status away from paid/report_ready — reload to reflect
+        if (currentStep === 6 && !pdfDownloadUrl && proj.status !== 'paid' && proj.status !== 'report_ready') {
+          await loadAll();
+          return;
+        }
       }
       pollRef.current = setTimeout(poll, 4000);
     };
@@ -1449,11 +1454,18 @@ export default function CostSegWizardPage() {
 
   const handlePay = async () => {
     setPaying(true);
-    const res = await apiFetch(`/cost-seg/projects/${projectId}/payment`, { method: 'POST' });
+    const res = await apiFetch<{ message: string; status: string; task_id?: string }>(
+      `/cost-seg/projects/${projectId}/payment`,
+      { method: 'POST' }
+    );
     setPaying(false);
     if (res.success) {
+      const data = (res.data as any).data || res.data;
       setProject((p) => p ? { ...p, status: 'paid' } : p);
       setCurrentStep(6);
+      if (data?.task_id) {
+        startSseStream(data.task_id);
+      }
     }
   };
 

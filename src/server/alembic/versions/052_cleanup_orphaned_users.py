@@ -1,14 +1,14 @@
 """delete users with no org memberships (orphaned users)
 
-Revision ID: 049
-Revises: 048
+Revision ID: 052
+Revises: 051
 Create Date: 2026-06-10
 
 """
 from alembic import op
 
-revision = "049"
-down_revision = "048"
+revision = "052"
+down_revision = "051"
 branch_labels = None
 depends_on = None
 

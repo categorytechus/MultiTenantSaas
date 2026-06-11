@@ -219,5 +219,5 @@ async def download_ruleset(
             filename=ruleset.filename,
             media_type="application/octet-stream",
         )
-    url = await presigned_get(ruleset.s3_key)
+    url = await presigned_get(ruleset.s3_key, filename=ruleset.filename, content_type="application/octet-stream")
     return RedirectResponse(url)

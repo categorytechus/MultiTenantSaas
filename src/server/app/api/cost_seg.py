@@ -420,7 +420,8 @@ async def process_payment(
             await redis_conn.aclose()
         except Exception as e:
             logger.error(f"Failed to enqueue report generation task after payment: {e}", exc_info=True)
-    return {"message": "Payment processed (test mode)", "status": "paid"}
+            return {"message": "Payment processed (test mode)", "status": "paid"}
+        return {"message": "Payment processed (test mode)", "status": "paid", "task_id": str(task.id)}
 
 
 # ── Report ─────────────────────────────────────────────────────────────────────

@@ -9,7 +9,7 @@ import { apiFetch } from '../../src/lib/api';
 import { PERMISSION_MODULE_ENABLED } from '../../src/lib/permissions';
 import {
   Plus, Search, Pencil, Trash2, Check, X, MessageSquare,
-  SendHorizonal, Loader2, Zap, CheckCircle2, XCircle,
+  SendHorizonal, Loader2, CheckCircle2,
 } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -108,9 +108,8 @@ function SessionItem({
   return (
     <div
       onClick={onSelect}
-      className={`group relative flex items-center gap-2 px-3 py-2.5 rounded-lg cursor-pointer transition-colors mb-0.5 ${
-        active ? 'bg-white shadow-sm' : 'hover:bg-white/70'
-      }`}
+      className={`group relative flex items-center gap-2 px-3 py-2.5 rounded-lg cursor-pointer transition-colors mb-0.5 ${active ? 'bg-white shadow-sm' : 'hover:bg-white/70'
+        }`}
     >
       <MessageSquare size={13} className="shrink-0 text-gray-400" />
 
@@ -170,12 +169,153 @@ function SessionItem({
   );
 }
 
+
 // ── Markdown message content ───────────────────────────────────────────────────
 
-function MarkdownContent({ content, streaming }: { content: string; streaming?: boolean }) {
+function MarkdownContent({ content, streaming, hasLinkModule, onCalendarClick }: { content: string; streaming?: boolean; hasLinkModule?: boolean; onCalendarClick?: (dateStr: string, title: string) => void }) {
+  // Resolve /api/ image paths to include the auth token so the server can
+  // validate the request (same approach as the download link).
+  const resolveImgSrc = (src: string | undefined): string => {
+    if (!src) return '';
+    if (src.startsWith('/api/')) {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+      return token ? `${src}?token=${token}` : src;
+    }
+    return src;
+  };
+
+  const handleLinkClick = (href: string, title: string = 'Event from AI Assistant') => (e: React.MouseEvent) => {
+    if (href.startsWith('calendar:')) {
+      const dateStr = href.replace('calendar:', '');
+      if (onCalendarClick) {
+        onCalendarClick(dateStr, title);
+        return;
+      }
+      // Create .ics file for calendar event
+      const icsContent = [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'PRODID:-//AI Assistant//Calendar Event//EN',
+        'BEGIN:VEVENT',
+        `DTSTART;VALUE=DATE:${dateStr.replace(/-/g, '')}`,
+        `SUMMARY:${title}`,
+        `DESCRIPTION:Event mentioned in AI Assistant chat`,
+        'END:VEVENT',
+        'END:VCALENDAR',
+      ].join('\r\n');
+
+      const icsFile = new File([icsContent], `event-${dateStr.replace(/-/g, '')}.ics`, {
+        type: 'text/calendar',
+      });
+
+      const triggerDownload = () => {
+        const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `event-${dateStr}.ics`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      };
+
+      if (navigator.canShare && navigator.canShare({ files: [icsFile] })) {
+        navigator.share({
+          files: [icsFile],
+          title: title,
+        }).catch((err) => {
+          console.log('Share canceled or failed', err);
+          // If the share dialog fails to open or is aborted, fallback to download
+          triggerDownload();
+        });
+        return;
+      }
+
+      triggerDownload();
+    } else if (href.startsWith('app:/')) {
+      const path = href.replace('app:', '');
+      window.open(path, '_blank');
+    }
+  };
+
   return (
     <div className="markdown-content">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        urlTransform={(value: string) => value}
+        components={{
+          img: (props) => (
+            <span className="block my-3">
+              <img
+                src={resolveImgSrc(typeof props.src === 'string' ? props.src : undefined)}
+                alt={props.alt || 'Image'}
+                className="max-w-full rounded-lg border border-gray-200 shadow-sm"
+                style={{ maxHeight: '400px', objectFit: 'contain' }}
+              />
+              {props.alt && <span className="block text-[11.5px] text-gray-400 mt-1 italic">{props.alt}</span>}
+            </span>
+          ),
+          a: ({ href, children, ...props }) => {
+            // Without ai_links module, render as plain text
+            if (!hasLinkModule) {
+              return <span className="text-gray-600">{children}</span>;
+            }
+
+            const isCalendar = href?.startsWith('calendar:');
+            const isInternal = href?.startsWith('app:/');
+            const isExternal = href?.startsWith('http://') || href?.startsWith('https://');
+            const isMailto = href?.startsWith('mailto:');
+
+            if (process.env.NODE_ENV === 'development') {
+              console.log('[Link] href:', href, { isCalendar, isInternal, isExternal, isMailto });
+            }
+
+            // For custom schemes, use onclick handler and prevent default navigation
+            if (isCalendar || isInternal) {
+              return (
+                <a
+                  href={href}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    let title = 'Event from AI Assistant';
+                    if (isCalendar) {
+                      const extractText = (node: any): string => {
+                        if (typeof node === 'string') return node;
+                        if (typeof node === 'number') return String(node);
+                        if (Array.isArray(node)) return node.map(extractText).join('');
+                        if (node && node.props && node.props.children) return extractText(node.props.children);
+                        return '';
+                      };
+                      title = extractText(children) || title;
+                    }
+                    handleLinkClick(href || '', title)(e as any);
+                  }}
+                  className="text-violet-600 hover:underline cursor-pointer"
+                  {...props}
+                >
+                  {children}
+                </a>
+              );
+            }
+
+            // For external links and mailto, use standard behavior
+            return (
+              <a
+                href={href}
+                target={isExternal ? '_blank' : undefined}
+                rel={isExternal ? 'noopener noreferrer' : undefined}
+                className="text-violet-600 hover:underline cursor-pointer"
+                {...props}
+              >
+                {children}
+              </a>
+            );
+          },
+        }}
+      >
+        {content}
+      </ReactMarkdown>
       {streaming && (
         <span className="inline-block w-1.5 h-4 bg-gray-500 rounded-sm ml-0.5 animate-pulse align-text-bottom" />
       )}
@@ -189,18 +329,41 @@ function StreamingMarkdown({
   content,
   streaming,
   isNew,
+  hasLinkModule,
+  onCalendarClick,
 }: {
   content: string;
   streaming?: boolean;
   isNew?: boolean;
+  hasLinkModule?: boolean;
+  onCalendarClick?: (dateStr: string, title: string) => void;
 }) {
   // History messages (isNew=false) start fully revealed.
   // Live messages (isNew=true) always start at 0 — even if React batched the
   // state updates so that the component mounts with streaming already false.
   const [pos, setPos] = useState(() => (isNew ? 0 : content.length));
   const contentRef = useRef(content);
+  const prevContentRef = useRef(content);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   contentRef.current = content;
+
+  // Detect when content is *replaced* (e.g. by a replace_content SSE event)
+  // rather than simply appended to.  When the new content is not an extension
+  // of the old content the typewriter has already played for the token-streamed
+  // version, so we jump pos straight to the full length.
+  useEffect(() => {
+    const prev = prevContentRef.current;
+    prevContentRef.current = content;
+
+    // Skip the very first render (nothing to compare against)
+    if (prev === content) return;
+
+    // Normal token-append: new content starts with old content
+    if (content.startsWith(prev)) return;
+
+    // Content was replaced wholesale — jump pos to show it all immediately
+    setPos(content.length);
+  }, [content]);
 
   const startDrainRef = useRef((charsPerTick: number) => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -232,6 +395,8 @@ function StreamingMarkdown({
     <MarkdownContent
       content={content.slice(0, pos)}
       streaming={!!isNew && !!streaming && pos < content.length}
+      hasLinkModule={hasLinkModule}
+      onCalendarClick={onCalendarClick}
     />
   );
 }
@@ -277,6 +442,12 @@ export default function AIAssistantPage() {
   // API proposal state
   const [proposalLoadingId, setProposalLoadingId] = useState<string | null>(null);
 
+  // Link module state
+  const [hasLinkModule, setHasLinkModule] = useState(false);
+
+  // Calendar selection state
+  const [calendarEvent, setCalendarEvent] = useState<{ date: string, title: string } | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const esRef = useRef<EventSource | null>(null);
@@ -287,12 +458,17 @@ export default function AIAssistantPage() {
   useEffect(() => {
     if (!PERMISSION_MODULE_ENABLED) return;
     const unrestricted = sessionStorage.getItem('userModulesUnrestricted');
-    if (unrestricted) return;
+    if (unrestricted) {
+      // Admins bypass module guards; backend still enforces org-level ai_links enablement
+      setHasLinkModule(true);
+      return;
+    }
     const raw = sessionStorage.getItem('userModules');
     if (raw) {
       try {
         const modules: string[] = JSON.parse(raw);
         if (!modules.includes('ai_assistant')) router.replace('/dashboard');
+        setHasLinkModule(modules.includes('ai_links'));
       } catch (err) {
         console.warn('Failed to parse userModules from sessionStorage', err);
       }
@@ -412,6 +588,12 @@ export default function AIAssistantPage() {
       });
     }
 
+    // Close any existing SSE connection before starting a new one
+    if (esRef.current) {
+      esRef.current.close();
+      esRef.current = null;
+    }
+
     // Add placeholder assistant message
     const assistantId = `a-${Date.now()}`;
     assistantIdRef.current = assistantId;
@@ -437,8 +619,8 @@ export default function AIAssistantPage() {
         setStreaming(false);
         setMessages((prev) =>
           prev
-            .map((m) => m.id === assistantId ? { ...m, streaming: false } : m)
-            .filter((m) => m.id !== assistantId || m.content.trim() !== ''),
+            .map((m) => m.id === assistantIdRef.current ? { ...m, streaming: false } : m)
+            .filter((m) => m.role !== 'assistant' || m.content.trim() !== '')
         );
         return;
       }
@@ -450,7 +632,7 @@ export default function AIAssistantPage() {
         const errText = data.replace('[ERROR]', '').trim() || 'An error occurred.';
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === assistantId
+            m.id === assistantIdRef.current
               ? { ...m, content: `Sorry, something went wrong: ${errText}`, streaming: false }
               : m,
           ),
@@ -460,10 +642,20 @@ export default function AIAssistantPage() {
 
       setMessages((prev) =>
         prev.map((m) =>
-          m.id === assistantId ? { ...m, content: m.content + data } : m,
+          m.id === assistantIdRef.current ? { ...m, content: m.content + data } : m,
         ),
       );
     };
+
+    // ── Named SSE: replace_content (image resolution) ─────────────────────────
+    es.addEventListener('replace_content', (event) => {
+      const resolved = JSON.parse((event as MessageEvent).data) as string;
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantIdRef.current ? { ...m, content: resolved } : m,
+        ),
+      );
+    });
 
     // ── Named SSE: api_task_proposal ──────────────────────────────────────────
     es.addEventListener('api_task_proposal', (event) => {
@@ -475,11 +667,11 @@ export default function AIAssistantPage() {
           prev.map((m) =>
             m.id === assistantIdRef.current
               ? {
-                  ...m,
-                  streaming: false,
-                  content: `I need your permission to proceed: **${proposal.description || proposal.title}**`,
-                  proposal,
-                }
+                ...m,
+                streaming: false,
+                content: `I need your permission to proceed: **${proposal.description || proposal.title}**`,
+                proposal,
+              }
               : m,
           ),
         );
@@ -512,11 +704,11 @@ export default function AIAssistantPage() {
             return prev.map((m) =>
               m.id === assistantIdRef.current
                 ? {
-                    ...m,
-                    id: `exec-ok-${ev.execution_id}`,
-                    streaming: false,
-                    content: ev.summary || '✅ API action completed.',
-                  }
+                  ...m,
+                  id: `exec-ok-${ev.execution_id}`,
+                  streaming: false,
+                  content: ev.summary || '✅ API action completed.',
+                }
                 : m
             );
           } else {
@@ -541,11 +733,11 @@ export default function AIAssistantPage() {
             return prev.map((m) =>
               m.id === assistantIdRef.current
                 ? {
-                    ...m,
-                    id: `exec-ok-parse-err-${Date.now()}`,
-                    streaming: false,
-                    content: '✅ API action completed (result unavailable).',
-                  }
+                  ...m,
+                  id: `exec-ok-parse-err-${Date.now()}`,
+                  streaming: false,
+                  content: '✅ API action completed (result unavailable).',
+                }
                 : m
             );
           } else {
@@ -577,11 +769,11 @@ export default function AIAssistantPage() {
             return prev.map((m) =>
               m.id === assistantIdRef.current
                 ? {
-                    ...m,
-                    id: `exec-err-${ev.execution_id}`,
-                    streaming: false,
-                    content: `❌ API action failed: ${ev.error || 'Unknown error'}`,
-                  }
+                  ...m,
+                  id: `exec-err-${ev.execution_id}`,
+                  streaming: false,
+                  content: `❌ API action failed: ${ev.error || 'Unknown error'}`,
+                }
                 : m
             );
           } else {
@@ -606,11 +798,11 @@ export default function AIAssistantPage() {
             return prev.map((m) =>
               m.id === assistantIdRef.current
                 ? {
-                    ...m,
-                    id: `exec-err-parse-err-${Date.now()}`,
-                    streaming: false,
-                    content: '❌ API action failed (details unavailable).',
-                  }
+                  ...m,
+                  id: `exec-err-parse-err-${Date.now()}`,
+                  streaming: false,
+                  content: '❌ API action failed (details unavailable).',
+                }
                 : m
             );
           } else {
@@ -815,7 +1007,7 @@ export default function AIAssistantPage() {
                           <ThinkingDots />
                         ) : (
                           <>
-                            <StreamingMarkdown content={msg.content} streaming={msg.streaming} isNew={msg.isNew} />
+                            <StreamingMarkdown content={msg.content} streaming={msg.streaming} isNew={msg.isNew} hasLinkModule={hasLinkModule} onCalendarClick={(dateStr, title) => setCalendarEvent({ date: dateStr, title })} />
                             {msg.proposal && (
                               <div className="mt-4 flex flex-wrap gap-2 border-t border-gray-100 pt-4">
                                 <button
@@ -848,9 +1040,8 @@ export default function AIAssistantPage() {
 
           {/* Input area */}
           <div className="border-t border-[#e8e6e2] px-4 py-3.5 shrink-0 bg-white">
-            <div className={`flex items-end gap-2.5 bg-[#fafaf9] border rounded-xl px-3.5 py-2.5 transition-all ${
-              streaming ? 'border-gray-200' : 'border-gray-200 focus-within:border-violet-400 focus-within:shadow-[0_0_0_3px_rgba(139,92,246,0.08)]'
-            }`}>
+            <div className={`flex items-end gap-2.5 bg-[#fafaf9] border rounded-xl px-3.5 py-2.5 transition-all ${streaming ? 'border-gray-200' : 'border-gray-200 focus-within:border-violet-400 focus-within:shadow-[0_0_0_3px_rgba(139,92,246,0.08)]'
+              }`}>
               <textarea
                 ref={textareaRef}
                 placeholder="Message AI assistant…"
@@ -883,6 +1074,79 @@ export default function AIAssistantPage() {
           </div>
         </div>
       </div>
+
+      {/* Calendar Modal */}
+      {calendarEvent && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[3000]" onClick={() => setCalendarEvent(null)}>
+          <div className="bg-white rounded-xl p-6 w-[90%] max-w-[360px]" onClick={e => e.stopPropagation()}>
+            <h2 className="text-[17px] font-semibold text-gray-900 mb-2">Add to Calendar</h2>
+            <p className="text-[13px] text-gray-500 mb-6">Choose how you want to save this event.</p>
+
+            <div className="flex flex-col gap-3">
+              <button
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-md text-[13.5px] font-medium hover:bg-blue-700 transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  window.open(
+                    `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(calendarEvent.title)}&dates=${calendarEvent.date.replace(/-/g, '')}/${calendarEvent.date.replace(/-/g, '')}&details=Event+mentioned+in+AI+Assistant+chat`,
+                    '_blank',
+                    'noopener,noreferrer'
+                  );
+                }}
+              >
+                Add to Google Calendar
+              </button>
+              <button
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[#0078d4] text-white rounded-md text-[13.5px] font-medium hover:bg-[#106ebe] transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  window.open(
+                    `https://outlook.live.com/calendar/action/compose?path=/calendar/action/compose&rru=addevent&subject=${encodeURIComponent(calendarEvent.title)}&startdt=${calendarEvent.date}T00:00:00&enddt=${calendarEvent.date}T23:59:59&body=Event+mentioned+in+AI+Assistant+chat`,
+                    '_blank',
+                    'noopener,noreferrer'
+                  );
+                }}
+              >
+                Add to Outlook (Web)
+              </button>
+              <button
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gray-100 text-gray-800 rounded-md text-[13.5px] font-medium hover:bg-gray-200 transition-colors"
+                onClick={() => {
+                  const icsContent = [
+                    'BEGIN:VCALENDAR',
+                    'VERSION:2.0',
+                    'PRODID:-//AI Assistant//Calendar Event//EN',
+                    'BEGIN:VEVENT',
+                    `DTSTART;VALUE=DATE:${calendarEvent.date.replace(/-/g, '')}`,
+                    `SUMMARY:${calendarEvent.title}`,
+                    `DESCRIPTION:Event mentioned in AI Assistant chat`,
+                    'END:VEVENT',
+                    'END:VCALENDAR',
+                  ].join('\r\n');
+                  const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `event-${calendarEvent.date}.ics`;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  URL.revokeObjectURL(url);
+                  setCalendarEvent(null);
+                }}
+              >
+                Download .ics file (Outlook Desktop / Apple)
+              </button>
+            </div>
+            <button
+              className="w-full mt-4 text-[13px] font-medium text-gray-500 hover:text-gray-800 transition-colors"
+              onClick={() => setCalendarEvent(null)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </Layout>
   );
 }

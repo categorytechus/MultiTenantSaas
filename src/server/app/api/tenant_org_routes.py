@@ -80,10 +80,25 @@ async def my_modules(
         org_id=organization_id,
         user_id=ctx.user_id,
     )
+
+    # Fetch which sub-modules the org has enabled (ai_images, ai_links, etc.)
+    org_enabled_modules: set[str] = set()
+    if await _table_exists(session, "org_modules"):
+        org_modules_result = await session.execute(
+            select(OrgModule.module_id).where(OrgModule.org_id == organization_id)
+        )
+        org_enabled_modules = {row[0] for row in org_modules_result.all()}
+
     if "*" in perms:
-        modules = ["ai_assistant", "documents", "web_urls"]
+        modules_set = {"ai_assistant", "documents", "web_urls"}
+        # Include org-enabled sub-modules for admins
+        if "ai_images" in org_enabled_modules:
+            modules_set.add("ai_images")
+        if "ai_links" in org_enabled_modules:
+            modules_set.add("ai_links")
+        modules = sorted(modules_set)
     else:
-        modules_set: set[str] = set()
+        modules_set = set()
 
         if any(p.startswith("ai_assistant:") or p.startswith("agents:") for p in perms):
             modules_set.add("ai_assistant")
@@ -91,10 +106,15 @@ async def my_modules(
         has_documents_view = ("documents:view" in perms) or ("documents:read" in perms)
         if has_documents_view:
             modules_set.add("documents")
+            if "ai_images" in org_enabled_modules:
+                modules_set.add("ai_images")
 
         has_web_urls_view = "web_urls:view" in perms
         if has_web_urls_view:
             modules_set.add("web_urls")
+
+        if "link_embed:view" in perms and "ai_links" in org_enabled_modules:
+            modules_set.add("ai_links")
 
         modules = sorted(modules_set)
 

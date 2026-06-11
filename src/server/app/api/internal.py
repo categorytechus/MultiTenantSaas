@@ -283,3 +283,36 @@ async def update_internal_execution(
 
         await session.flush()
         return {"id": str(log.id), "status": log.status}
+
+
+# ── Module enablement check (called by agents service) ────────────────────────
+
+class ModuleCheckRequest(BaseModel):
+    org_id: UUID
+    module_id: str
+
+
+class ModuleCheckResponse(BaseModel):
+    enabled: bool
+
+
+@router.post("/modules/check", response_model=ModuleCheckResponse)
+async def check_module(
+    body: ModuleCheckRequest,
+    _: None = Depends(_verify_secret),
+) -> ModuleCheckResponse:
+    """Check if module is enabled for org (internal use only)."""
+    from app.models.org_module import OrgModule
+
+    async with db_session(str(body.org_id)) as session:
+        # Check if org has module assigned (presence in table means enabled)
+        result = await session.execute(
+            select(OrgModule.id)
+            .where(
+                OrgModule.org_id == body.org_id,
+                OrgModule.module_id == body.module_id,
+            )
+        )
+        module_exists = result.scalar_one_or_none()
+
+        return ModuleCheckResponse(enabled=module_exists is not None)
