@@ -239,6 +239,30 @@ async def create_organization(
     session.add(org)
     await session.flush()
 
+    try:
+        import os
+        import json
+        from app.models.prompt import OrgPrompt
+        current_dir = os.path.dirname(__file__)
+        src_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+        chat_json_path = os.path.join(src_dir, 'agents', 'app', 'prompts', 'chat.json')
+        with open(chat_json_path, 'r', encoding='utf-8') as f:
+            chat_prompts = json.load(f)
+        for workflow, slots in chat_prompts.items():
+            for slot, template in slots.items():
+                prompt = OrgPrompt(
+                    org_id=org.id,
+                    agent='chat',
+                    workflow=workflow,
+                    slot=slot,
+                    template=template
+                )
+                session.add(prompt)
+        await session.flush()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Failed to seed prompts for new org: {e}")
+
     return {
         "id": str(org.id),
         "slug": org.slug,

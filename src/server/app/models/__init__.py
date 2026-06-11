@@ -14,3 +14,4 @@ from .rbac import RbacRole, RbacPermission, RolePermission, RoleOrgPermission
 from .super_admin import SuperAdminAllowlist
 from .web_url import WebUrl
 from .irs_rule import IrsRule, IrsRuleChunk
+from .prompt import OrgPrompt

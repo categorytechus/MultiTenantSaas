@@ -314,5 +314,24 @@ async def check_module(
             )
         )
         module_exists = result.scalar_one_or_none()
+        return {"enabled": module_exists is not None}
 
-        return ModuleCheckResponse(enabled=module_exists is not None)
+# ── Prompts loader (used by chat worker) ────────────────────────
+
+@router.get("/prompts")
+async def get_internal_prompts(
+    org_id: str = Query(...),
+    _: None = Depends(_verify_secret),
+) -> dict:
+    from app.models.prompt import OrgPrompt
+    async with db_session(org_id) as session:
+        result = await session.execute(
+            select(OrgPrompt).where(OrgPrompt.org_id == UUID(org_id))
+        )
+        prompts = result.scalars().all()
+        output = {}
+        for p in prompts:
+            if p.workflow not in output:
+                output[p.workflow] = {}
+            output[p.workflow][p.slot] = p.template
+        return {"data": output}

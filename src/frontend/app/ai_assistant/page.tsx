@@ -553,6 +553,24 @@ export default function AIAssistantPage() {
     setInput('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
 
+    // Verify organization is selected
+    const jwtToken = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+    if (jwtToken) {
+      try {
+        const payload = JSON.parse(atob(jwtToken.split('.')[1]));
+        if (!payload.org_id) {
+          setMessages((prev) => [
+            ...prev.filter((m) => m.id !== 'welcome'),
+            { id: `u-${Date.now()}`, role: 'user', content: text },
+            { id: `err-${Date.now()}`, role: 'assistant', content: 'Please select an organization from the top right dropdown to use the AI Chat. Chat sessions are securely tied to a specific organization\'s documents.' },
+          ]);
+          return;
+        }
+      } catch {
+        // Ignore decoding errors
+      }
+    }
+
     const userMsg: Message = { id: `u-${Date.now()}`, role: 'user', content: text };
     setMessages((prev) => [...prev.filter((m) => m.id !== 'welcome'), userMsg]);
 

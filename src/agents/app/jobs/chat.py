@@ -90,6 +90,9 @@ async def run_chat(
 
         # Load enabled API modules — safe metadata only, no auth secrets
         api_modules = await load_api_modules(http, org_id)
+        
+        from app.http import load_org_prompts
+        custom_prompts = await load_org_prompts(http, org_id)
 
         result = await run_agent(
             conversation=conversation,
@@ -102,6 +105,7 @@ async def run_chat(
             image_rendering_enabled=image_rendering_enabled,
             org_id=org_id,
             http_client=http,
+            custom_prompts=custom_prompts,
         )
 
         if result.type == "api_task_proposal" and result.proposal:

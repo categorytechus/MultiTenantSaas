@@ -339,6 +339,7 @@ async def run_agent(
     image_rendering_enabled: bool = False,
     org_id: str | None = None,
     http_client = None,
+    custom_prompts: dict | None = None,
 ) -> AgentResult:
     """
     Stream a Bedrock (or Gemini) response and return an AgentResult.
@@ -395,20 +396,22 @@ async def run_agent(
 
     if all_context_parts:
         context = "\n\n---\n\n".join(all_context_parts)
-        system_prompt = get_prompt("chat", "with-context", workflow, context=context)
+        system_prompt = get_prompt("with-context", workflow, custom_prompts=custom_prompts, context=context)
     else:
-        system_prompt = get_prompt("chat", "no-context", workflow)
+        system_prompt = get_prompt("no-context", workflow, custom_prompts=custom_prompts)
 
     has_api_modules = bool(api_modules)
     if has_api_modules:
         system_prompt += get_prompt(
-            "chat", "api-tools", workflow,
+            "api-tools",
+            workflow,
+            custom_prompts=custom_prompts,
             modules_json=json.dumps(api_modules, indent=2),
         )
 
     # Append image instructions when image chunks are present
     if image_ref_map:
-        system_prompt += get_prompt("chat", "with-images", workflow)
+        system_prompt += get_prompt("with-images", workflow, custom_prompts=custom_prompts)
 
     # Append link instructions when ai_links module is enabled
     if org_id and http_client:
@@ -418,7 +421,7 @@ async def run_agent(
         logger.info(f"Link module check for org {org_id}: {has_link_module}")
         if has_link_module:
             logger.info("Appending link-instructions to system prompt")
-            system_prompt += get_prompt("chat", "link-instructions", workflow)
+            system_prompt += get_prompt("link-instructions", workflow, custom_prompts=custom_prompts)
         else:
             logger.warning(f"ai_links module not enabled for org {org_id}")
 

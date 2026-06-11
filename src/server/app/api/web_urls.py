@@ -57,9 +57,10 @@ async def list_web_urls(
     ctx: RequestContext = authorize("web_urls:view"),
     session: AsyncSession = Depends(get_db),
 ):
-    result = await session.execute(
-        select(WebUrl).where(WebUrl.org_id == ctx.org_id).order_by(WebUrl.created_at.desc())
-    )
+    query = select(WebUrl).order_by(WebUrl.created_at.desc())
+    if ctx.org_id is not None:
+        query = query.where(WebUrl.org_id == ctx.org_id)
+    result = await session.execute(query)
     rows = result.scalars().all()
     return {"data": [_to_row(r) for r in rows]}
 
