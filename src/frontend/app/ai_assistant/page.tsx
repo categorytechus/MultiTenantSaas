@@ -458,13 +458,16 @@ export default function AIAssistantPage() {
   useEffect(() => {
     if (!PERMISSION_MODULE_ENABLED) return;
     const unrestricted = sessionStorage.getItem('userModulesUnrestricted');
-    if (unrestricted) return;
+    if (unrestricted) {
+      // Admins bypass module guards; backend still enforces org-level ai_links enablement
+      setHasLinkModule(true);
+      return;
+    }
     const raw = sessionStorage.getItem('userModules');
     if (raw) {
       try {
         const modules: string[] = JSON.parse(raw);
         if (!modules.includes('ai_assistant')) router.replace('/dashboard');
-        // Check if ai_links submodule is enabled
         setHasLinkModule(modules.includes('ai_links'));
       } catch (err) {
         console.warn('Failed to parse userModules from sessionStorage', err);
