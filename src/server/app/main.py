@@ -144,6 +144,7 @@ from app.api.tenant_org_routes import router as tenant_org_router
 from app.api.users import router as users_router
 from app.api.web_urls import router as web_urls_router
 from app.api.dashboard import router as dashboard_router
+from app.api.webhooks import router as webhooks_router
 
 app.include_router(auth_router)
 app.include_router(organizations_router)
@@ -160,3 +161,4 @@ app.include_router(api_modules_router)
 app.include_router(api_proposals_router)
 app.include_router(internal_router)
 app.include_router(dashboard_router)
+app.include_router(webhooks_router)

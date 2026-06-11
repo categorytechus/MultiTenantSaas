@@ -12,6 +12,7 @@ interface Module {
   parent_id?: string | null;
   sort_order?: number;
   enabled: boolean;
+  settings?: any;
 }
 
 function Toggle({ on, disabled, onToggle, label }: { on: boolean; disabled?: boolean; onToggle: () => void; label: string }) {
@@ -53,6 +54,7 @@ export default function OrgPermissionsDetailPage() {
   const [orgName, setOrgName] = useState('');
   const [modules, setModules] = useState<Module[]>([]);
   const [enabled, setEnabled] = useState<Set<string>>(new Set());
+  const [moduleSettings, setModuleSettings] = useState<Record<string, any>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -82,6 +84,11 @@ export default function OrgPermissionsDetailPage() {
           const list = modRes.data.data;
           setModules(list);
           setEnabled(new Set(list.filter((m) => m.enabled).map((m) => m.id)));
+          const initSettings: Record<string, any> = {};
+          list.forEach(m => {
+            if (m.settings) initSettings[m.id] = m.settings;
+          });
+          setModuleSettings(initSettings);
           // Auto-expand all parent modules that have children
           const parentIds = new Set(
             list.filter(m => m.parent_id).map(m => m.parent_id as string)
@@ -128,7 +135,10 @@ export default function OrgPermissionsDetailPage() {
     try {
       const res = await apiFetch(`/admin/organizations/${orgId}/modules`, {
         method: 'PUT',
-        body: JSON.stringify({ moduleIds: Array.from(enabled) }),
+        body: JSON.stringify({ 
+          moduleIds: Array.from(enabled),
+          moduleSettings: moduleSettings
+        }),
       });
       if (res.success) {
         setSuccess('Module access updated successfully');
@@ -195,7 +205,7 @@ export default function OrgPermissionsDetailPage() {
                   <div style={{
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                     padding: '16px 20px',
-                    borderBottom: !isLast ? '1px solid #f0eeeb' : 'none',
+                    borderBottom: (!isLast && !(mod.id === 'cost_seg' && on)) ? '1px solid #f0eeeb' : 'none',
                   }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 14, fontWeight: 500, color: '#1a1a1a', marginBottom: 2 }}>{mod.label}</div>
@@ -203,6 +213,49 @@ export default function OrgPermissionsDetailPage() {
                     </div>
                     <Toggle on={on} onToggle={() => toggle(mod.id)} label={mod.label} />
                   </div>
+                  
+                  {mod.id === 'cost_seg' && on && (
+                    <div style={{ padding: '0 20px 16px 20px', borderBottom: !isLast ? '1px solid #f0eeeb' : 'none' }}>
+                      <div style={{ background: '#f9f8f6', borderRadius: 8, padding: 12, border: '1px solid #e5e5e5' }}>
+                        <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#1a1a1a', marginBottom: 6 }}>
+                          Cost Segregation Settings
+                        </label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <span style={{ fontSize: 13, color: '#666' }}>Price per report (USD):</span>
+                          <input 
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={moduleSettings.cost_seg?.price_per_report ?? 999}
+                            onChange={e => {
+                              const val = parseInt(e.target.value, 10);
+                              setModuleSettings(prev => ({
+                                ...prev, 
+                                cost_seg: { ...prev.cost_seg, price_per_report: isNaN(val) ? 0 : Math.max(0, val) }
+                              }));
+                            }}
+                            style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d1d5db', width: 120, fontSize: 13, outline: 'none' }}
+                          />
+                          <button
+                            onClick={handleSave}
+                            disabled={saving}
+                            style={{ padding: '6px 12px', background: '#1a1a1a', color: 'white', borderRadius: 6, fontSize: 12, fontWeight: 500, border: 'none', cursor: 'pointer' }}
+                          >
+                            Save
+                          </button>
+                          <button
+                            onClick={() => setModuleSettings(prev => ({
+                              ...prev, 
+                              cost_seg: { ...prev.cost_seg, price_per_report: 999 }
+                            }))}
+                            style={{ padding: '6px 12px', background: 'white', color: '#666', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, fontWeight: 500, cursor: 'pointer' }}
+                          >
+                            Reset to default
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {children.length > 0 && (() => {
                     const isOpen = expanded.has(mod.id);
