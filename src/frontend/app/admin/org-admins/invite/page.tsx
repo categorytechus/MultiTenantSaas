@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Layout from '../../../../components/Layout';
 import { apiFetch } from '../../../../src/lib/api';
+import { copyToClipboard } from '../../../../src/lib/clipboard';
 
 interface Org { id: string; name: string; slug: string; }
 
@@ -79,9 +80,19 @@ export default function InviteOrgAdminPage() {
     }
   };
 
+  const normalizedSignupLink = (() => {
+    if (!signupLink) return null;
+    try {
+      const parsed = new URL(signupLink);
+      return `${window.location.origin}${parsed.pathname}${parsed.search}`;
+    } catch {
+      return signupLink.replace(/^https?:\/\/[^/]+/, window.location.origin);
+    }
+  })();
+
   const handleCopy = () => {
-    if (signupLink) {
-      navigator.clipboard.writeText(signupLink);
+    if (normalizedSignupLink) {
+      copyToClipboard(normalizedSignupLink);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -148,31 +159,32 @@ export default function InviteOrgAdminPage() {
               )}
             </div>
 
-            <div style={{ marginBottom: 6 }}>
+            <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 12, fontWeight: 500, color: '#555', marginBottom: 6 }}>Signup link</div>
               <div style={{
-                display: 'flex', alignItems: 'center',
-                border: '1px solid #e5e5e5', borderRadius: 8, overflow: 'hidden',
+                background: '#f9f9f8', border: '1px solid #e5e5e5', borderRadius: 8,
+                padding: '10px 14px', fontFamily: 'monospace', fontSize: 12, color: '#374151',
+                wordBreak: 'break-all', lineHeight: 1.6, marginBottom: 8,
               }}>
-                <div style={{
-                  flex: 1, padding: '10px 14px',
-                  fontFamily: 'monospace', fontSize: 12.5, color: '#374151',
-                  background: '#f9f9f8', wordBreak: 'break-all', lineHeight: 1.5,
-                }}>
-                  {signupLink}
-                </div>
-                <button
-                  onClick={handleCopy}
-                  style={{
-                    padding: '10px 14px', background: copied ? '#f0fdf4' : '#f5f4f1',
-                    border: 'none', borderLeft: '1px solid #e5e5e5', cursor: 'pointer',
-                    color: copied ? '#16a34a' : '#555', fontSize: 13, fontWeight: 500,
-                    fontFamily: 'DM Sans, sans-serif', whiteSpace: 'nowrap', transition: 'all .15s',
-                  }}
-                >
-                  {copied ? '✓ Copied' : 'Copy'}
-                </button>
+                {normalizedSignupLink}
               </div>
+              <button
+                onClick={handleCopy}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                  width: '100%', padding: '9px 16px', borderRadius: 8, cursor: 'pointer',
+                  border: `1px solid ${copied ? '#bbf7d0' : '#e5e5e5'}`,
+                  background: copied ? '#f0fdf4' : '#fff',
+                  color: copied ? '#16a34a' : '#1a1a1a',
+                  fontSize: 13, fontWeight: 500, transition: 'all .15s',
+                }}
+              >
+                {copied ? (
+                  <><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Copied!</>
+                ) : (
+                  <><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>Copy Link</>
+                )}
+              </button>
             </div>
 
             <div style={{

@@ -57,6 +57,8 @@ def _require_tenant_admin(ctx: RequestContext) -> None:
 
 
 def _ensure_org_context(ctx: RequestContext, organization_id: UUID) -> None:
+    if ctx.role == Role.SUPER_ADMIN:
+        return
     if ctx.org_id != organization_id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Token organization does not match path")
 
@@ -313,8 +315,41 @@ async def delete_org_user(
     if not membership:
         raise HTTPException(status_code=404, detail="User not found in this organization")
 
+    # Remove org-scoped RBAC role assignments
+    ur_exists = await session.execute(text("SELECT to_regclass('public.user_roles')"))
+    if ur_exists.scalar_one_or_none() is not None:
+        await session.execute(
+            text("DELETE FROM user_roles WHERE user_id = :uid AND organization_id = :oid"),
+            {"uid": user_id, "oid": organization_id},
+        )
+
+    # Revoke org-scoped refresh tokens
+    await session.execute(
+        text("DELETE FROM refresh_tokens WHERE user_id = :uid AND org_id = :oid"),
+        {"uid": user_id, "oid": organization_id},
+    )
+
     await session.delete(membership)
     await session.flush()
+
+    # If user has no other memberships, delete the user account entirely
+    other = await session.execute(
+        select(OrgMembership).where(OrgMembership.user_id == user_id)
+    )
+    if other.scalars().first() is None:
+        await session.execute(
+            text("DELETE FROM refresh_tokens WHERE user_id = :uid"),
+            {"uid": user_id},
+        )
+        await session.execute(
+            text("DELETE FROM oauth_identities WHERE user_id = :uid"),
+            {"uid": user_id},
+        )
+        orphan = await session.get(User, user_id)
+        if orphan:
+            await session.delete(orphan)
+        await session.flush()
+
     return {"success": True}
 
 
@@ -360,18 +395,13 @@ async def list_roles(
     _require_tenant_admin(ctx)
     _ensure_org_context(ctx, organization_id)
 
-    # Local query is fine: roles table is small (base system roles + custom roles).
-    # System roles have is_system=True, organization_id=NULL.
-    # The built-in 'user' role has is_system=False, organization_id=NULL (editable default).
+    # System roles (is_system=True, organization_id=NULL) are global — org_admin, viewer, etc.
+    # Global non-system roles (is_system=False, organization_id=NULL) such as "user" are internal
+    # defaults and should not appear as assignable options in the org user creation UI.
     base_roles_result = await session.execute(
         select(RbacRole).where(RbacRole.is_system == True, RbacRole.organization_id == None)  # noqa: E712
     )
     base_roles = base_roles_result.scalars().all()
-
-    global_default_roles_result = await session.execute(
-        select(RbacRole).where(RbacRole.is_system == False, RbacRole.organization_id == None)  # noqa: E712
-    )
-    global_default_roles = global_default_roles_result.scalars().all()
 
     custom_roles_result = await session.execute(
         select(RbacRole).where(RbacRole.organization_id == organization_id, RbacRole.is_system == False)  # noqa: E712
@@ -379,7 +409,7 @@ async def list_roles(
     custom_roles = custom_roles_result.scalars().all()
 
     roles_out: list[dict[str, str | bool | None]] = []
-    for r in [*base_roles, *global_default_roles, *custom_roles]:
+    for r in [*base_roles, *custom_roles]:
         roles_out.append(
             {
                 "id": str(r.id),

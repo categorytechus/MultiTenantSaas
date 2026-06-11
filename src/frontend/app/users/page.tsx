@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Layout from "../../components/Layout";
 import { apiFetch } from "../../src/lib/api";
+import { copyToClipboard } from "../../src/lib/clipboard";
 import { Pencil, Trash2, KeyRound } from "lucide-react";
 
 interface OrgUser {
@@ -16,6 +17,7 @@ interface OrgUser {
   created_at: string;
   last_login_at: string | null;
   roles: { id: string; name: string }[];
+  orgs?: { id: string; name: string }[];
 }
 
 export default function UsersPage() {
@@ -24,6 +26,8 @@ export default function UsersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [orgId, setOrgId] = useState("");
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [roleFilter, setRoleFilter] = useState("all");
   const [deleteTarget, setDeleteTarget] = useState<OrgUser | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [passwordTarget, setPasswordTarget] = useState<OrgUser | null>(null);
@@ -44,6 +48,7 @@ export default function UsersPage() {
       const jwtRoles: string[] = jwtPayload.roles ?? [];
       setCurrentUserType(jwtRoles.includes("org_admin") ? "org_admin" : ut);
       isSuper = ut === "super_admin";
+      setIsSuperAdmin(isSuper);
       if (ut !== "super_admin" && !jwtRoles.includes("org_admin")) {
         router.push("/dashboard"); return;
       }
@@ -78,10 +83,12 @@ export default function UsersPage() {
   }, [guardAndFetch]);
 
   const handleDelete = async () => {
-    if (!deleteTarget || !orgId) return;
+    if (!deleteTarget) return;
+    const effectiveOrgId = orgId || deleteTarget.orgs?.[0]?.id;
+    if (!effectiveOrgId) return;
     setDeleting(true);
     try {
-      const res = await apiFetch(`/organizations/${orgId}/users/${deleteTarget.id}`, { method: "DELETE" });
+      const res = await apiFetch(`/organizations/${effectiveOrgId}/users/${deleteTarget.id}`, { method: "DELETE" });
       if (res.success) { setUsers((prev) => prev.filter((u) => u.id !== deleteTarget.id)); setDeleteTarget(null); }
       else setError(res.error || "Delete failed");
     } catch { setError("Delete failed"); }
@@ -89,11 +96,13 @@ export default function UsersPage() {
   };
 
   const handlePasswordReset = async () => {
-    if (!passwordTarget || !orgId) return;
+    if (!passwordTarget) return;
+    const effectiveOrgId = orgId || passwordTarget.orgs?.[0]?.id;
+    if (!effectiveOrgId) return;
     setError(""); setResettingPassword(true);
     try {
       const res = await apiFetch<{ data?: { temp_password?: string } }>(
-        `/organizations/${orgId}/users/${passwordTarget.id}/reset-password`, { method: "POST" }
+        `/organizations/${effectiveOrgId}/users/${passwordTarget.id}/reset-password`, { method: "POST" }
       );
       if (res.success) {
         setPasswordTarget(null);
@@ -103,9 +112,9 @@ export default function UsersPage() {
     finally { setResettingPassword(false); }
   };
 
-  const isSuperAdmin = currentUserType === "super_admin";
   const isOrgAdmin = currentUserType === "org_admin";
   const canResetPassword = isSuperAdmin || isOrgAdmin;
+  const noOrgContext = isSuperAdmin && !orgId;
 
   const formatDate = (d: string | null) => {
     if (!d) return "—";
@@ -113,8 +122,8 @@ export default function UsersPage() {
   };
 
   const getRoleTags = (u: OrgUser) => {
+    if (u.user_type === "super_admin") return ["super_admin"];
     if (u.roles?.length) return u.roles.map((r) => r.name);
-    // Fallback: derive display name from membership.role (org_role)
     const orgRoleDisplay: Record<string, string> = {
       tenant_admin: "org_admin",
       super_admin: "super_admin",
@@ -124,6 +133,22 @@ export default function UsersPage() {
     const display = orgRoleDisplay[u.org_role] ?? u.org_role;
     return display ? [display] : [];
   };
+
+  // Collect unique role values from current data for filter chips
+  const allRoleNames = Array.from(
+    new Set(
+      users
+        .filter((u) => u.user_type !== "super_admin")
+        .flatMap((u) => getRoleTags(u))
+    )
+  ).sort();
+
+  const filteredUsers = users
+    .filter((u) => u.user_type !== "super_admin")
+    .filter((u) => {
+      if (roleFilter === "all") return true;
+      return getRoleTags(u).includes(roleFilter);
+    });
 
   return (
     <Layout>
@@ -163,9 +188,40 @@ export default function UsersPage() {
             Loading…
           </div>
         ) : (
+          <>
+            {/* Role filter — sits above the card */}
+            {allRoleNames.length > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+                <span style={{ fontSize: 12, color: "#9a9a9a", marginRight: 4 }}>Filter:</span>
+                {["all", ...allRoleNames].map((r) => (
+                  <button
+                    key={r}
+                    onClick={() => setRoleFilter(r)}
+                    style={{
+                      padding: "4px 12px",
+                      borderRadius: 20,
+                      fontSize: 12,
+                      fontWeight: 500,
+                      border: `1px solid ${roleFilter === r ? "#1a1a1a" : "#e5e5e5"}`,
+                      cursor: "pointer",
+                      transition: "background .12s, color .12s, border-color .12s",
+                      background: roleFilter === r ? "#1a1a1a" : "#fff",
+                      color: roleFilter === r ? "#fff" : "#555",
+                    }}
+                  >
+                    {r === "all" ? "All" : r}
+                  </button>
+                ))}
+              </div>
+            )}
+
           <div className="card">
-            {users.length === 0 ? (
-              <div className="empty">No users in this organization yet. Create or invite the first one.</div>
+            {filteredUsers.length === 0 ? (
+              <div className="empty">
+                {roleFilter === "all"
+                  ? "No users in this organization yet. Create or invite the first one."
+                  : `No users with role "${roleFilter}".`}
+              </div>
             ) : (
               <div className="table-responsive-wrap">
                 <table className="table">
@@ -174,14 +230,15 @@ export default function UsersPage() {
                       <th>Name</th>
                       <th>Email</th>
                       <th>Roles</th>
+                      {noOrgContext && <th>Organization</th>}
                       <th>Status</th>
                       <th>Created</th>
-                      <th>Last login</th>
+                      {!noOrgContext && <th>Last login</th>}
                       <th></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {users.filter((u) => u.user_type !== "super_admin").map((u) => {
+                    {filteredUsers.map((u) => {
                       const roleTags = getRoleTags(u);
                       return (
                         <tr key={u.id}>
@@ -203,46 +260,49 @@ export default function UsersPage() {
                               <span style={{ color: "#ccc", fontSize: "12px" }}>No roles</span>
                             )}
                           </td>
+                          {noOrgContext && (
+                            <td style={{ color: "#555", fontSize: 13 }}>
+                              {u.orgs && u.orgs.length > 0
+                                ? u.orgs.map((o) => o.name).join(", ")
+                                : <span style={{ color: "#ccc" }}>—</span>}
+                            </td>
+                          )}
                           <td>
                             <span className={`badge badge-${u.status}`}>{u.status}</span>
                           </td>
                           <td style={{ color: "#777" }}>{formatDate(u.created_at)}</td>
-                          <td style={{ color: "#777" }}>{formatDate(u.last_login_at)}</td>
+                          {!noOrgContext && <td style={{ color: "#777" }}>{formatDate(u.last_login_at)}</td>}
                           <td>
-                            <div className="actions">
-                              {orgId ? (
-                                <>
+                            {(orgId || isSuperAdmin) ? (
+                              <div className="actions">
+                                <button
+                                  className="btn btn-sm"
+                                  style={{ background: "#f5f4f1", color: "#1a1a1a", border: "none" }}
+                                  title="Edit user"
+                                  onClick={() => router.push(`/users/${u.id}/edit${noOrgContext && u.orgs?.[0]?.id ? `?orgId=${u.orgs[0].id}` : ""}`)}
+                                >
+                                  <Pencil size={13} />
+                                  Edit
+                                </button>
+                                {canResetPassword && (
                                   <button
                                     className="btn btn-sm"
                                     style={{ background: "#f5f4f1", color: "#1a1a1a", border: "none" }}
-                                    title="Edit user"
-                                    onClick={() => router.push(`/users/${u.id}/edit`)}
+                                    title="Reset password"
+                                    onClick={() => setPasswordTarget(u)}
                                   >
-                                    <Pencil size={13} />
-                                    Edit
+                                    <KeyRound size={13} />
                                   </button>
-                                  {canResetPassword && (
-                                    <button
-                                      className="btn btn-sm"
-                                      style={{ background: "#f5f4f1", color: "#1a1a1a", border: "none" }}
-                                      title="Reset password"
-                                      onClick={() => setPasswordTarget(u)}
-                                    >
-                                      <KeyRound size={13} />
-                                    </button>
-                                  )}
-                                  <button
-                                    className="btn btn-sm btn-danger"
-                                    title="Delete user"
-                                    onClick={() => setDeleteTarget(u)}
-                                  >
-                                    <Trash2 size={13} />
-                                  </button>
-                                </>
-                              ) : (
-                                <span style={{ color: "#9a9a9a", fontSize: "12px" }}>Select org to manage</span>
-                              )}
-                            </div>
+                                )}
+                                <button
+                                  className="btn btn-sm btn-danger"
+                                  title="Delete user"
+                                  onClick={() => setDeleteTarget(u)}
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
+                            ) : null}
                           </td>
                         </tr>
                       );
@@ -252,6 +312,7 @@ export default function UsersPage() {
               </div>
             )}
           </div>
+          </>
         )}
       </div>
 
@@ -260,7 +321,7 @@ export default function UsersPage() {
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-title">Remove User</div>
             <div className="modal-body">
-              Remove <strong>{deleteTarget.full_name || deleteTarget.email}</strong> from this organization?
+              Remove <strong>{deleteTarget.full_name || deleteTarget.email}</strong>{noOrgContext ? "?" : " from this organization?"}
             </div>
             <div className="modal-actions">
               <button className="btn" style={{ background: "#f5f4f1", color: "#1a1a1a", border: "none" }} onClick={() => setDeleteTarget(null)}>Cancel</button>
@@ -298,7 +359,7 @@ export default function UsersPage() {
               {resetTempPassword}
             </div>
             <div className="modal-actions">
-              <button className="btn btn-primary" onClick={() => { navigator.clipboard.writeText(resetTempPassword); setResetCopied(true); setTimeout(() => setResetCopied(false), 2000); }}>
+              <button className="btn btn-primary" onClick={() => { copyToClipboard(resetTempPassword); setResetCopied(true); setTimeout(() => setResetCopied(false), 2000); }}>
                 {resetCopied ? "Copied!" : "Copy Password"}
               </button>
               <button className="btn" style={{ background: "#f5f4f1", color: "#1a1a1a", border: "none" }} onClick={() => setResetTempPassword(null)}>Done</button>

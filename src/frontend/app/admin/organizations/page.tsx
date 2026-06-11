@@ -22,6 +22,9 @@ export default function OrganizationsPage() {
   const [orgs, setOrgs] = useState<Org[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [deleteTarget, setDeleteTarget] = useState<Org | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -55,10 +58,23 @@ export default function OrganizationsPage() {
     })();
   }, [router, load]);
 
-  const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`Delete organization "${name}"? This action cannot be undone.`)) return;
-    const res = await apiFetch(`/admin/organizations/${id}`, { method: 'DELETE' });
-    if (res.success) setOrgs(prev => prev.filter(o => o.id !== id));
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    setDeleteError('');
+    try {
+      const res = await apiFetch(`/admin/organizations/${deleteTarget.id}`, { method: 'DELETE' });
+      if (res.success) {
+        setOrgs(prev => prev.filter(o => o.id !== deleteTarget.id));
+        setDeleteTarget(null);
+      } else {
+        setDeleteError(res.error || 'Failed to delete organization');
+      }
+    } catch {
+      setDeleteError('Failed to delete organization');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const filtered = orgs.filter(o =>
@@ -153,7 +169,7 @@ export default function OrganizationsPage() {
                           <button
                             className="btn btn-sm btn-danger"
                             title="Delete organization"
-                            onClick={() => handleDelete(org.id, org.name)}
+                            onClick={() => { setDeleteError(''); setDeleteTarget(org); }}
                           >
                             <Trash2 size={13} />
                           </button>
@@ -167,6 +183,46 @@ export default function OrganizationsPage() {
           )}
         </div>
       </div>
+
+      {deleteTarget && (
+        <div className="modal-overlay" onClick={() => !deleting && setDeleteTarget(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-title">Delete Organization</div>
+            <div className="modal-body">
+              <p>Are you sure you want to delete <strong>{deleteTarget.name}</strong>?</p>
+              <div style={{
+                display: 'flex', alignItems: 'flex-start', gap: 8,
+                background: '#fef2f2', border: '1px solid #fecaca',
+                borderRadius: 8, padding: '10px 12px', marginTop: 12,
+              }}>
+                <svg width="15" height="15" fill="none" stroke="#dc2626" strokeWidth="2" viewBox="0 0 24 24" style={{ flexShrink: 0, marginTop: 1 }}>
+                  <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                  <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                </svg>
+                <p style={{ fontSize: 12, color: '#991b1b', margin: 0, lineHeight: 1.5 }}>
+                  All data for this organization will be permanently deleted — including all users who only belong to this org, documents, workflows, and chat history. This cannot be undone.
+                </p>
+              </div>
+            </div>
+            {deleteError && (
+              <div style={{ padding: '0 0 8px', color: '#dc2626', fontSize: 12 }}>{deleteError}</div>
+            )}
+            <div className="modal-actions">
+              <button
+                className="btn"
+                style={{ background: '#f5f4f1', color: '#1a1a1a', border: 'none' }}
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+              >
+                Cancel
+              </button>
+              <button className="btn btn-danger" onClick={handleDelete} disabled={deleting}>
+                {deleting ? 'Deleting…' : 'Delete Organization'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </Layout>
   );
 }

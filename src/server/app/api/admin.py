@@ -298,6 +298,83 @@ async def update_organization(
     }
 
 
+@router.delete("/organizations/{org_id}", status_code=204)
+async def delete_organization(
+    org_id: UUID,
+    ctx: RequestContext = Depends(require_super_admin_user),
+    session: AsyncSession = Depends(get_db),
+) -> None:
+    _ = ctx
+    org = await session.get(Org, org_id)
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    async def _del(table: str, col: str = "org_id") -> None:
+        """Delete rows from `table` where `col` = org_id, only if the table exists."""
+        exists = await session.execute(text(f"SELECT to_regclass('public.{table}')"))
+        if exists.scalar_one_or_none() is not None:
+            await session.execute(
+                text(f"DELETE FROM {table} WHERE {col} = :oid"),
+                {"oid": org_id},
+            )
+
+    # Delete in FK dependency order (children before parents).
+    # api_execution_logs → api_task_proposals → agent_tasks
+    await _del("api_execution_logs")
+    await _del("api_task_proposals")
+    await _del("agent_tasks")
+    # workflow children → workflow_sessions
+    await _del("workflow_outputs")
+    await _del("workflow_items")
+    await _del("workflow_sessions")
+    # chat children → chat_sessions
+    await _del("chat_messages")
+    await _del("chat_sessions")
+    # document children → documents
+    await _del("document_chunks")
+    await _del("documents")
+    # other org-scoped tables
+    await _del("web_urls")
+    # RBAC: role_permissions/role_org_permissions that reference custom org roles, then the roles
+    await _del("user_roles", "organization_id")
+    await _del("role_org_permissions")
+    exists = await session.execute(text("SELECT to_regclass('public.role_permissions')"))
+    if exists.scalar_one_or_none() is not None:
+        await session.execute(
+            text("DELETE FROM role_permissions WHERE role_id IN (SELECT id FROM roles WHERE organization_id = :oid)"),
+            {"oid": org_id},
+        )
+    await session.execute(
+        text("DELETE FROM roles WHERE organization_id = :oid"),
+        {"oid": org_id},
+    )
+    # refresh tokens scoped to this org
+    await session.execute(
+        text("DELETE FROM refresh_tokens WHERE org_id = :oid"),
+        {"oid": org_id},
+    )
+    # membership, invites, modules
+    await session.execute(text("DELETE FROM org_memberships WHERE org_id = :oid"), {"oid": org_id})
+    await session.execute(text("DELETE FROM invite_tokens WHERE org_id = :oid"), {"oid": org_id})
+    await _del("org_modules")
+
+    # Delete users who now have no remaining memberships (i.e. only belonged to this org)
+    # and are not super admins.
+    _orphan_subq = """
+        SELECT id FROM users
+        WHERE id NOT IN (SELECT user_id FROM org_memberships)
+        AND id NOT IN (SELECT user_id FROM super_admin_allowlist)
+    """
+    oi_exists = await session.execute(text("SELECT to_regclass('public.oauth_identities')"))
+    if oi_exists.scalar_one_or_none() is not None:
+        await session.execute(text(f"DELETE FROM oauth_identities WHERE user_id IN ({_orphan_subq})"))
+    await session.execute(text(f"DELETE FROM refresh_tokens WHERE user_id IN ({_orphan_subq})"))
+    await session.execute(text(f"DELETE FROM users WHERE id IN ({_orphan_subq})"))
+
+    await session.delete(org)
+    await session.flush()
+
+
 @router.get("/super-admins")
 async def list_super_admins(
     ctx: RequestContext = Depends(require_super_admin_user),
@@ -486,8 +563,12 @@ async def list_org_admins(
     result = await session.execute(query)
     rows = result.all()
 
+    from app.core.identity import is_super_admin_user as _is_sa
+
     by_user: dict[str, OrgAdminRow] = {}
     for user, org, mem in rows:
+        if _is_sa(user.id):
+            continue  # super admins are not org admins
         uid = str(user.id)
         entry = by_user.get(uid)
         if not entry:
@@ -526,6 +607,12 @@ async def create_org_admin(
     user = existing.scalars().first()
 
     if user:
+        from app.core.identity import is_super_admin_user as _is_sa
+        if _is_sa(user.id):
+            raise HTTPException(
+                status_code=400,
+                detail="Super admins cannot be added as org admins",
+            )
         mr = await session.execute(
             select(OrgMembership).where(
                 OrgMembership.user_id == user.id,
@@ -633,14 +720,19 @@ async def list_all_users(
     session: AsyncSession = Depends(get_db),
 ):
     from app.core.identity import is_super_admin_user
-    
-    # Get all memberships to extract roles
-    memberships_result = await session.execute(select(OrgMembership.user_id, OrgMembership.role))
+
+    # Get all memberships with org names
+    memberships_result = await session.execute(
+        select(OrgMembership.user_id, OrgMembership.role, Org.id, Org.name)
+        .join(Org, Org.id == OrgMembership.org_id)
+    )
     user_roles: dict[UUID, set[str]] = {}
-    for uid, role in memberships_result.all():
-        if uid not in user_roles:
-            user_roles[uid] = set()
-        user_roles[uid].add(role)
+    user_orgs: dict[UUID, list[dict[str, str]]] = {}
+    for uid, role, oid, oname in memberships_result.all():
+        user_roles.setdefault(uid, set()).add(role)
+        orgs_list = user_orgs.setdefault(uid, [])
+        if not any(o["id"] == str(oid) for o in orgs_list):
+            orgs_list.append({"id": str(oid), "name": oname})
 
     result = await session.execute(select(User).order_by(User.created_at.desc()))
     users = result.scalars().all()
@@ -676,6 +768,7 @@ async def list_all_users(
             "created_at": user.created_at.isoformat() if user.created_at else None,
             "last_login_at": None,
             "roles": unique_roles,
+            "orgs": user_orgs.get(user.id, []),
         })
         
     return UsersListEnvelope(data=data)

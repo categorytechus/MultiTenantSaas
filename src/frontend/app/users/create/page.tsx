@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Layout from "../../../components/Layout";
 import { apiFetch } from "../../../src/lib/api";
 import { assignableMemberRoles } from "../../../src/lib/org-member-roles";
+import { copyToClipboard } from "../../../src/lib/clipboard";
 
 interface Role {
   id: string;
@@ -110,7 +111,7 @@ export default function CreateUserPage() {
 
   const handleCopy = () => {
     if (normalizedLink) {
-      navigator.clipboard.writeText(normalizedLink);
+      copyToClipboard(normalizedLink);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -137,31 +138,32 @@ export default function CreateUserPage() {
               <strong>{email}</strong> already has an account and has been added to the organization. Share the sign-in link below with them.
             </p>
 
-            <div style={{ marginBottom: 6 }}>
+            <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 12, fontWeight: 500, color: '#555', marginBottom: 6 }}>Sign-in link</div>
               <div style={{
-                display: 'flex', alignItems: 'center',
-                border: '1px solid #e5e5e5', borderRadius: 8, overflow: 'hidden',
+                background: '#f9f9f8', border: '1px solid #e5e5e5', borderRadius: 8,
+                padding: '10px 14px', fontFamily: 'monospace', fontSize: 12, color: '#374151',
+                wordBreak: 'break-all', lineHeight: 1.6, marginBottom: 8,
               }}>
-                <div style={{
-                  flex: 1, padding: '10px 14px',
-                  fontFamily: 'monospace', fontSize: 12.5, color: '#374151',
-                  background: '#f9f9f8', wordBreak: 'break-all', lineHeight: 1.5,
-                }}>
-                  {(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000') + '/auth/signin'}
-                </div>
-                <button
-                  onClick={() => { navigator.clipboard.writeText((process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000') + '/auth/signin'); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-                  style={{
-                    padding: '10px 14px', background: copied ? '#f0fdf4' : '#f5f4f1',
-                    border: 'none', borderLeft: '1px solid #e5e5e5', cursor: 'pointer',
-                    color: copied ? '#16a34a' : '#555', fontSize: 13, fontWeight: 500,
-                    fontFamily: 'DM Sans, sans-serif', whiteSpace: 'nowrap', transition: 'all .15s',
-                  }}
-                >
-                  {copied ? '✓ Copied' : 'Copy'}
-                </button>
+                {window.location.origin + '/auth/signin'}
               </div>
+              <button
+                onClick={() => { copyToClipboard(window.location.origin + '/auth/signin'); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                  width: '100%', padding: '9px 16px', borderRadius: 8, cursor: 'pointer',
+                  border: `1px solid ${copied ? '#bbf7d0' : '#e5e5e5'}`,
+                  background: copied ? '#f0fdf4' : '#fff',
+                  color: copied ? '#16a34a' : '#1a1a1a',
+                  fontSize: 13, fontWeight: 500, transition: 'all .15s',
+                }}
+              >
+                {copied ? (
+                  <><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Copied!</>
+                ) : (
+                  <><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>Copy Link</>
+                )}
+              </button>
             </div>
 
             <div style={{ marginTop: 12, marginBottom: 6 }}>
@@ -169,8 +171,8 @@ export default function CreateUserPage() {
                 className="btn"
                 style={{ width: '100%', background: '#f5f4f1', border: '1px solid #e5e5e5', color: '#1a1a1a' }}
                 onClick={() => {
-                  const msg = `Hi there!\n\nYou have been added to our organization. You can log in using your existing account here:\n\n${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/auth/signin\n\nBest regards,`;
-                  navigator.clipboard.writeText(msg);
+                  const msg = `Hi there!\n\nYou have been added to our organization. You can log in using your existing account here:\n\n${window.location.origin}/auth/signin\n\nBest regards,`;
+                  copyToClipboard(msg);
                   setCopiedMessage(true);
                   setTimeout(() => setCopiedMessage(false), 2000);
                 }}
@@ -236,45 +238,31 @@ export default function CreateUserPage() {
               Account created for <strong>{email}</strong>. Share the link below so they can set their password and log in.
             </p>
 
-            <div style={{ marginBottom: 6 }}>
+            <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 12, fontWeight: 500, color: '#555', marginBottom: 6 }}>Password setup link</div>
               <div style={{
-                display: 'flex', alignItems: 'center',
-                border: '1px solid #e5e5e5', borderRadius: 8, overflow: 'hidden',
+                background: '#f9f9f8', border: '1px solid #e5e5e5', borderRadius: 8,
+                padding: '10px 14px', fontFamily: 'monospace', fontSize: 12, color: '#374151',
+                wordBreak: 'break-all', lineHeight: 1.6, marginBottom: 8,
               }}>
-                <div style={{
-                  flex: 1, padding: '10px 14px',
-                  fontFamily: 'monospace', fontSize: 12.5, color: '#374151',
-                  background: '#f9f9f8', wordBreak: 'break-all', lineHeight: 1.5,
-                }}>
-                  {normalizedLink}
-                </div>
-                <button
-                  onClick={handleCopy}
-                  style={{
-                    padding: '10px 14px', background: copied ? '#f0fdf4' : '#f5f4f1',
-                    border: 'none', borderLeft: '1px solid #e5e5e5', cursor: 'pointer',
-                    color: copied ? '#16a34a' : '#555', fontSize: 13, fontWeight: 500,
-                    fontFamily: 'DM Sans, sans-serif', whiteSpace: 'nowrap', transition: 'all .15s',
-                  }}
-                >
-                  {copied ? '✓ Copied' : 'Copy'}
-                </button>
+                {normalizedLink}
               </div>
-            </div>
-
-            <div style={{ marginTop: 12, marginBottom: 6 }}>
               <button
-                className="btn"
-                style={{ width: '100%', background: '#f5f4f1', border: '1px solid #e5e5e5', color: '#1a1a1a' }}
-                onClick={() => {
-                  const msg = `Hi there!\n\nAn account has been created for you. Please use the following link to set your password and log in:\n\n${normalizedLink}\n\nBest regards,`;
-                  navigator.clipboard.writeText(msg);
-                  setCopiedMessage(true);
-                  setTimeout(() => setCopiedMessage(false), 2000);
+                onClick={handleCopy}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                  width: '100%', padding: '9px 16px', borderRadius: 8, cursor: 'pointer',
+                  border: `1px solid ${copied ? '#bbf7d0' : '#e5e5e5'}`,
+                  background: copied ? '#f0fdf4' : '#fff',
+                  color: copied ? '#16a34a' : '#1a1a1a',
+                  fontSize: 13, fontWeight: 500, transition: 'all .15s',
                 }}
               >
-                {copiedMessage ? "✓ Message Copied!" : "Copy Full Message"}
+                {copied ? (
+                  <><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Copied!</>
+                ) : (
+                  <><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>Copy Link</>
+                )}
               </button>
             </div>
 

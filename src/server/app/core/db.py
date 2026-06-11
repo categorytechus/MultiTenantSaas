@@ -80,8 +80,17 @@ async def get_db(request: Request) -> AsyncIterator[AsyncSession]:
     FastAPI dependency that yields an RLS-aware async session.
     Automatically sets app.current_org_id from the JWT on every request.
     Works for both Bearer-token calls and SSE ?token= query param calls.
+    When JWT has no org_id (super-admin without org context), falls back to
+    the path parameter org_id so RLS is set correctly for org-scoped routes.
     """
     org_id = _extract_org_id_from_request(request)
+    if org_id is None:
+        path_org_id = request.path_params.get("org_id")
+        if path_org_id:
+            try:
+                org_id = UUID(path_org_id)
+            except ValueError:
+                pass
     async with async_session_factory() as session:
         async with session.begin():
             await set_rls_context(session, org_id)
