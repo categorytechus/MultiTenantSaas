@@ -49,7 +49,8 @@ async def retrieve_chunks(
                1 - (dc.embedding <=> %s::vector) AS score,
                dc.chunk_type,
                dc.image_id,
-               dc.document_id
+               dc.document_id,
+               d.tags
         FROM   document_chunks dc
         JOIN   documents d ON d.id = dc.document_id
         WHERE  d.status = 'ready'
@@ -73,7 +74,8 @@ async def retrieve_chunks(
                    1 - (dc.embedding <=> %s::vector) AS score,
                    dc.chunk_type,
                    dc.image_id,
-                   dc.document_id
+                   dc.document_id,
+                   d.tags
             FROM   document_chunks dc
             JOIN   documents d ON d.id = dc.document_id
             LEFT JOIN document_images di ON di.id = dc.image_id
@@ -97,6 +99,7 @@ async def retrieve_chunks(
             "chunk_type": row[3],
             "image_id": str(row[4]) if row[4] else None,
             "document_id": str(row[5]) if row[5] else None,
+            "tags": row[6] if len(row) > 6 else {},
         }
 
     return [_row_to_dict(r) for r in text_rows] + [_row_to_dict(r) for r in image_rows]
