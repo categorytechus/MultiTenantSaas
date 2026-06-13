@@ -13,9 +13,12 @@ from app.core.rbac import authorize
 from app.core.tenancy import RequestContext
 from app.integrations.s3 import make_s3_key, upload as s3_upload
 from app.models.document import Document
+from app.models.org_module import OrgModule
 from app.models.workflow import WorkflowItem, WorkflowSession
 from app.services import cost_seg as svc
 from app.services.audit import log_action
+import stripe
+from app.core.config import settings
 
 router = APIRouter(prefix="/api/cost-seg", tags=["cost-segregation"])
 logger = get_logger(__name__)
@@ -382,46 +385,50 @@ async def list_categories(
     }
 
 
-# ── Payment bypass ─────────────────────────────────────────────────────────────
+# ── Stripe Checkout ─────────────────────────────────────────────────────────────
 
-@router.post("/projects/{project_id}/payment")
-async def process_payment(
+@router.post("/projects/{project_id}/checkout-session")
+async def create_checkout_session(
     project_id: UUID,
     ctx: RequestContext = authorize("cost_seg:create"),
     session: AsyncSession = Depends(get_db),
 ) -> Any:
+    if not settings.STRIPE_API_KEY:
+        logger.error("STRIPE_API_KEY is missing from settings")
+    stripe.api_key = settings.STRIPE_API_KEY
+
     async with db_session(ctx.org_id) as sess:
         project = await svc.get_project(sess, project_id)
-        await svc.update_project(sess, project, status="paid")
-        await log_action(sess, ctx, "cost_seg.payment", "workflow_session", str(project_id))
-
-        # Enqueue the PDF generation task automatically after payment
+        
+        public_app_url = "http://localhost:3000" # fallback
         try:
-            from app.core.config import settings
-            from arq.connections import create_pool, RedisSettings
-            from app.services.agent_tasks import create_task
-            from app.models.agent_task import AgentTaskType
+            public_app_url = settings.PUBLIC_APP_URL
+        except AttributeError:
+            logger.error("PUBLIC_APP_URL is missing from settings; falling back to localhost")
 
-            task = await create_task(
-                sess,
-                org_id=ctx.org_id,
-                user_id=ctx.user_id,
-                task_type=AgentTaskType.COST_SEG_REPORT,
-                input_data={"project_id": str(project_id)},
+        price_id = getattr(settings, "STRIPE_COST_SEG_PRICE_ID", None)
+        if not price_id:
+            logger.error("STRIPE_COST_SEG_PRICE_ID is missing from settings")
+            raise HTTPException(
+                status_code=500,
+                detail="Payment configuration error"
             )
-            
-            redis_conn = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
-            await redis_conn.enqueue_job(
-                "run_report",
-                task_id=str(task.id),
-                org_id=str(ctx.org_id),
-                project_id=str(project_id),
-            )
-            await redis_conn.aclose()
-        except Exception as e:
-            logger.error(f"Failed to enqueue report generation task after payment: {e}", exc_info=True)
-            return {"message": "Payment processed (test mode)", "status": "paid"}
-        return {"message": "Payment processed (test mode)", "status": "paid", "task_id": str(task.id)}
+
+        checkout_session = stripe.checkout.Session.create(
+            payment_method_types=["card"],
+            line_items=[
+                {
+                    "price": price_id,
+                    "quantity": 1,
+                }
+            ],
+            mode="payment",
+            client_reference_id=str(project_id),
+            success_url=f"{public_app_url}/cost_segregation/{project_id}?session_id={{CHECKOUT_SESSION_ID}}&payment_success=1",
+            cancel_url=f"{public_app_url}/cost_segregation/{project_id}?payment_cancelled=1",
+        )
+
+    return {"checkout_url": checkout_session.url}
 
 
 # ── Report ─────────────────────────────────────────────────────────────────────

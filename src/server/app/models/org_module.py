@@ -1,7 +1,8 @@
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
-from sqlmodel import Field, SQLModel
+from typing import Any
+from sqlmodel import Field, SQLModel, Column, JSON
 
 
 class OrgModule(SQLModel, table=True):
