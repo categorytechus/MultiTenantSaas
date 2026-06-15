@@ -60,7 +60,6 @@ class OrgModuleRow(BaseModel):
     parent_id: str | None = None
     sort_order: int = 100
     enabled: bool
-    settings: dict[str, Any] | None = None
 
 
 class OrgModulesListEnvelope(BaseModel):
@@ -155,7 +154,6 @@ async def _load_modules_safe(session: AsyncSession) -> list[dict]:
 class UpdateOrgModulesRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     module_ids: list[str] = Field(alias="moduleIds")
-    module_settings: dict[str, dict[str, Any]] = Field(default_factory=dict, alias="moduleSettings")
 
 
 class OrgAdminInviteRequest(BaseModel):
@@ -827,7 +825,6 @@ async def get_org_module_flags(
     modules = await _load_modules_safe(session)
 
     assigned_module_ids: set[str] = set()
-    settings_by_module: dict[str, Any] = {}
     if await _org_modules_table_exists(session):
         try:
             async with session.begin_nested():
@@ -836,7 +833,6 @@ async def get_org_module_flags(
                 )
                 org_modules = assigned_result.scalars().all()
                 assigned_module_ids = {m.module_id for m in org_modules}
-                settings_by_module = {m.module_id: m.settings for m in org_modules}
         except Exception:
             raise HTTPException(status_code=500, detail="Unable to load organization module assignments")
 
@@ -849,7 +845,6 @@ async def get_org_module_flags(
                 parent_id=m["parent_id"],
                 sort_order=m["sort_order"],
                 enabled=(m["id"] in assigned_module_ids),
-                settings=settings_by_module.get(m["id"]),
             )
             for m in modules
         ]
@@ -933,8 +928,7 @@ async def put_org_module_flags(
         async with session.begin_nested():
             await session.execute(OrgModule.__table__.delete().where(OrgModule.org_id == org_id))
             for module_id in normalized:
-                m_settings = body.module_settings.get(module_id)
-                session.add(OrgModule(org_id=org_id, module_id=module_id, assigned_by=ctx.user_id, settings=m_settings))
+                session.add(OrgModule(org_id=org_id, module_id=module_id, assigned_by=ctx.user_id))
             await session.flush()
     except Exception:
         raise HTTPException(status_code=500, detail="Unable to update organization module assignments")
