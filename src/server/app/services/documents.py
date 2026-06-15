@@ -11,11 +11,12 @@ from app.core.logging import get_logger
 logger = get_logger(__name__)
 
 
-async def list_documents(session: AsyncSession, org_id: UUID) -> list[Document]:
+async def list_documents(session: AsyncSession, org_id: UUID | None) -> list[Document]:
     """List all documents for an org (RLS handles filtering)."""
-    result = await session.execute(
-        select(Document).where(Document.org_id == org_id).order_by(Document.created_at.desc())
-    )
+    query = select(Document).order_by(Document.created_at.desc())
+    if org_id is not None:
+        query = query.where(Document.org_id == org_id)
+    result = await session.execute(query)
     return list(result.scalars().all())
 
 

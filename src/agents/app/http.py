@@ -142,3 +142,15 @@ async def load_api_module_full(
             f"Failed to load API module {module_id} (HTTP {resp.status_code}): {resp.text[:500]}"
         )
     return resp.json()
+
+async def load_org_prompts(client: httpx.AsyncClient, org_id: str) -> dict:
+    """Load customized system prompts for an organization."""
+    try:
+        resp = await client.get("/internal/prompts", params={"org_id": org_id})
+        if resp.status_code == 200:
+            return resp.json().get("data", {})
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("Could not load custom prompts for org %s: %s", org_id, exc)
+    return {}
+
