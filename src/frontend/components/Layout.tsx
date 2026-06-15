@@ -401,7 +401,9 @@ export default function Layout({ children }: LayoutProps) {
                       <span className={pathname.startsWith("/cost_segregation") ? "bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent font-semibold" : ""}>Cost Segregation</span>
                     </Link>
                   )}
-                  <NavItem href="/prompts" active={pathname.startsWith("/prompts")} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" /></svg>}>System Prompts</NavItem>
+                  {(hasModule(MODULE.COST_SEG) || hasModule(MODULE.DOCUMENTS) || hasModule(MODULE.WEB_URLS) || hasModule(MODULE.AI_IMAGES) || hasModule(MODULE.AI_LINKS) || hasModule(MODULE.API_CALLING)) && (
+                    <NavItem href="/prompts" active={pathname.startsWith("/prompts")} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" /></svg>}>System Prompts</NavItem>
+                  )}
                   <NavItem href="/profile" active={pathname === "/profile"} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>}>My Profile</NavItem>
                 </div>
 
@@ -444,6 +446,9 @@ export default function Layout({ children }: LayoutProps) {
                       </span>
                       <span className={pathname.startsWith("/cost_segregation") ? "bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent font-semibold" : ""}>Cost Segregation</span>
                     </Link>
+                  )}
+                  {(hasModule(MODULE.COST_SEG) || hasModule(MODULE.DOCUMENTS) || hasModule(MODULE.WEB_URLS) || hasModule(MODULE.AI_IMAGES) || hasModule(MODULE.AI_LINKS) || hasModule(MODULE.API_CALLING)) && (
+                    <NavItem href="/prompts" active={pathname.startsWith("/prompts")} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" /></svg>}>System Prompts</NavItem>
                   )}
                   <NavItem href="/profile" active={pathname === "/profile"} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>}>My Profile</NavItem>
                 </div>
