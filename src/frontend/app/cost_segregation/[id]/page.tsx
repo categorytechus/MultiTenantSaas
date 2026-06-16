@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
+import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import Layout from '../../../components/Layout';
 import { apiFetch, triggerCostSegPipeline } from '../../../src/lib/api';
 import {
@@ -87,14 +87,9 @@ const STATUS_TO_STEP: Record<string, number> = {
 };
 
 const PROPERTY_TYPES = [
-  { value: 'office', label: 'Office' },
-  { value: 'retail', label: 'Retail' },
-  { value: 'restaurant', label: 'Restaurant' },
-  { value: 'industrial', label: 'Industrial' },
-  { value: 'medical', label: 'Medical / Healthcare' },
-  { value: 'mixed_use', label: 'Mixed Use' },
-  { value: 'multifamily', label: 'Multifamily' },
-  { value: 'other', label: 'Other Commercial' },
+  { value: 'townhome', label: 'Townhome' },
+  { value: 'single_family', label: 'Single Family' },
+  { value: 'custom', label: 'Custom' },
 ];
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -159,15 +154,18 @@ function StepBar({ current }: { current: number }) {
 
 function Step1({
   project,
+  propertyData,
   onSave,
   saving,
 }: {
   project: Project;
-  onSave: (name: string, studyDate: string) => Promise<void>;
+  propertyData: Partial<Property>;
+  onSave: (name: string, studyDate: string, propertyType: string) => Promise<void>;
   saving: boolean;
 }) {
   const [name, setName] = useState(project.name);
   const [studyDate, setStudyDate] = useState(project.study_date ?? '');
+  const [propertyType, setPropertyType] = useState(propertyData.property_type ?? 'townhome');
 
   return (
     <div className="space-y-5">
@@ -192,10 +190,20 @@ function Step1({
           />
           <p className="text-[11px] text-[#9ca3af] mt-1.5">Used for bonus depreciation calculation</p>
         </div>
+        <div>
+          <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">Property Type</label>
+          <select
+            value={propertyType}
+            onChange={(e) => setPropertyType(e.target.value)}
+            className="w-full px-3 py-2.5 border border-[#e5e7eb] rounded-lg text-[14px] outline-none focus:border-[#1a1a1a] bg-white transition-colors"
+          >
+            {PROPERTY_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+        </div>
       </div>
       <div className="pt-2">
         <button
-          onClick={() => onSave(name, studyDate)}
+          onClick={() => onSave(name, studyDate, propertyType)}
           disabled={saving || !name.trim()}
           className="flex items-center gap-2 px-5 py-2.5 bg-[#1a1a1a] text-white rounded-lg text-[13px] font-medium hover:bg-[#333] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
@@ -398,7 +406,7 @@ function Step2({
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-4">
         <div className="col-span-2 grid grid-cols-2 gap-4">
-          <div>
+          <div className="col-span-2">
             <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">
               Property Name <span className="text-red-500">*</span>
             </label>
@@ -406,13 +414,6 @@ function Step2({
               className={fieldClass('property_name')}
               placeholder="e.g. Sunrise Office Park" />
             {errors.property_name && <p className="text-[11px] text-red-500 mt-1">Required</p>}
-          </div>
-          <div>
-            <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">Property Type</label>
-            <select value={form.property_type} onChange={(e) => set('property_type', e.target.value)}
-              className="w-full px-3 py-2.5 border border-[#e5e7eb] rounded-lg text-[13px] outline-none focus:border-[#1a1a1a] bg-white">
-              {PROPERTY_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
           </div>
         </div>
 
@@ -946,7 +947,8 @@ function Step4({
           <ChevronLeft size={14} /> Back
         </button>
         <button onClick={onNext}
-          className="flex items-center gap-2 px-5 py-2.5 bg-[#1a1a1a] text-white rounded-lg text-[13px] font-medium hover:bg-[#333] transition-colors">
+          disabled={items.length === 0}
+          className="flex items-center gap-2 px-5 py-2.5 bg-[#1a1a1a] text-white rounded-lg text-[13px] font-medium hover:bg-[#333] disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
           Continue to Payment <ChevronRight size={14} />
         </button>
       </div>
@@ -960,10 +962,12 @@ function Step5({
   onPay,
   paying,
   onBack,
+  canCheckout,
 }: {
   onPay: () => Promise<void>;
   paying: boolean;
   onBack: () => void;
+  canCheckout: boolean;
 }) {
   return (
     <div className="space-y-5">
@@ -1007,23 +1011,22 @@ function Step5({
             <div className="border-t border-[#f3f4f6] py-4 mb-4">
               <div className="flex items-center justify-between">
                 <span className="text-[13px] text-[#6b7280]">Study fee</span>
-                <span className="font-bold text-[#1a1a1a] text-[22px]">$999</span>
+                {!canCheckout ? (
+                  <span className="font-medium text-[#1a1a1a] text-[14px]">Contact administrator</span>
+                ) : (
+                  <span className="font-medium text-[#1a1a1a] text-[14px]">Determined at checkout</span>
+                )}
               </div>
-            </div>
-
-            <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 mb-4 text-[12px] text-amber-800 flex items-start gap-2">
-              <AlertTriangle size={14} className="shrink-0 mt-0.5" />
-              <span><strong>Test Mode:</strong> Payment bypassed — click to generate the report without charging.</span>
             </div>
           </div>
 
           <button
             onClick={onPay}
-            disabled={paying}
+            disabled={paying || !canCheckout}
             className="w-full py-3 bg-emerald-600 text-white rounded-xl text-[14px] font-semibold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
           >
             {paying ? <Loader2 size={15} className="animate-spin" /> : <CreditCard size={15} />}
-            {paying ? 'Processing…' : 'Generate Report (Test Mode)'}
+            {paying ? 'Processing…' : 'Pay with Stripe'}
           </button>
         </div>
       </div>
@@ -1176,8 +1179,17 @@ function Step6({
 // ── Main Wizard Page ───────────────────────────────────────────────────────────
 
 export default function CostSegWizardPage() {
+  return (
+    <Suspense fallback={<div />}>
+      <CostSegWizardContent />
+    </Suspense>
+  );
+}
+
+function CostSegWizardContent() {
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const projectId = params.id as string;
 
   const [project, setProject] = useState<Project | null>(null);
@@ -1190,6 +1202,7 @@ export default function CostSegWizardPage() {
   const [saving, setSaving] = useState(false);
   const [paying, setPaying] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [canCheckout, setCanCheckout] = useState(true);
   
   const [sseProgress, setSseProgress] = useState<string>('');
   const [taskCompleted, setTaskCompleted] = useState<boolean>(false);
@@ -1269,8 +1282,10 @@ export default function CostSegWizardPage() {
 
     if (!projRes.success) { router.replace('/cost_segregation'); return; }
 
-    const proj = (projRes.data as { data: Project }).data;
+    const projData = projRes.data as any;
+    const proj = projData.data;
     setProject(proj);
+    setCanCheckout(projData.can_checkout ?? true);
     setCurrentStep(STATUS_TO_STEP[proj.status] ?? 1);
     setAnalyzing(proj.status === 'analyzing');
 
@@ -1351,11 +1366,6 @@ export default function CostSegWizardPage() {
           await loadAll();
           return;
         }
-        // Report job failed and reset status away from paid/report_ready — reload to reflect
-        if (currentStep === 6 && !pdfDownloadUrl && proj.status !== 'paid' && proj.status !== 'report_ready') {
-          await loadAll();
-          return;
-        }
       }
       pollRef.current = setTimeout(poll, 4000);
     };
@@ -1365,15 +1375,16 @@ export default function CostSegWizardPage() {
 
   // ── Step handlers ────────────────────────────────────────────────────────────
 
-  const handleStep1Save = async (name: string, studyDate: string) => {
+  const handleStep1Save = async (name: string, studyDate: string, propertyType: string) => {
     setSaving(true);
     const res = await apiFetch<{ data: Project }>(`/cost-seg/projects/${projectId}`, {
       method: 'PATCH',
-      body: JSON.stringify({ name, study_date: studyDate || null }),
+      body: JSON.stringify({ name, study_date: studyDate || null, property_type: propertyType }),
     });
     setSaving(false);
     if (res.success) {
       setProject((p) => p ? { ...p, name, study_date: studyDate || null } : p);
+      setProperty((p) => ({ ...p, property_type: propertyType }));
       setCurrentStep(2);
     }
   };
@@ -1454,20 +1465,27 @@ export default function CostSegWizardPage() {
 
   const handlePay = async () => {
     setPaying(true);
-    const res = await apiFetch<{ message: string; status: string; task_id?: string }>(
-      `/cost-seg/projects/${projectId}/payment`,
+    const res = await apiFetch<{ checkout_url: string }>(
+      `/cost-seg/projects/${projectId}/checkout-session`,
       { method: 'POST' }
     );
     setPaying(false);
     if (res.success) {
       const data = (res.data as any).data || res.data;
-      setProject((p) => p ? { ...p, status: 'paid' } : p);
-      setCurrentStep(6);
-      if (data?.task_id) {
-        startSseStream(data.task_id);
+      if (data?.checkout_url) {
+        window.location.href = data.checkout_url;
       }
+    } else {
+      setError('Failed to start checkout session.');
     }
   };
+
+  useEffect(() => {
+    if (searchParams.get('payment_success') === '1' && project?.status !== 'paid') {
+      setCurrentStep(6);
+      setProject(p => p ? { ...p, status: 'paid' } : p);
+    }
+  }, [searchParams, project?.status]);
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
@@ -1486,7 +1504,7 @@ export default function CostSegWizardPage() {
   const stepContent = () => {
     switch (currentStep) {
       case 1:
-        return <Step1 project={project} onSave={handleStep1Save} saving={saving} />;
+        return <Step1 project={project} propertyData={property} onSave={handleStep1Save} saving={saving} />;
       case 2:
         return (
           <Step2
@@ -1525,7 +1543,7 @@ export default function CostSegWizardPage() {
           />
         );
       case 5:
-        return <Step5 onPay={handlePay} paying={paying} onBack={() => setCurrentStep(4)} />;
+        return <Step5 onPay={handlePay} paying={paying} onBack={() => setCurrentStep(4)} canCheckout={canCheckout} />;
       case 6:
         return <Step6 projectId={projectId} pdfDownloadUrl={pdfDownloadUrl} onBack={() => setCurrentStep(5)} />;
       default:

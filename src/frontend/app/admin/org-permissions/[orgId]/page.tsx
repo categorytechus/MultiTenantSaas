@@ -14,6 +14,12 @@ interface Module {
   enabled: boolean;
 }
 
+const PROPERTY_TYPES = [
+  { value: 'townhome', label: 'Townhome', defaultPrice: 5 },
+  { value: 'single_family', label: 'Single Family', defaultPrice: 5 },
+  { value: 'custom', label: 'Custom', defaultPrice: 5 },
+];
+
 function Toggle({ on, disabled, onToggle, label }: { on: boolean; disabled?: boolean; onToggle: () => void; label: string }) {
   return (
     <button
@@ -58,6 +64,8 @@ export default function OrgPermissionsDetailPage() {
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
+  const [orgData, setOrgData] = useState<any>(null);
+  const [overrides, setOverrides] = useState<Record<string, number>>({});
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -70,13 +78,17 @@ export default function OrgPermissionsDetailPage() {
           router.push('/dashboard'); return;
         }
         const [orgsRes, modRes] = await Promise.all([
-          apiFetch<{ data: { id: string; name: string }[] }>('/admin/organizations'),
+          apiFetch<{ data: { id: string; name: string; slug: string; domain: string | null; status: string; subscription_tier: string; cost_seg_price_overrides?: Record<string, number> }[] }>('/admin/organizations'),
           apiFetch<{ data: Module[] }>(`/admin/organizations/${orgId}/modules`),
         ]);
         if (cancelled) return;
         if (orgsRes.success) {
-          const org = orgsRes.data.data.find((o) => o.id === orgId);
-          if (org) setOrgName(org.name);
+          const org = orgsRes.data.data.find((o: any) => o.id === orgId);
+          if (org) {
+            setOrgName(org.name);
+            setOrgData(org);
+            setOverrides(org.cost_seg_price_overrides || {});
+          }
         }
         if (modRes.success) {
           const list = modRes.data.data;
@@ -128,10 +140,27 @@ export default function OrgPermissionsDetailPage() {
     try {
       const res = await apiFetch(`/admin/organizations/${orgId}/modules`, {
         method: 'PUT',
-        body: JSON.stringify({ moduleIds: Array.from(enabled) }),
+        body: JSON.stringify({ 
+          moduleIds: Array.from(enabled),
+        }),
       });
-      if (res.success) {
-        setSuccess('Module access updated successfully');
+      let orgSuccess = true;
+      if (orgData) {
+        const orgRes = await apiFetch(`/admin/organizations/${orgId}`, {
+          method: 'PUT',
+          body: JSON.stringify({ 
+            name: orgData.name,
+            slug: orgData.slug,
+            domain: orgData.domain,
+            status: orgData.status,
+            subscriptionTier: orgData.subscription_tier,
+            cost_seg_price_overrides: overrides
+          }),
+        });
+        orgSuccess = orgRes.success;
+      }
+      if (res.success && orgSuccess) {
+        setSuccess('Organization settings updated successfully');
         setTimeout(() => setSuccess(''), 3000);
       } else {
         setError(res.error || 'Failed to save');
@@ -203,6 +232,69 @@ export default function OrgPermissionsDetailPage() {
                     </div>
                     <Toggle on={on} onToggle={() => toggle(mod.id)} label={mod.label} />
                   </div>
+                  
+                  {mod.id === 'cost_seg' && on && (
+                    <div style={{ padding: '16px 20px', background: '#fafafa', borderTop: '1px solid #f0eeeb' }}>
+                      <div className="flex items-center justify-between mb-3">
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a1a' }}>
+                          Price Overrides (USD)
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setOverrides({})}
+                          className="text-[11px] font-medium text-[#1a1a1a] bg-[#e5e5e5] hover:bg-[#d4d4d4] px-2 py-1 rounded transition-colors"
+                        >
+                          Reset All to Default
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        {PROPERTY_TYPES.map((pt) => (
+                          <div key={pt.value} className="flex items-center justify-between bg-white p-2 border border-[#e5e5e5] rounded">
+                            <span className="text-[12px] text-[#444]">{pt.label}</span>
+                            <div className="flex items-center gap-2">
+                              {overrides[pt.value] === undefined ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setOverrides(prev => ({ ...prev, [pt.value]: pt.defaultPrice }))}
+                                  className="text-[11px] font-medium text-[#1a1a1a] bg-[#e5e5e5] hover:bg-[#d4d4d4] px-3 py-1 rounded transition-colors"
+                                >
+                                  Set Override
+                                </button>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => setOverrides(prev => {
+                                      const next = { ...prev };
+                                      delete next[pt.value];
+                                      return next;
+                                    })}
+                                    className="text-[10px] text-[#9a9a9a] hover:text-[#1a1a1a] transition-colors mr-1"
+                                    title="Remove override and use default"
+                                  >
+                                    Clear
+                                  </button>
+                                  <div className="relative">
+                                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[12px] text-[#9a9a9a]">$</span>
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      value={overrides[pt.value]}
+                                      onChange={(e) => {
+                                        const val = parseFloat(e.target.value);
+                                        setOverrides(prev => ({ ...prev, [pt.value]: isNaN(val) ? 0 : val }));
+                                      }}
+                                      className="w-20 pl-5 pr-2 py-1 text-[12px] border border-[#e5e5e5] rounded outline-none focus:border-[#1a1a1a]"
+                                    />
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {children.length > 0 && (() => {
                     const isOpen = expanded.has(mod.id);

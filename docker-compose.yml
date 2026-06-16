@@ -41,6 +41,7 @@ services:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/multitenant
     volumes:
       - ./src/server:/app
+      - ./src/agents:/agents:ro
     working_dir: /app
     restart: "no"
 
@@ -70,6 +71,7 @@ services:
       LOCAL_UPLOAD_DIR: /tmp/uploads
     volumes:
       - ./src/server:/app
+      - ./src/agents:/agents:ro
       - uploads_data:/tmp/uploads
     depends_on:
       postgres:

@@ -27,8 +27,15 @@ async def get_dashboard_stats(
     }
     trunc_val = tf_map.get(timeframe.lower(), "day")
 
-    params = {"org_id": str(ctx.org_id)}
+    params = {}
     
+    org_filter = ""
+    if ctx.org_id:
+        params["org_id"] = str(ctx.org_id)
+        org_filter = "WHERE org_id = CAST(:org_id AS uuid)"
+    else:
+        org_filter = "WHERE 1=1"
+
     date_filter = ""
     if start_date:
         date_filter += " AND created_at >= CAST(:start AS timestamptz)"
@@ -45,7 +52,7 @@ async def get_dashboard_stats(
             COUNT(*) FILTER (WHERE status = 'ready') as success_count,
             COUNT(*) FILTER (WHERE status = 'failed' OR status = 'error') as error_count
         FROM documents
-        WHERE org_id = CAST(:org_id AS uuid) {date_filter}
+        {org_filter} {date_filter}
         GROUP BY trunc_date
         ORDER BY trunc_date ASC
     """
@@ -80,7 +87,7 @@ async def get_dashboard_stats(
             COUNT(*) FILTER (WHERE status = 'ready') as success_count,
             COUNT(*) FILTER (WHERE status = 'failed' OR status = 'error') as error_count
         FROM documents
-        WHERE org_id = CAST(:org_id AS uuid) {date_filter}
+        {org_filter} {date_filter}
     """
     
     total_res = await session.execute(sa_text(total_query), params)

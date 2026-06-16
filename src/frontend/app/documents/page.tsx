@@ -1259,7 +1259,7 @@ export default function DocumentsPage() {
           const { org_id, role } = JSON.parse(atob(token.split(".")[1])) as { org_id?: string; role?: string };
           if (role) setUserRole(role);
           if (role === "super_admin") {
-            const orgRes = await apiFetch<{ data: { id: string; name: string }[] }>("/organizations");
+            const orgRes = await apiFetch<{ data: { id: string; name: string }[] }>("/admin/organizations");
             if (orgRes.success) setOrgs(orgRes.data.data);
           }
           if (org_id) {

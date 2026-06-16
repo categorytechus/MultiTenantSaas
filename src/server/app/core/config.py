@@ -88,5 +88,11 @@ class Settings(BaseSettings):
     MICROSOFT_REDIRECT_URI: str = ""
     MICROSOFT_TENANT: str = "common"
 
+    # Stripe
+    STRIPE_API_KEY: str = ""
+    STRIPE_WEBHOOK_SECRET: str = ""
+    STRIPE_COST_SEG_PRODUCT_ID: str = ""
+    STRIPE_COST_SEG_PRICE_MAPPING: dict[str, str] = {}
+
 
 settings = Settings()

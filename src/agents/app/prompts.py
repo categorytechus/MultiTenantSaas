@@ -27,8 +27,8 @@ _PROMPTS_DIR = Path(__file__).parent / "prompts"
 # ── File loading (process-level cache) ───────────────────────────────────────
 
 @lru_cache(maxsize=16)
-def _load_agent_prompts(agent: str) -> dict:
-    path = _PROMPTS_DIR / f"{agent}.json"
+def _load_prompts() -> dict:
+    path = _PROMPTS_DIR / "chat.json"
     with path.open() as f:
         return json.load(f)
 
@@ -84,33 +84,53 @@ def trace_generation(trace_id: str, prompt_name: str, input_messages: list, outp
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def get_prompt(agent: str, slot: str, workflow: str | None = None, **variables: str) -> str:
+import string
+
+class SafeFormatter(string.Formatter):
+    def get_value(self, key, args, kwargs):
+        try:
+            return super().get_value(key, args, kwargs)
+        except KeyError:
+            return "{" + str(key) + "}"
+
+def get_prompt(slot: str, workflow: str | None = None, custom_prompts: dict | None = None, **variables: str) -> str:
     """
     Resolve and compile a prompt.
 
     Args:
-        agent:    name of the JSON file without extension (e.g. "chat")
         slot:     prompt key within the workflow (e.g. "with-context")
         workflow: workflow variant; falls back to DEFAULT_PROMPT_WORKFLOW then "default"
+        custom_prompts: overrides for prompts loaded from database
         **variables: template substitutions (e.g. context="...", modules_json="...")
     """
     workflow = workflow or settings.DEFAULT_PROMPT_WORKFLOW
-    prompts = _load_agent_prompts(agent)
-
-    # Try requested workflow first, then "default"
+    
     candidates = [workflow] if workflow == "default" else [workflow, "default"]
     template: str | None = None
     resolved_via: str = ""
-
-    for w in candidates:
-        bucket = prompts.get(w, {})
-        if slot in bucket:
-            template = bucket[slot]
-            resolved_via = f"{agent}/{w}/{slot}"
-            break
+    
+    if custom_prompts:
+        for w in candidates:
+            bucket = custom_prompts.get(w, {})
+            if slot in bucket:
+                template = bucket[slot]
+                resolved_via = f"custom:{w}/{slot}"
+                break
 
     if template is None:
-        raise KeyError(f"Prompt not found: {agent}/{workflow}/{slot} (also tried 'default')")
+        prompts = _load_prompts()
+        for w in candidates:
+            bucket = prompts.get(w, {})
+            if slot in bucket:
+                template = bucket[slot]
+                resolved_via = f"file:{w}/{slot}"
+                break
+
+    if template is None:
+        raise KeyError(f"Prompt not found: {workflow}/{slot} (also tried 'default')")
 
     logger.debug("Resolved prompt %s", resolved_via)
-    return template.format(**variables) if variables else template
+    if variables:
+        formatter = SafeFormatter()
+        return formatter.format(template, **variables)
+    return template
