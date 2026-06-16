@@ -42,6 +42,7 @@ class CreateOrgRequest(BaseModel):
     domain: str | None = None
     status: str = "active"
     subscription_tier: str = Field(default="free", alias="subscriptionTier")
+    cost_seg_price_overrides: dict[str, float] | None = None
 
 
 class UpdateOrgRequest(BaseModel):
@@ -51,6 +52,7 @@ class UpdateOrgRequest(BaseModel):
     domain: str | None = None
     status: str | None = None
     subscription_tier: str | None = Field(default=None, alias="subscriptionTier")
+    cost_seg_price_overrides: dict[str, float] | None = None
 
 
 class OrgModuleRow(BaseModel):
@@ -206,6 +208,7 @@ async def list_organizations(
                 "domain": org.domain,
                 "status": org.status,
                 "subscription_tier": org.subscription_tier,
+                "cost_seg_price_overrides": org.cost_seg_price_overrides,
                 "created_at": org.created_at.isoformat(),
             }
             for org in orgs
@@ -229,12 +232,26 @@ async def create_organization(
     if existing.scalars().first():
         raise HTTPException(status_code=409, detail=f"Slug '{slug}' already taken")
 
+    default_prices = {
+        "townhome": 5,
+        "single_family": 5,
+        "multifamily": 5,
+        "mixed_use": 5,
+        "retail": 5,
+        "medical_office": 5,
+        "office_retail": 5,
+        "self_storage": 5,
+        "industrial_flex": 5,
+        "hotel": 5,
+    }
+
     org = Org(
         name=body.name,
         slug=slug,
         domain=(body.domain.strip() if body.domain else None),
         status=body.status,
         subscription_tier=body.subscription_tier,
+        cost_seg_price_overrides=body.cost_seg_price_overrides or default_prices,
     )
     session.add(org)
     await session.flush()
@@ -270,6 +287,7 @@ async def create_organization(
         "domain": org.domain,
         "status": org.status,
         "subscription_tier": org.subscription_tier,
+        "cost_seg_price_overrides": org.cost_seg_price_overrides,
         "created_at": org.created_at.isoformat(),
     }
 
@@ -305,6 +323,8 @@ async def update_organization(
         org.status = body.status
     if body.subscription_tier is not None:
         org.subscription_tier = body.subscription_tier
+    if body.cost_seg_price_overrides is not None:
+        org.cost_seg_price_overrides = body.cost_seg_price_overrides
     session.add(org)
     await session.flush()
 
@@ -317,6 +337,7 @@ async def update_organization(
             "domain": org.domain,
             "status": org.status,
             "subscription_tier": org.subscription_tier,
+            "cost_seg_price_overrides": org.cost_seg_price_overrides,
             "created_at": org.created_at.isoformat(),
         },
     }

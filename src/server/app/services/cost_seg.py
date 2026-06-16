@@ -117,6 +117,7 @@ async def create_project(
     user_id: UUID,
     name: str,
     study_date=None,
+    property_type: Optional[str] = None,
 ) -> WorkflowSession:
     project = WorkflowSession(
         org_id=org_id,
@@ -124,7 +125,10 @@ async def create_project(
         type=WORKFLOW_TYPE,
         title=name,
         status="draft",
-        meta={"study_date": study_date.isoformat() if study_date else None, "property": None},
+        meta={
+            "study_date": study_date.isoformat() if study_date else None, 
+            "property": {"property_type": property_type} if property_type else None
+        },
     )
     session.add(project)
     await session.flush()
@@ -201,12 +205,14 @@ async def upsert_property(
 ) -> dict:
     project = await get_project(session, project_id)
     current_meta = dict(project.meta or {})
-    current_meta["property"] = fields
+    current_prop = current_meta.get("property") or {}
+    updated_prop = {**current_prop, **fields}
+    current_meta["property"] = updated_prop
     project.meta = current_meta
     project.updated_at = datetime.now(timezone.utc)
     session.add(project)
     await session.flush()
-    return fields
+    return updated_prop
 
 
 def get_property_from_meta(project: WorkflowSession) -> Optional[dict]:

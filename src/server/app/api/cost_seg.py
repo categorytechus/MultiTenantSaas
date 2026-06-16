@@ -19,6 +19,7 @@ from app.services import cost_seg as svc
 from app.services.audit import log_action
 import stripe
 from app.core.config import settings
+from app.models.org import Org
 
 router = APIRouter(prefix="/api/cost-seg", tags=["cost-segregation"])
 logger = get_logger(__name__)
@@ -78,6 +79,7 @@ def _item_out(i: WorkflowItem) -> dict:
 class CreateProjectRequest(BaseModel):
     name: str
     study_date: Optional[date] = None
+    property_type: Optional[str] = "office_retail"
 
 
 @router.post("/projects", status_code=201)
@@ -93,6 +95,7 @@ async def create_project(
             user_id=ctx.user_id,
             name=body.name,
             study_date=body.study_date,
+            property_type=body.property_type,
         )
         await log_action(sess, ctx, "cost_seg.project.create", "workflow_session", str(project.id))
     return {"data": _project_out(project)}
@@ -115,12 +118,22 @@ async def get_project(
 ) -> Any:
     project = await svc.get_project(session, project_id)
     prop = svc.get_property_from_meta(project)
-    return {"data": _project_out(project), "property": prop}
+    
+    org = await session.get(Org, ctx.org_id)
+    overrides = org.cost_seg_price_overrides or {}
+    prop_type = prop.get("property_type") if prop else "custom"
+    
+    can_checkout = True
+    if prop_type == "custom" and prop_type not in overrides:
+        can_checkout = False
+        
+    return {"data": _project_out(project), "property": prop, "can_checkout": can_checkout}
 
 
 class UpdateProjectRequest(BaseModel):
     name: Optional[str] = None
     study_date: Optional[date] = None
+    property_type: Optional[str] = None
 
 
 @router.patch("/projects/{project_id}")
@@ -135,6 +148,8 @@ async def update_project(
         project = await svc.update_project(
             sess, project, name=body.name, study_date=body.study_date
         )
+        if body.property_type is not None:
+            await svc.upsert_property(sess, project_id=project_id, org_id=ctx.org_id, property_type=body.property_type)
     return {"data": _project_out(project)}
 
 
@@ -406,22 +421,48 @@ async def create_checkout_session(
         except AttributeError:
             logger.error("PUBLIC_APP_URL is missing from settings; falling back to localhost")
 
-        price_id = getattr(settings, "STRIPE_COST_SEG_PRICE_ID", None)
-        if not price_id:
-            logger.error("STRIPE_COST_SEG_PRICE_ID is missing from settings")
-            raise HTTPException(
-                status_code=500,
-                detail="Payment configuration error"
-            )
+        prop = svc.get_property_from_meta(project)
+        prop_type = prop.get("property_type") if prop else "custom"
+        
+        org = await sess.get(Org, ctx.org_id)
+        overrides = org.cost_seg_price_overrides or {}
+
+        if prop_type in overrides:
+            price = overrides[prop_type]
+            product_id = getattr(settings, "STRIPE_COST_SEG_PRODUCT_ID", None)
+            if not product_id:
+                logger.error("STRIPE_COST_SEG_PRODUCT_ID is missing from settings")
+                raise HTTPException(
+                    status_code=500,
+                    detail="Payment configuration error"
+                )
+            
+            line_item = {
+                "price_data": {
+                    "currency": "usd",
+                    "product": product_id,
+                    "unit_amount": int(price * 100),
+                },
+                "quantity": 1,
+            }
+        else:
+            if prop_type == "custom":
+                raise HTTPException(status_code=400, detail="Price override required for custom properties")
+                
+            mapping = getattr(settings, "STRIPE_COST_SEG_PRICE_MAPPING", {})
+            price_id = mapping.get(prop_type)
+            if not price_id:
+                logger.error(f"STRIPE_COST_SEG_PRICE_MAPPING missing for {prop_type}")
+                raise HTTPException(status_code=500, detail="Pricing configuration error")
+                
+            line_item = {
+                "price": price_id,
+                "quantity": 1,
+            }
 
         checkout_session = stripe.checkout.Session.create(
             payment_method_types=["card"],
-            line_items=[
-                {
-                    "price": price_id,
-                    "quantity": 1,
-                }
-            ],
+            line_items=[line_item],
             mode="payment",
             client_reference_id=str(project_id),
             success_url=f"{public_app_url}/cost_segregation/{project_id}?session_id={{CHECKOUT_SESSION_ID}}&payment_success=1",

@@ -60,7 +60,14 @@ export default function CostSegregationPage() {
   const [showNew, setShowNew] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDate, setNewDate] = useState('');
+  const [newType, setNewType] = useState('townhome');
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const PROPERTY_TYPES = [
+    { value: 'townhome', label: 'Townhome' },
+    { value: 'single_family', label: 'Single Family' },
+    { value: 'custom', label: 'Custom' },
+  ];
 
   // Permission guard
   useEffect(() => {
@@ -94,7 +101,7 @@ export default function CostSegregationPage() {
     setCreating(true);
     const res = await apiFetch<{ data: CostSegProject }>('/cost-seg/projects', {
       method: 'POST',
-      body: JSON.stringify({ name: newName.trim(), study_date: newDate || null }),
+      body: JSON.stringify({ name: newName.trim(), study_date: newDate || null, property_type: newType }),
     });
     setCreating(false);
     if (res.success) {
@@ -102,6 +109,7 @@ export default function CostSegregationPage() {
       setShowNew(false);
       setNewName('');
       setNewDate('');
+      setNewType('townhome');
       router.push(`/cost_segregation/${created.id}`);
     }
   };
@@ -159,18 +167,19 @@ export default function CostSegregationPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">Study Date</label>
-                  <input
-                    type="date"
-                    value={newDate}
-                    onChange={(e) => setNewDate(e.target.value)}
-                    className="w-full px-3 py-2 border border-[#e5e7eb] rounded-lg text-[13px] outline-none focus:border-[#1a1a1a] transition-colors"
-                  />
+                  <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">Property Type</label>
+                  <select
+                    value={newType}
+                    onChange={(e) => setNewType(e.target.value)}
+                    className="w-full px-3 py-2 border border-[#e5e7eb] rounded-lg text-[13px] outline-none focus:border-[#1a1a1a] transition-colors bg-white"
+                  >
+                    {PROPERTY_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </select>
                 </div>
                 <div className="flex gap-3 pt-2">
                   <button
                     type="button"
-                    onClick={() => { setShowNew(false); setNewName(''); setNewDate(''); }}
+                    onClick={() => { setShowNew(false); setNewName(''); setNewDate(''); setNewType('townhome'); }}
                     className="flex-1 px-4 py-2 border border-[#e5e7eb] rounded-lg text-[13px] font-medium text-[#6b7280] hover:bg-[#f9f9f8] transition-colors"
                   >
                     Cancel

@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
-from sqlmodel import Field, SQLModel
+from sqlmodel import Field, SQLModel, Column, JSON
 
 
 class Org(SQLModel, table=True):
@@ -13,6 +13,7 @@ class Org(SQLModel, table=True):
     domain: str | None = Field(default=None)
     status: str = Field(default="active", nullable=False)
     subscription_tier: str = Field(default="free", nullable=False)
+    cost_seg_price_overrides: dict[str, float] = Field(default_factory=dict, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
