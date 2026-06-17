@@ -155,7 +155,27 @@ Standard tax advisory disclaimer citing:
 - **Cards/boxes**: Light background (#f9f9f8), 1px border (#e5e7eb), 8px radius
 - **Footer stamp**: Right-aligned, muted color, showing platform name and date
 
+## Excel Output
+
+You MUST ALSO generate an Excel file saved to `$OUTPUT_DIR/report.xlsx`. 
+The file must use `openpyxl` and contain exactly these sheets (in this order):
+
+| Sheet name | Content |
+|---|---|
+| `Summary` | Classification Summary table (category × columns from §4 of the report) |
+| `Line Items` | Detailed Line Items table (§5) |
+| `Depreciation Schedule` | Multi-year MACRS schedule (§6) |
+
+Key constraints:
+- **Single file, Multiple Tabs** — You MUST create exactly 3 separate worksheet tabs (`worksheet.title = "Summary"`, etc). Do NOT put all tables on a single sheet.
+- **Table Data ONLY** — Each sheet must contain ONLY its respective table data, starting at cell A1 with a header row. Do NOT include the property details, executive summary, or any other non-table text anywhere in the Excel file.
+- **NO BINARY TO STDOUT** — Do NOT print the Excel file contents or any binary data to the console/stdout, as this will crash the API client. Save it directly to the file.
+- Dollar amounts are numeric (no `$` prefix strings) — use Excel number format `"$#,##0.00"`.
+- Percentages are numeric 0–100 floats, formatted as `"0.0%"`.
+- Bold the header row and the totals/footer row on each sheet.
+- The skill must still write `report.html` as before; xlsx is **additive**.
+
 ## Output
 
-Save the complete HTML file to `$OUTPUT_DIR/report.html` (using the `OUTPUT_DIR` environment variable).
-Do NOT include any other output, explanations, or commentary outside the file.
+Save the complete HTML file to `$OUTPUT_DIR/report.html` and the Excel file to `$OUTPUT_DIR/report.xlsx` (using the `OUTPUT_DIR` environment variable).
+Do NOT include any other output, explanations, or commentary outside the files.
