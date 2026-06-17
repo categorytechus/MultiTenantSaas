@@ -77,7 +77,7 @@ class ClaudeSkillsClient:
                         "content": (
                             "Generate a cost segregation study report from the "
                             "following structured data.  Save the HTML report to "
-                            "/output/report.html\n\n"
+                            "/output/report.html and the Excel report to /output/report.xlsx\n\n"
                             f"{json.dumps(data, default=str)}"
                         ),
                     }
@@ -95,8 +95,8 @@ class ClaudeSkillsClient:
     # Response parsing
     # ------------------------------------------------------------------
 
-    def _extract_output(self, response: Any) -> dict[str, str]:
-        """Extract the generated HTML or file ID from the Claude Skills response."""
+    def _extract_output(self, response: Any) -> dict[str, Any]:
+        """Extract the generated HTML and XLSX from the Claude Skills response."""
         file_ids = []
         
         # Collect any file IDs from bash execution results
@@ -112,23 +112,37 @@ class ClaudeSkillsClient:
                         if fid:
                             file_ids.append(fid)
         
-        if file_ids:
-            file_id = file_ids[-1]
-            logger.info("Found file_id in Claude response: %s", file_id)
-        else:
+        if not file_ids:
             # Provide detailed block summary for debugging
             block_summary = [(getattr(b, "type", "unknown"), getattr(b, "content", None)) for b in response.content]
             logger.error("Claude Skills response missing file_id. Blocks: %s", block_summary)
             raise ValueError(f"Claude Skills response did not contain a generated file. Found blocks: {block_summary}")
 
-        # Download the file content via Files API
-        logger.info("Downloading HTML file via Files API", file_id=file_id)
-        file_content = self.client.beta.files.download(file_id=file_id)
-        html = file_content.read().decode("utf-8")
+        html = ""
+        xlsx_bytes = None
+
+        for file_id in file_ids:
+            # Download the file content via Files API
+            logger.info("Downloading file via Files API", file_id=file_id)
+            
+            file_content_response = self.client.beta.files.download(file_id=file_id)
+            content_bytes = file_content_response.read()
+            
+            # Simple heuristic: if it starts with 'PK' it's likely a zip/xlsx
+            if content_bytes.startswith(b'PK\x03\x04'):
+                xlsx_bytes = content_bytes
+                logger.info("Identified file as XLSX based on signature", file_id=file_id)
+            else:
+                try:
+                    html = content_bytes.decode("utf-8")
+                    logger.info("Identified file as HTML", file_id=file_id, length=len(html))
+                except UnicodeDecodeError:
+                    logger.warning("Unrecognized file type", file_id=file_id)
 
         logger.info(
             "Claude Skills report generated",
             html_length=len(html),
+            has_xlsx=xlsx_bytes is not None,
             stop_reason=getattr(response, "stop_reason", None),
         )
-        return {"html": html}
+        return {"html": html, "xlsx_bytes": xlsx_bytes}

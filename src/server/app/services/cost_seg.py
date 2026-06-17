@@ -9,7 +9,7 @@ Document         (session_id=project.id) → uploaded invoice / receipt / image
 import json
 import re
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, List, Optional
 from uuid import UUID
 
 from sqlalchemy import text as sa_text
@@ -409,6 +409,108 @@ async def delete_line_item(session: AsyncSession, item_id: UUID) -> None:
     )
 
 
+# ── Auditor Comments ───────────────────────────────────────────────────────────
+
+async def add_auditor_comment(
+    session: AsyncSession,
+    item_id: UUID,
+    *,
+    user_id: str,
+    user_name: str,
+    text: str,
+) -> WorkflowItem:
+    """Append an auditor comment to a line item's data JSONB."""
+    result = await session.execute(
+        select(WorkflowItem).where(WorkflowItem.id == item_id)
+    )
+    item = result.scalars().first()
+    if not item:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Line item not found")
+
+    current_data = dict(item.data or {})
+    comments: List[dict] = list(current_data.get("auditor_comments") or [])
+    comments.append({
+        "text": text,
+        "user_id": user_id,
+        "user_name": user_name,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    current_data["auditor_comments"] = comments
+    item.data = current_data
+    session.add(item)
+    await session.flush()
+    return item
+
+
+async def delete_auditor_comment(
+    session: AsyncSession,
+    item_id: UUID,
+    comment_index: int,
+    user_id: str,
+) -> WorkflowItem:
+    """Delete an auditor comment by its array index."""
+    result = await session.execute(
+        select(WorkflowItem).where(WorkflowItem.id == item_id)
+    )
+    item = result.scalars().first()
+    if not item:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Line item not found")
+
+    current_data = dict(item.data or {})
+    comments: List[dict] = list(current_data.get("auditor_comments") or [])
+    if comment_index < 0 or comment_index >= len(comments):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Comment not found")
+        
+    if comments[comment_index].get("user_id") != user_id:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Cannot delete someone else's comment")
+
+    comments.pop(comment_index)
+    current_data["auditor_comments"] = comments
+    item.data = current_data
+    session.add(item)
+    await session.flush()
+    return item
+
+
+async def update_auditor_comment(
+    session: AsyncSession,
+    item_id: UUID,
+    comment_index: int,
+    new_text: str,
+    user_id: str,
+) -> WorkflowItem:
+    """Update an existing auditor comment's text."""
+    result = await session.execute(
+        select(WorkflowItem).where(WorkflowItem.id == item_id)
+    )
+    item = result.scalars().first()
+    if not item:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Line item not found")
+
+    current_data = dict(item.data or {})
+    comments: List[dict] = list(current_data.get("auditor_comments") or [])
+    if comment_index < 0 or comment_index >= len(comments):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Comment not found")
+        
+    if comments[comment_index].get("user_id") != user_id:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Cannot edit someone else's comment")
+        
+    comments[comment_index]["text"] = new_text
+    comments[comment_index]["updated_at"] = datetime.now(timezone.utc).isoformat()
+    current_data["auditor_comments"] = comments
+    item.data = current_data
+    session.add(item)
+    await session.flush()
+    return item
+
+
 # ── Depreciation math ──────────────────────────────────────────────────────────
 
 def _calc_year1(amount: float, category_id: str, cat: dict) -> Optional[float]:
@@ -584,8 +686,8 @@ async def _generate_report_with_skills(
     project: WorkflowSession,
     prop: Optional[dict],
     items: list[WorkflowItem],
-) -> Optional[str]:
-    """Try generating the report via Claude Skills API. Returns HTML or None."""
+) -> Optional[tuple[str, bytes | None]]:
+    """Try generating the report via Claude Skills API. Returns (HTML, XLSX) or None."""
     from app.core.config import settings
 
     if not settings.ANTHROPIC_API_KEY or not settings.CLAUDE_SKILLS_COST_SEG_ID:
@@ -604,9 +706,9 @@ async def _generate_report_with_skills(
         )
         data = _prepare_report_data(project, prop, items)
         result = await client.generate_report(data)
-        return result["html"]
+        return result["html"], result.get("xlsx_bytes")
     except Exception as e:
-        logger.warning("Claude Skills report generation failed, using fallback", error=str(e))
+        logger.exception("Claude Skills report generation failed, using fallback: %s", str(e))
         return None
 
 
@@ -620,7 +722,13 @@ async def generate_report(
     items = await list_line_items(session, project_id)
 
     # Try Claude Skills API first; fall back to hardcoded template
-    html = await _generate_report_with_skills(project, prop, items)
+    skills_result = await _generate_report_with_skills(project, prop, items)
+    
+    html = None
+    xlsx_bytes = None
+    if skills_result is not None:
+        html, xlsx_bytes = skills_result
+
     if html is None:
         html = _build_report_html_fallback(project, prop, items)
 
@@ -647,6 +755,31 @@ async def generate_report(
             data=totals,
         )
     session.add(output)
+
+    if xlsx_bytes is not None:
+        import base64
+        existing_xlsx = await session.execute(
+            select(WorkflowOutput).where(
+                WorkflowOutput.session_id == project_id,
+                WorkflowOutput.type == "xlsx_report",
+            )
+        )
+        xlsx_output = existing_xlsx.scalars().first()
+        b64_content = base64.b64encode(xlsx_bytes).decode("ascii")
+        if xlsx_output:
+            xlsx_output.content = b64_content
+            xlsx_output.data = totals
+            xlsx_output.generated_at = datetime.now(timezone.utc)
+        else:
+            xlsx_output = WorkflowOutput(
+                session_id=project_id,
+                org_id=org_id,
+                type="xlsx_report",
+                content=b64_content,
+                data=totals,
+            )
+        session.add(xlsx_output)
+
     await session.flush()
     return html
 
@@ -659,6 +792,20 @@ async def get_report(session: AsyncSession, project_id: UUID) -> Optional[Workfl
         )
     )
     return result.scalars().first()
+
+
+async def get_xlsx_report(session: AsyncSession, project_id: UUID) -> Optional[bytes]:
+    import base64
+    result = await session.execute(
+        select(WorkflowOutput).where(
+            WorkflowOutput.session_id == project_id,
+            WorkflowOutput.type == "xlsx_report",
+        )
+    )
+    output = result.scalars().first()
+    if not output or not output.content:
+        return None
+    return base64.b64decode(output.content)
 
 
 def _build_totals(items: list[WorkflowItem]) -> dict:

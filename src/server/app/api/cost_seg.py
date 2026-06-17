@@ -13,13 +13,14 @@ from app.core.rbac import authorize
 from app.core.tenancy import RequestContext
 from app.integrations.s3 import make_s3_key, upload as s3_upload
 from app.models.document import Document
+from app.models.org import Org
 from app.models.org_module import OrgModule
+from app.models.user import User
 from app.models.workflow import WorkflowItem, WorkflowSession
 from app.services import cost_seg as svc
 from app.services.audit import log_action
 import stripe
 from app.core.config import settings
-from app.models.org import Org
 
 router = APIRouter(prefix="/api/cost-seg", tags=["cost-segregation"])
 logger = get_logger(__name__)
@@ -70,6 +71,7 @@ def _item_out(i: WorkflowItem) -> dict:
         "ai_notes": d.get("ai_notes"),
         "user_edited": d.get("user_edited", False),
         "source_doc_id": d.get("source_doc_id"),
+        "auditor_comments": d.get("auditor_comments") or [],
         "created_at": i.created_at.isoformat(),
     }
 
@@ -380,6 +382,66 @@ async def delete_line_item(
         await svc.delete_line_item(sess, item_id)
 
 
+# ── Line item auditor comments ───────────────────────────────────────────────────────
+
+class AddCommentRequest(BaseModel):
+    text: str
+
+
+@router.post("/projects/{project_id}/line-items/{item_id}/comments", status_code=201)
+async def add_comment(
+    project_id: UUID,
+    item_id: UUID,
+    body: AddCommentRequest,
+    ctx: RequestContext = authorize("cost_seg:create"),
+    session: AsyncSession = Depends(get_db),
+) -> Any:
+    # Resolve display name: prefer User.name, fall back to email from JWT
+    user = await session.get(User, ctx.user_id)
+    user_name = (user.name or user.email) if user else (ctx.email or str(ctx.user_id))
+
+    async with db_session(ctx.org_id) as sess:
+        item = await svc.add_auditor_comment(
+            sess,
+            item_id,
+            user_id=str(ctx.user_id),
+            user_name=user_name,
+            text=body.text.strip(),
+        )
+    return {"data": _item_out(item)}
+
+
+@router.delete("/projects/{project_id}/line-items/{item_id}/comments/{comment_index}", status_code=200)
+async def delete_comment(
+    project_id: UUID,
+    item_id: UUID,
+    comment_index: int,
+    ctx: RequestContext = authorize("cost_seg:create"),
+    session: AsyncSession = Depends(get_db),
+) -> Any:
+    async with db_session(ctx.org_id) as sess:
+        item = await svc.delete_auditor_comment(sess, item_id, comment_index, str(ctx.user_id))
+    return {"data": _item_out(item)}
+
+
+class UpdateCommentRequest(BaseModel):
+    text: str
+
+
+@router.patch("/projects/{project_id}/line-items/{item_id}/comments/{comment_index}", status_code=200)
+async def update_comment(
+    project_id: UUID,
+    item_id: UUID,
+    comment_index: int,
+    body: UpdateCommentRequest,
+    ctx: RequestContext = authorize("cost_seg:create"),
+    session: AsyncSession = Depends(get_db),
+) -> Any:
+    async with db_session(ctx.org_id) as sess:
+        item = await svc.update_auditor_comment(sess, item_id, comment_index, body.text.strip(), str(ctx.user_id))
+    return {"data": _item_out(item)}
+
+
 # ── Categories reference ───────────────────────────────────────────────────────
 
 @router.get("/categories")
@@ -521,3 +583,22 @@ async def preview_report(
         )
     return HTMLResponse(content=report.content)
 
+
+@router.get("/projects/{project_id}/report/excel")
+async def get_report_excel(
+    project_id: UUID,
+    ctx: RequestContext = authorize("cost_seg:read"),
+    session: AsyncSession = Depends(get_db),
+) -> Any:
+    from fastapi.responses import Response
+    xlsx_bytes = await svc.get_xlsx_report(session, project_id)
+    if not xlsx_bytes:
+        raise HTTPException(
+            status_code=404,
+            detail="Excel report not yet generated. Use POST /report to generate.",
+        )
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="cost-segregation-report.xlsx"'}
+    )

@@ -7,7 +7,7 @@ import { apiFetch, triggerCostSegPipeline } from '../../../src/lib/api';
 import {
   ChevronLeft, ChevronRight, Check, Upload, Loader2, Plus, Trash2,
   Pencil, X, AlertTriangle, Download, Building2, FileText,
-  CreditCard, BarChart3, RefreshCw,
+  CreditCard, BarChart3, RefreshCw, MessageSquare, Send, FileSpreadsheet,
 } from 'lucide-react';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -43,6 +43,14 @@ interface CostSegDoc {
   created_at: string;
 }
 
+interface AuditorComment {
+  text: string;
+  user_id: string;
+  user_name: string;
+  created_at: string;
+  updated_at?: string;
+}
+
 interface LineItem {
   id: string;
   description: string;
@@ -55,6 +63,7 @@ interface LineItem {
   confidence: number | null;
   ai_notes: string | null;
   user_edited: boolean;
+  auditor_comments: AuditorComment[];
 }
 
 interface Category {
@@ -105,6 +114,35 @@ function fmtBytes(n: number | null) {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
+/** Decode the stored JWT and extract user_id (sub claim). */
+function getCurrentUserId(): string | null {
+  try {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+    if (!token) return null;
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return payload.sub ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Format an ISO timestamp as a short relative label, e.g. "Jun 15" or "Today". */
+function fmtCommentDate(iso: string): string {
+  try {
+    const d = new Date(iso);
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return 'Just now';
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffH = Math.floor(diffMin / 60);
+    if (diffH < 24) return `${diffH}h ago`;
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  } catch {
+    return '';
+  }
+}
+
 function ConfidencePill({ value }: { value: number | null }) {
   if (value === null) return null;
   const pct = Math.round(value * 100);
@@ -113,6 +151,293 @@ function ConfidencePill({ value }: { value: number | null }) {
     <span className="inline-block text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: color + '18', color }}>
       {pct}%
     </span>
+  );
+}
+
+// ── Comment Popover ────────────────────────────────────────────────────────────
+
+function CommentPopover({
+  itemId,
+  projectId,
+  comments,
+  onUpdate,
+}: {
+  itemId: string;
+  projectId: string;
+  comments: AuditorComment[];
+  onUpdate: (itemId: string, updatedComments: AuditorComment[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [deletingIdx, setDeletingIdx] = useState<number | null>(null);
+
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  const [editBuf, setEditBuf] = useState('');
+  const [savingEditIdx, setSavingEditIdx] = useState<number | null>(null);
+
+  const currentUserId = getCurrentUserId();
+
+  const handleSubmit = async () => {
+    if (!text.trim()) return;
+    setSubmitting(true);
+    const res = await apiFetch<{ data: LineItem }>(
+      `/cost-seg/projects/${projectId}/line-items/${itemId}/comments`,
+      { method: 'POST', body: JSON.stringify({ text: text.trim() }) }
+    );
+    setSubmitting(false);
+    if (res.success) {
+      const updated = (res.data as { data: LineItem }).data;
+      onUpdate(itemId, updated.auditor_comments ?? []);
+      setText('');
+    }
+  };
+
+  const handleEditSubmit = async (idx: number) => {
+    if (!editBuf.trim() || editBuf.trim() === comments[idx].text) {
+      setEditingIdx(null);
+      return;
+    }
+    setSavingEditIdx(idx);
+    const res = await apiFetch<{ data: LineItem }>(
+      `/cost-seg/projects/${projectId}/line-items/${itemId}/comments/${idx}`,
+      { method: 'PATCH', body: JSON.stringify({ text: editBuf.trim() }) }
+    );
+    setSavingEditIdx(null);
+    if (res.success) {
+      const updated = (res.data as { data: LineItem }).data;
+      onUpdate(itemId, updated.auditor_comments ?? []);
+      setEditingIdx(null);
+    }
+  };
+
+  const handleDelete = async (idx: number) => {
+    setDeletingIdx(idx);
+    const res = await apiFetch<{ data: LineItem }>(
+      `/cost-seg/projects/${projectId}/line-items/${itemId}/comments/${idx}`,
+      { method: 'DELETE' }
+    );
+    setDeletingIdx(null);
+    if (res.success) {
+      const updated = (res.data as { data: LineItem }).data;
+      onUpdate(itemId, updated.auditor_comments ?? []);
+    }
+  };
+
+  const count = comments.length;
+
+  return (
+    <>
+      {/* Trigger button */}
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        title="Comments"
+        className={`relative flex items-center gap-1.5 px-2 py-1.5 rounded-lg border transition-colors mx-auto ${
+          open
+            ? 'bg-violet-50 border-violet-200 text-violet-700'
+            : count > 0
+            ? 'bg-violet-50/50 border-violet-100 text-violet-600 hover:bg-violet-50 hover:border-violet-200'
+            : 'bg-white border-[#e5e7eb] text-[#6b7280] hover:bg-[#f9f9f8] hover:text-[#374151]'
+        }`}
+      >
+        <MessageSquare size={13} />
+        <span className="text-[11px] font-medium leading-none">
+          {count > 0 ? `${count} Comment${count === 1 ? '' : 's'}` : 'Add Comment'}
+        </span>
+      </button>
+
+      {/* Modal Overlay */}
+      {open && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'rgba(0,0,0,0.4)',
+          }}
+          onMouseDown={(e) => {
+            // Close when clicking the backdrop
+            if (e.target === e.currentTarget) setOpen(false);
+          }}
+        >
+          {/* Modal Content */}
+          <div
+            style={{
+              width: 500,
+              maxWidth: '90vw',
+              maxHeight: '80vh',
+              background: 'white',
+              borderRadius: 12,
+              boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)',
+              overflow: 'hidden',
+              textAlign: 'left', // Overrides text-center from <td>
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            {/* Header */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '12px 16px',
+              borderBottom: '1px solid #f3f4f6',
+              background: '#faf9ff',
+            }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#1a1a1a' }}>
+                Comments {count > 0 && <span style={{ color: '#7c3aed', fontWeight: 600 }}>({count})</span>}
+              </span>
+              <button onClick={() => setOpen(false)} style={{ color: '#9ca3af', lineHeight: 1 }} className="hover:text-[#374151]">
+                <X size={15} />
+              </button>
+            </div>
+
+            {/* Comment list */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: count > 0 ? '12px 0' : 0 }}>
+              {count === 0 ? (
+                <div style={{ padding: '30px 16px', textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>
+                  No comments yet. Add one below.
+                </div>
+              ) : (
+                comments.map((c, idx) => (
+                  <div
+                    key={idx}
+                    style={{
+                      padding: '12px 16px',
+                      borderBottom: idx < count - 1 ? '1px solid #f9f8f6' : 'none',
+                      display: 'flex',
+                      gap: 12,
+                      alignItems: 'flex-start',
+                    }}
+                  >
+                    {/* Avatar */}
+                    <div style={{
+                      width: 28, height: 28, borderRadius: '50%',
+                      background: '#ede9fe', color: '#7c3aed',
+                      fontSize: 12, fontWeight: 700,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      flexShrink: 0,
+                    }}>
+                      {c.user_name.charAt(0).toUpperCase()}
+                    </div>
+                    {editingIdx === idx ? (
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <textarea
+                          value={editBuf}
+                          onChange={(e) => setEditBuf(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleEditSubmit(idx); }
+                            if (e.key === 'Escape') setEditingIdx(null);
+                          }}
+                          rows={2}
+                          style={{
+                            width: '100%', resize: 'none',
+                            padding: '8px 10px', fontSize: 13, lineHeight: 1.5,
+                            border: '1px solid #7c3aed', borderRadius: 8, outline: 'none',
+                            fontFamily: 'inherit', color: '#1a1a1a', marginBottom: 8,
+                            boxShadow: '0 0 0 2px rgba(124,58,237,0.1)'
+                          }}
+                          autoFocus
+                        />
+                        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                          <button onClick={() => setEditingIdx(null)} style={{ fontSize: 12, color: '#6b7280', padding: '6px 12px', borderRadius: 6 }} className="hover:bg-gray-100 transition-colors">Cancel</button>
+                          <button onClick={() => handleEditSubmit(idx)} disabled={!editBuf.trim() || savingEditIdx === idx} style={{ fontSize: 12, background: '#7c3aed', color: 'white', padding: '6px 16px', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 6 }} className="hover:bg-[#6d28d9] transition-colors">
+                            {savingEditIdx === idx && <Loader2 size={12} className="animate-spin" />}
+                            Save
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>{c.user_name}</span>
+                            <span style={{ fontSize: 11, color: '#9ca3af' }}>
+                              {fmtCommentDate(c.updated_at || c.created_at)}
+                              {c.updated_at && <span style={{ fontStyle: 'italic', marginLeft: 4 }}>(edited)</span>}
+                            </span>
+                          </div>
+                          <p style={{ fontSize: 13, color: '#1a1a1a', margin: 0, wordBreak: 'break-word', lineHeight: 1.5 }}>
+                            {c.text}
+                          </p>
+                        </div>
+                        {/* Actions — only own comments */}
+                        {currentUserId && c.user_id === currentUserId && (
+                          <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                            <button
+                              onClick={() => { setEditingIdx(idx); setEditBuf(c.text); }}
+                              title="Edit comment"
+                              style={{ color: '#9ca3af', padding: '4px', lineHeight: 1 }}
+                              className="hover:text-blue-500 transition-colors"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                            <button
+                              onClick={() => handleDelete(idx)}
+                              disabled={deletingIdx === idx}
+                              title="Delete comment"
+                              style={{ color: '#9ca3af', padding: '4px', lineHeight: 1 }}
+                              className="hover:text-red-500 transition-colors"
+                            >
+                              {deletingIdx === idx ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                            </button>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Add comment */}
+            <div style={{
+              padding: '12px 16px',
+              borderTop: '1px solid #f3f4f6',
+              background: '#fafafa',
+              display: 'flex',
+              gap: 8,
+              alignItems: 'flex-end',
+            }}>
+              <textarea
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); }
+                }}
+                placeholder="Add a comment…"
+                rows={2}
+                style={{
+                  flex: 1, resize: 'none',
+                  padding: '8px 10px', fontSize: 13, lineHeight: 1.5,
+                  border: '1px solid #e5e7eb', borderRadius: 8, outline: 'none',
+                  fontFamily: 'inherit', color: '#1a1a1a',
+                }}
+              />
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={!text.trim() || submitting}
+                title="Submit comment (Enter)"
+                style={{
+                  width: 36, height: 36, borderRadius: 8, flexShrink: 0,
+                  background: text.trim() ? '#7c3aed' : '#e5e7eb',
+                  color: text.trim() ? 'white' : '#9ca3af',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  transition: 'all 0.15s',
+                }}
+              >
+                {submitting ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -718,19 +1043,23 @@ function Step3({
 // ── Step 4: Review Line Items ──────────────────────────────────────────────────
 
 function Step4({
+  projectId,
   items,
   categories,
   onUpdate,
   onDelete,
   onAdd,
+  onComment,
   onNext,
   onBack,
 }: {
+  projectId: string;
   items: LineItem[];
   categories: Category[];
   onUpdate: (id: string, data: Partial<LineItem>) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onAdd: (data: Pick<LineItem, 'description' | 'amount' | 'category_id'>) => Promise<void>;
+  onComment: (itemId: string, updatedComments: AuditorComment[]) => void;
   onNext: () => void;
   onBack: () => void;
 }) {
@@ -792,7 +1121,7 @@ function Step4({
       </div>
 
       {/* Items table */}
-      <div className="bg-white border border-[#e5e7eb] rounded-xl overflow-hidden">
+      <div className="bg-white border border-[#e5e7eb] rounded-xl">
         <div className="flex items-center justify-between px-4 py-3 border-b border-[#f3f4f6]">
           <span className="text-[13px] font-semibold text-[#1a1a1a]">Line Items</span>
           <button onClick={() => setShowAdd(true)}
@@ -814,6 +1143,7 @@ function Step4({
                 <th className="text-right px-3 py-2.5 font-semibold text-[#6b7280] uppercase tracking-wider text-[10px]">Amount</th>
                 <th className="text-right px-3 py-2.5 font-semibold text-[#6b7280] uppercase tracking-wider text-[10px]">Yr-1 Deduction</th>
                 <th className="text-center px-3 py-2.5 font-semibold text-[#6b7280] uppercase tracking-wider text-[10px]">Conf.</th>
+                <th className="text-center px-3 py-2.5 font-semibold text-[#6b7280] uppercase tracking-wider text-[10px]">Comments</th>
                 <th className="px-3 py-2.5 w-16" />
               </tr>
             </thead>
@@ -859,6 +1189,15 @@ function Step4({
                     </td>
                     <td className="px-3 py-2.5 text-center">
                       <ConfidencePill value={item.confidence} />
+                    </td>
+                    {/* Comments */}
+                    <td className="px-3 py-2.5 text-center">
+                      <CommentPopover
+                        itemId={item.id}
+                        projectId={projectId}
+                        comments={item.auditor_comments ?? []}
+                        onUpdate={onComment}
+                      />
                     </td>
                     <td className="px-3 py-2.5">
                       {isEditing ? (
@@ -1050,6 +1389,7 @@ function Step6({
   onBack: () => void;
 }) {
   const [generating, setGenerating] = useState(false);
+  const [generatingExcel, setGeneratingExcel] = useState(false);
   const [html, setHtml] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -1078,6 +1418,50 @@ function Step6({
     a.download = `cost-segregation-report.html`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const downloadExcel = async () => {
+    setGeneratingExcel(true);
+    setError(null);
+    try {
+      const token = localStorage.getItem('accessToken') ?? '';
+      let res = await fetch(`/api/cost-seg/projects/${projectId}/report/excel`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (res.status === 404) {
+        // Not generated yet, so generate it
+        const genRes = await apiFetch<{ html: string; message: string }>(`/cost-seg/projects/${projectId}/report`, {
+          method: 'POST',
+        });
+        if (!genRes.success) {
+          setError('Failed to generate Excel report. Please try again.');
+          setGeneratingExcel(false);
+          return;
+        }
+        // Then try downloading again
+        res = await fetch(`/api/cost-seg/projects/${projectId}/report/excel`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+      }
+
+      if (!res.ok) {
+        throw new Error('Failed to download Excel report');
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `cost-segregation-report.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error(err);
+      setError('Failed to download Excel report.');
+    } finally {
+      setGeneratingExcel(false);
+    }
   };
 
   const openPreview = () => {
@@ -1166,6 +1550,15 @@ function Step6({
               </button>
             </div>
           )}
+
+          <button
+            onClick={downloadExcel}
+            disabled={generatingExcel}
+            className="w-full py-2.5 bg-white border border-[#e5e7eb] rounded-xl text-[13px] font-semibold hover:bg-[#f3f4f6] disabled:opacity-50 transition-colors flex items-center justify-center gap-2 text-[#374151]"
+          >
+            {generatingExcel ? <Loader2 size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />}
+            {generatingExcel ? 'Generating Excel…' : 'Download Excel Report'}
+          </button>
         </div>
       </div>
 
@@ -1463,6 +1856,12 @@ function CostSegWizardContent() {
     }
   };
 
+  const handleCommentUpdate = (itemId: string, updatedComments: AuditorComment[]) => {
+    setItems((prev) =>
+      prev.map((i) => i.id === itemId ? { ...i, auditor_comments: updatedComments } : i)
+    );
+  };
+
   const handlePay = async () => {
     setPaying(true);
     const res = await apiFetch<{ checkout_url: string }>(
@@ -1533,11 +1932,13 @@ function CostSegWizardContent() {
       case 4:
         return (
           <Step4
+            projectId={projectId}
             items={items}
             categories={categories}
             onUpdate={handleUpdateItem}
             onDelete={handleDeleteItem}
             onAdd={handleAddItem}
+            onComment={handleCommentUpdate}
             onNext={() => setCurrentStep(5)}
             onBack={() => setCurrentStep(3)}
           />
