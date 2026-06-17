@@ -120,8 +120,8 @@ async def reset_org_prompts(
         import os
         import json
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        src_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
-        chat_json_path = os.path.join(src_dir, 'agents', 'app', 'prompts', 'chat.json')
+        chat_json_path = os.path.join(current_dir, '..', 'prompts', 'chat.json')
+        chat_json_path = os.path.abspath(chat_json_path)
         with open(chat_json_path, 'r', encoding='utf-8') as f:
             chat_prompts = json.load(f)
         

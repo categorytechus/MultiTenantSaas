@@ -52,7 +52,11 @@ export default function PromptsPage() {
 
   const isSectionEnabled = (w: string, s: string) => {
     if (s === "no-context") return false; // Hide Base Instructions
-    if (w === "cost-seg" && !orgModules.includes("cost_seg")) return false;
+    
+    if (w === "cost-seg") {
+      return orgModules.includes("cost_seg");
+    }
+    
     if (s === "with-context" && !orgModules.includes("documents") && !orgModules.includes("web_urls")) return false;
     if (s === "with-images" && (!orgModules.includes("documents") || !orgModules.includes("ai_images"))) return false;
     if (s === "caption-images" && (!orgModules.includes("documents") || !orgModules.includes("ai_images"))) return false;
@@ -91,7 +95,9 @@ export default function PromptsPage() {
              // Local check since state is not updated yet
              let enabled = true;
              if (s === "no-context") enabled = false;
-             else if (w === "cost-seg" && !modulesList.includes("cost_seg")) enabled = false;
+             else if (w === "cost-seg") {
+                 if (!modulesList.includes("cost_seg")) enabled = false;
+             }
              else if (s === "with-context" && !modulesList.includes("documents") && !modulesList.includes("web_urls")) enabled = false;
              else if (s === "with-images" && (!modulesList.includes("documents") || !modulesList.includes("ai_images"))) enabled = false;
              else if (s === "caption-images" && (!modulesList.includes("documents") || !modulesList.includes("ai_images"))) enabled = false;

@@ -294,7 +294,7 @@ def _build_caption_prompt(n: int) -> str:
     # Execute module to load get_prompt
     spec.loader.exec_module(agents_prompts)
     
-    return agents_prompts.get_prompt("chat", "caption-images", workflow="default", n=str(n), s="s" if n > 1 else "")
+    return agents_prompts.get_prompt("caption-images", workflow="default", n=str(n), s="s" if n > 1 else "")
 
 
 def _parse_caption_response(raw: str, n: int) -> list[str]:

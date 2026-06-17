@@ -36,9 +36,9 @@ def upgrade():
         )
         op.create_index(op.f('ix_org_prompts_org_id'), 'org_prompts', ['org_id'], unique=False)
 
-    current_dir = os.path.dirname(__file__)
-    src_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
-    chat_json_path = os.path.join(src_dir, 'agents', 'app', 'prompts', 'chat.json')
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    chat_json_path = os.path.join(current_dir, '..', '..', 'app', 'prompts', 'chat.json')
+    chat_json_path = os.path.abspath(chat_json_path)
     
     import json
     with open(chat_json_path, 'r', encoding='utf-8') as f:
