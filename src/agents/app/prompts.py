@@ -33,6 +33,15 @@ def _load_prompts() -> dict:
         return json.load(f)
 
 
+@lru_cache(maxsize=16)
+def _load_system_prompts() -> dict:
+    path = _PROMPTS_DIR / "chat_system.json"
+    if path.exists():
+        with path.open() as f:
+            return json.load(f)
+    return {}
+
+
 # ── Langfuse tracer (optional, lazy) ─────────────────────────────────────────
 
 _langfuse_initialized = False
@@ -129,8 +138,19 @@ def get_prompt(slot: str, workflow: str | None = None, custom_prompts: dict | No
     if template is None:
         raise KeyError(f"Prompt not found: {workflow}/{slot} (also tried 'default')")
 
+    # Fetch and append the system prompt
+    system_prompts = _load_system_prompts()
+    system_template = ""
+    for w in candidates:
+        bucket = system_prompts.get(w, {})
+        if slot in bucket:
+            system_template = bucket[slot]
+            break
+            
+    full_template = template + system_template
+
     logger.debug("Resolved prompt %s", resolved_via)
     if variables:
         formatter = SafeFormatter()
-        return formatter.format(template, **variables)
-    return template
+        return formatter.format(full_template, **variables)
+    return full_template
