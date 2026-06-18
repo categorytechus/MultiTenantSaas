@@ -19,7 +19,7 @@ class RbacRole(SQLModel, table=True):
     name: str = Field(nullable=False, index=True)
     description: str | None = Field(default=None)
     is_system: bool = Field(default=False)
-    organization_id: UUID | None = Field(default=None, foreign_key="orgs.id")
+    organization_id: UUID | None = Field(default=None, foreign_key="orgs.id", ondelete="CASCADE")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -45,8 +45,8 @@ class RolePermission(SQLModel, table=True):
     __tablename__ = "role_permissions"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    role_id: UUID = Field(foreign_key="roles.id", nullable=False, index=True)
-    permission_id: UUID = Field(foreign_key="permissions.id", nullable=False, index=True)
+    role_id: UUID = Field(foreign_key="roles.id", ondelete="CASCADE", nullable=False, index=True)
+    permission_id: UUID = Field(foreign_key="permissions.id", ondelete="CASCADE", nullable=False, index=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -56,8 +56,8 @@ class RoleOrgPermission(SQLModel, table=True):
     __tablename__ = "role_org_permissions"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    role_id: UUID = Field(foreign_key="roles.id", nullable=False, index=True)
-    org_id: UUID = Field(foreign_key="orgs.id", nullable=False, index=True)
-    permission_id: UUID = Field(foreign_key="permissions.id", nullable=False, index=True)
+    role_id: UUID = Field(foreign_key="roles.id", ondelete="CASCADE", nullable=False, index=True)
+    org_id: UUID = Field(foreign_key="orgs.id", ondelete="CASCADE", nullable=False, index=True)
+    permission_id: UUID = Field(foreign_key="permissions.id", ondelete="CASCADE", nullable=False, index=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

@@ -21,7 +21,7 @@ class OrgMembership(SQLModel, table=True):
     __tablename__ = "org_memberships"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    user_id: UUID = Field(foreign_key="users.id", nullable=False, index=True)
-    org_id: UUID = Field(foreign_key="orgs.id", nullable=False)
+    user_id: UUID = Field(foreign_key="users.id", ondelete="CASCADE", nullable=False, index=True)
+    org_id: UUID = Field(foreign_key="orgs.id", ondelete="CASCADE", nullable=False)
     role: str = Field(nullable=False)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

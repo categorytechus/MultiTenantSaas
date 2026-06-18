@@ -9,7 +9,7 @@ class CostSegRuleset(SQLModel, table=True):
     __tablename__ = "cost_seg_rulesets"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    org_id: UUID | None = Field(default=None, foreign_key="orgs.id", index=True)
+    org_id: UUID | None = Field(default=None, foreign_key="orgs.id", ondelete="CASCADE", index=True)
     workflow_type: str = Field(default="cost_seg", nullable=False)  # e.g. "cost_seg"
     filename: str = Field(nullable=False)
     s3_key: str | None = Field(default=None, sa_column=Column(sa.Text, nullable=True))

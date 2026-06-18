@@ -10,9 +10,9 @@ class InviteToken(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     token: str = Field(unique=True, index=True, max_length=64)
     email: str = Field(index=True)
-    org_id: UUID = Field(foreign_key="orgs.id", index=True)
+    org_id: UUID = Field(foreign_key="orgs.id", ondelete="CASCADE", index=True)
     role: str = Field(default="user", max_length=50)
-    invited_by: UUID | None = Field(default=None, foreign_key="users.id")
+    invited_by: UUID | None = Field(default=None, foreign_key="users.id", ondelete="SET NULL")
     expires_at: datetime
     used_at: datetime | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

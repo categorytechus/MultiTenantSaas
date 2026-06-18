@@ -9,7 +9,7 @@ class ApiModule(SQLModel, table=True):
     __tablename__ = "api_modules"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    org_id: UUID = Field(foreign_key="orgs.id", nullable=False, index=True)
+    org_id: UUID = Field(foreign_key="orgs.id", ondelete="CASCADE", nullable=False, index=True)
     name: str = Field(nullable=False)
     description: str = Field(nullable=False)
     base_url: str = Field(nullable=False)
@@ -37,6 +37,6 @@ class ApiModule(SQLModel, table=True):
     enabled: bool = Field(default=True)
     ask_permission: bool = Field(default=True, nullable=False)
     deleted: bool = Field(default=False, nullable=False)
-    created_by: UUID | None = Field(default=None, foreign_key="users.id")
+    created_by: UUID | None = Field(default=None, foreign_key="users.id", ondelete="SET NULL")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

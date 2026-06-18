@@ -48,6 +48,11 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       S3_BUCKET: ${S3_BUCKET:-}
       AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+      STRIPE_API_KEY: ${STRIPE_API_KEY:-}
+      STRIPE_COST_SEG_PRODUCT_ID: ${STRIPE_COST_SEG_PRODUCT_ID:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_COST_SEG_PRICE_MAPPING: ${STRIPE_COST_SEG_PRICE_MAPPING:-}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:3000}
     depends_on:
       server:
         condition: service_healthy
