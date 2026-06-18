@@ -265,11 +265,15 @@ Key env vars by category:
 - **Langfuse** (optional tracing): `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST`
 - **App**: `ENVIRONMENT`, `CORS_ORIGINS`, `PUBLIC_APP_URL`, `SERVER_URL`, `API_BACKEND_ORIGIN`
 
+**CRITICAL REMINDER**: Whenever new API keys or environment variables are added to the `.env` or application configuration, you **MUST** also update `docker-compose.prod.yml` (and `docker-compose.yml` if applicable) to pass them through to the containers in the `environment:` section (e.g., `NEW_KEY: ${NEW_KEY:-}`). Otherwise, the cloud deployment will fail to pick them up.
+
 ## Database
 
 Postgres 16 + pgvector. HNSW index on `document_chunks.embedding` (cosine, 1536 dims).
 
-Migrations live in `src/server/alembic/versions/` (currently 55 migrations). Always run `make migrate` before first use. Alembic autogenerate doesn't handle RLS policies — add those manually.
+Migrations live in `src/server/alembic/versions/`. Always run `make migrate` before first use. Alembic autogenerate doesn't handle RLS policies — add those manually.
+
+**Note on Migration Compression:** If the migration history gets too long, we squash them into a single file. See `src/server/alembic/README.md` for the exact step-by-step process. Do not put seed data in Alembic; always use `uv run python -m scripts.seed`.
 
 In development mode (`ENVIRONMENT=development`), the server auto-runs migrations on startup.
 

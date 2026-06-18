@@ -20,8 +20,8 @@ class WorkflowSession(SQLModel, table=True):
     __tablename__ = "workflow_sessions"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    org_id: UUID = Field(foreign_key="orgs.id", nullable=False, index=True)
-    user_id: UUID = Field(foreign_key="users.id", nullable=False)
+    org_id: UUID = Field(foreign_key="orgs.id", ondelete="CASCADE", nullable=False, index=True)
+    user_id: UUID | None = Field(default=None, foreign_key="users.id", ondelete="SET NULL")
     type: str = Field(nullable=False, index=True)
     title: str = Field(nullable=False)
     status: str = Field(default="draft", nullable=False)
@@ -53,8 +53,8 @@ class WorkflowItem(SQLModel, table=True):
     __tablename__ = "workflow_items"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    session_id: UUID = Field(foreign_key="workflow_sessions.id", nullable=False, index=True)
-    org_id: UUID = Field(foreign_key="orgs.id", nullable=False)
+    session_id: UUID = Field(foreign_key="workflow_sessions.id", ondelete="CASCADE", nullable=False, index=True)
+    org_id: UUID = Field(foreign_key="orgs.id", ondelete="CASCADE", nullable=False)
     type: str = Field(nullable=False, index=True)
     role: Optional[str] = Field(default=None, nullable=True)
     content: Optional[str] = Field(
@@ -80,8 +80,8 @@ class WorkflowOutput(SQLModel, table=True):
     __tablename__ = "workflow_outputs"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    session_id: UUID = Field(foreign_key="workflow_sessions.id", nullable=False, index=True)
-    org_id: UUID = Field(foreign_key="orgs.id", nullable=False)
+    session_id: UUID = Field(foreign_key="workflow_sessions.id", ondelete="CASCADE", nullable=False, index=True)
+    org_id: UUID = Field(foreign_key="orgs.id", ondelete="CASCADE", nullable=False)
     type: str = Field(nullable=False)
     content: Optional[str] = Field(
         default=None, sa_column=Column(sa.Text, nullable=True)

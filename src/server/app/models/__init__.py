@@ -1,7 +1,7 @@
 from .user import User
-from .org import Org
+from .org import Org, OrgMembership
 from .chat import ChatSession, ChatMessage
-from .document import Document, DocumentChunk
+from .document import Document, DocumentImage, DocumentChunk
 from .agent_task import AgentTask
 from .audit_log import AuditLog
 from .api_module import ApiModule
@@ -15,3 +15,5 @@ from .super_admin import SuperAdminAllowlist
 from .web_url import WebUrl
 from .irs_rule import IrsRule, IrsRuleChunk
 from .prompt import OrgPrompt
+from .workflow import WorkflowSession, WorkflowItem, WorkflowOutput
+from .ruleset import CostSegRuleset

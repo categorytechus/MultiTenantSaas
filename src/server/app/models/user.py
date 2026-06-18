@@ -18,7 +18,7 @@ class OAuthIdentity(SQLModel, table=True):
     __tablename__ = "oauth_identities"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    user_id: UUID = Field(foreign_key="users.id", nullable=False)
+    user_id: UUID = Field(foreign_key="users.id", ondelete="CASCADE", nullable=False)
     provider: str = Field(nullable=False)
     provider_user_id: str = Field(nullable=False)
 
@@ -27,9 +27,9 @@ class RefreshToken(SQLModel, table=True):
     __tablename__ = "refresh_tokens"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    user_id: UUID = Field(foreign_key="users.id", nullable=False)
+    user_id: UUID = Field(foreign_key="users.id", ondelete="CASCADE", nullable=False)
     token_hash: str = Field(nullable=False)
     expires_at: datetime = Field(nullable=False)
     revoked: bool = Field(default=False)
-    org_id: UUID | None = Field(default=None, foreign_key="orgs.id")
+    org_id: UUID | None = Field(default=None, foreign_key="orgs.id", ondelete="CASCADE")
     no_org_scope: bool = Field(default=False)

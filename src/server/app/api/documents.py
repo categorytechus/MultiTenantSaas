@@ -190,8 +190,9 @@ async def _ingest_document_bg(
                 "UPDATE documents SET status = :s, updated_at = :ts, extracted_title = :title, "
                 "summary = :summary, keywords = CAST(:keywords AS json) "
             )
+            will_extract_images = bool(extract_images and body and mime_type == "application/pdf")
             update_params = {
-                "s": DocumentStatus.READY.value,
+                "s": DocumentStatus.PROCESSING.value if will_extract_images else DocumentStatus.READY.value,
                 "ts": now,
                 "id": str(document_id),
                 "title": metadata.get("title") or None,
@@ -205,12 +206,16 @@ async def _ingest_document_bg(
             update_query += "WHERE id = CAST(:id AS uuid)"
             await sess.execute(sa_text(update_query), update_params)
 
-        await _set_web_url_status("ready")
-        logger.info("Ingestion complete", doc_id=str(document_id), chunks=len(chunks))
+        if not will_extract_images:
+            await _set_web_url_status("ready")
+            logger.info("Ingestion complete", doc_id=str(document_id), chunks=len(chunks))
 
         # ── Image extraction (PDF only, when requested) ────────────────────────
-        if extract_images and body and mime_type == "application/pdf":
+        if will_extract_images:
             await _ingest_images_bg(document_id, org_id, body, filename)
+            await _set_status(DocumentStatus.READY.value)
+            await _set_web_url_status("ready")
+            logger.info("Ingestion and image extraction complete", doc_id=str(document_id), chunks=len(chunks))
 
     except Exception as e:
         logger.error("Background ingestion failed", doc_id=str(document_id), error=str(e))

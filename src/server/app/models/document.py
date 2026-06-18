@@ -21,7 +21,7 @@ class Document(SQLModel, table=True):
     __tablename__ = "documents"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    org_id: UUID = Field(foreign_key="orgs.id", nullable=False)
+    org_id: UUID = Field(foreign_key="orgs.id", ondelete="CASCADE", nullable=False)
     s3_key: str | None = Field(default=None, nullable=True)
     source_url: str | None = Field(default=None, sa_column=Column(sa.Text, nullable=True))
     document_type: str = Field(default="file")  # 'file' | 'url'
@@ -29,7 +29,7 @@ class Document(SQLModel, table=True):
     mime_type: str | None = Field(default=None)
     size_bytes: int | None = Field(default=None)
     status: str = Field(default=DocumentStatus.PROCESSING.value)
-    uploaded_by: UUID | None = Field(default=None, foreign_key="users.id")
+    uploaded_by: UUID | None = Field(default=None, foreign_key="users.id", ondelete="SET NULL")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime | None = Field(default=None, sa_column=Column(sa.TIMESTAMP(timezone=True), nullable=True))
     extracted_title: str | None = Field(default=None, sa_column=Column(sa.Text, nullable=True))
@@ -41,7 +41,7 @@ class Document(SQLModel, table=True):
     # (e.g. cost_seg project uploads). Null for standalone RAG/knowledge-base docs.
     session_id: UUID | None = Field(
         default=None,
-        sa_column=Column(sa.UUID(), ForeignKey("workflow_sessions.id"), nullable=True),
+        sa_column=Column(sa.UUID(), ForeignKey("workflow_sessions.id", ondelete="SET NULL"), nullable=True),
     )
     # Count of images extracted from this document (0 for non-PDF or when extraction skipped)
     image_count: int = Field(default=0, sa_column=Column(sa.Integer, nullable=False, server_default="0"))
@@ -51,8 +51,8 @@ class DocumentImage(SQLModel, table=True):
     __tablename__ = "document_images"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    org_id: UUID = Field(foreign_key="orgs.id", nullable=False)
-    document_id: UUID = Field(foreign_key="documents.id", nullable=False)
+    org_id: UUID = Field(foreign_key="orgs.id", ondelete="CASCADE", nullable=False)
+    document_id: UUID = Field(sa_column=Column(sa.UUID(), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False))
     s3_key: str = Field(sa_column=Column(sa.Text, nullable=False))
     page_number: int = Field(nullable=False)
     image_index: int = Field(nullable=False)
@@ -70,8 +70,8 @@ class DocumentChunk(SQLModel, table=True):
     __tablename__ = "document_chunks"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    org_id: UUID = Field(foreign_key="orgs.id", nullable=False)
-    document_id: UUID = Field(foreign_key="documents.id", nullable=False)
+    org_id: UUID = Field(foreign_key="orgs.id", ondelete="CASCADE", nullable=False)
+    document_id: UUID = Field(sa_column=Column(sa.UUID(), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False))
     chunk_index: int = Field(nullable=False)
     content: str = Field(sa_column=Column(sa.Text, nullable=False))
     embedding: Optional[list[float]] = Field(
@@ -87,5 +87,5 @@ class DocumentChunk(SQLModel, table=True):
     # FK to document_images — only set when chunk_type='image'
     image_id: UUID | None = Field(
         default=None,
-        sa_column=Column(sa.UUID(), ForeignKey("document_images.id"), nullable=True),
+        sa_column=Column(sa.UUID(), ForeignKey("document_images.id", ondelete="CASCADE"), nullable=True),
     )

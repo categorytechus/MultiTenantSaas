@@ -27,8 +27,8 @@ class AgentTask(SQLModel, table=True):
     __tablename__ = "agent_tasks"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    org_id: UUID = Field(foreign_key="orgs.id", nullable=False)
-    user_id: UUID = Field(foreign_key="users.id", nullable=False)
+    org_id: UUID = Field(foreign_key="orgs.id", ondelete="CASCADE", nullable=False)
+    user_id: UUID = Field(foreign_key="users.id", ondelete="CASCADE", nullable=False)
     type: str = Field(nullable=False)
     status: str = Field(default=AgentTaskStatus.PENDING.value)
     input: dict[str, Any] | None = Field(

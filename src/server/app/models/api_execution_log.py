@@ -9,9 +9,9 @@ class ApiExecutionLog(SQLModel, table=True):
     __tablename__ = "api_execution_logs"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    org_id: UUID = Field(foreign_key="orgs.id", nullable=False, index=True)
-    proposal_id: UUID = Field(foreign_key="api_task_proposals.id", nullable=False, index=True)
-    api_module_id: UUID = Field(foreign_key="api_modules.id", nullable=False)
+    org_id: UUID = Field(foreign_key="orgs.id", ondelete="CASCADE", nullable=False, index=True)
+    proposal_id: UUID = Field(foreign_key="api_task_proposals.id", ondelete="CASCADE", nullable=False, index=True)
+    api_module_id: UUID = Field(foreign_key="api_modules.id", ondelete="CASCADE", nullable=False)
     status: str = Field(default="running")      # running | succeeded | failed
     # request_payload excludes auth headers — stored for audit only
     request_payload: dict | None = Field(

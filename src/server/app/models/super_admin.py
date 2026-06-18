@@ -7,7 +7,7 @@ from sqlmodel import Field, SQLModel
 class SuperAdminAllowlist(SQLModel, table=True):
     __tablename__ = "super_admin_allowlist"
 
-    user_id: UUID = Field(primary_key=True, foreign_key="users.id")
+    user_id: UUID = Field(primary_key=True, foreign_key="users.id", ondelete="CASCADE")
     status: str = Field(default="active", max_length=50)
     recovery_key_hash: str | None = Field(default=None)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

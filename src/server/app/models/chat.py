@@ -10,8 +10,8 @@ class ChatSession(SQLModel, table=True):
     __tablename__ = "chat_sessions"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    org_id: UUID = Field(foreign_key="orgs.id", nullable=False)
-    user_id: UUID = Field(foreign_key="users.id", nullable=False)
+    org_id: UUID = Field(foreign_key="orgs.id", ondelete="CASCADE", nullable=False)
+    user_id: UUID = Field(foreign_key="users.id", ondelete="CASCADE", nullable=False)
     title: str | None = Field(default=None)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -20,8 +20,8 @@ class ChatMessage(SQLModel, table=True):
     __tablename__ = "chat_messages"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    org_id: UUID = Field(foreign_key="orgs.id", nullable=False)
-    chat_id: UUID = Field(foreign_key="chat_sessions.id", nullable=False)
+    org_id: UUID = Field(foreign_key="orgs.id", ondelete="CASCADE", nullable=False)
+    chat_id: UUID = Field(foreign_key="chat_sessions.id", ondelete="CASCADE", nullable=False)
     role: str = Field(nullable=False)  # "user" | "assistant"
     content: str = Field(sa_column=Column(sa.Text, nullable=False))
     sources: dict[str, Any] | None = Field(

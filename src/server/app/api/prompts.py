@@ -35,11 +35,19 @@ async def get_org_prompts(
         if not membership or membership.role != "tenant_admin":
             raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Super admin or org admin required")
 
+    try:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        chat_json_path = os.path.join(current_dir, '..', 'prompts', 'chat.json')
+        with open(chat_json_path, 'r', encoding='utf-8') as f:
+            output = json.load(f)
+    except Exception:
+        output = {}
+
     result = await session.execute(
         select(OrgPrompt).where(OrgPrompt.org_id == org_id)
     )
     prompts = result.scalars().all()
-    output = {}
+    
     for p in prompts:
         if p.workflow not in output:
             output[p.workflow] = {}
@@ -142,11 +150,19 @@ async def reset_org_prompts(
     except Exception as e:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to reset prompts: {e}")
 
+    try:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        chat_json_path = os.path.join(current_dir, '..', 'prompts', 'chat.json')
+        with open(chat_json_path, 'r', encoding='utf-8') as f:
+            output = json.load(f)
+    except Exception:
+        output = {}
+
     result = await session.execute(
         select(OrgPrompt).where(OrgPrompt.org_id == org_id)
     )
     prompts = result.scalars().all()
-    output = {}
+    
     for p in prompts:
         if p.workflow not in output:
             output[p.workflow] = {}

@@ -10,8 +10,8 @@ class AuditLog(SQLModel, table=True):
     __tablename__ = "audit_logs"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    org_id: UUID | None = Field(default=None, foreign_key="orgs.id")
-    user_id: UUID | None = Field(default=None, foreign_key="users.id")
+    org_id: UUID | None = Field(default=None, foreign_key="orgs.id", ondelete="CASCADE")
+    user_id: UUID | None = Field(default=None, foreign_key="users.id", ondelete="SET NULL")
     action: str = Field(nullable=False)
     resource_type: str | None = Field(default=None)
     resource_id: str | None = Field(default=None)
