@@ -12,8 +12,11 @@ async def drop_schema():
         print("Dropping schema...")
         await conn.execute(text('DROP SCHEMA public CASCADE;'))
         await conn.execute(text('CREATE SCHEMA public;'))
-        await conn.execute(text('GRANT ALL ON SCHEMA public TO postgres;'))
-        await conn.execute(text('GRANT ALL ON SCHEMA public TO public;'))
+        try:
+            await conn.execute(text('GRANT ALL ON SCHEMA public TO postgres;'))
+            await conn.execute(text('GRANT ALL ON SCHEMA public TO public;'))
+        except Exception as e:
+            print(f"Skipped granting permissions to postgres user: {e}")
         await conn.execute(text('CREATE EXTENSION IF NOT EXISTS vector;'))
         print("Schema dropped and recreated, vector extension enabled.")
 

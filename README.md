@@ -103,6 +103,15 @@ After `make migrate`, the following dev users are available (all share password 
 | `bob@acme.com` | user | Acme Corporation |
 | `charlie@techstartup.io` | tenant admin | Tech Startup Inc |
 
+## Database Squashing & Wiping
+
+If your migration history gets too long (e.g., 50+ files), you can "squash" them into a single `001_initial_schema.py` file to clear technical debt:
+
+1. **Squash Locally:** Run `uv run python -m scripts.compress_migrations`. This deletes all migration files, generates a single `001_initial_schema.py`, and injects required vector extensions. Commit and push this file.
+2. **Deploying the Squash:**
+   - **For new environments or when wiping data is acceptable:** Wiping is the easiest approach. Connect to your server, drop the old schema (`docker compose exec server python -m scripts.drop_db`), deploy (`make redeploy-ecr`), and re-seed the roles (`docker compose exec server python -m scripts.seed`). The clean DB will smoothly build from `001`.
+   - **For live environments (Never wipe data):** Do **not** drop the database. Instead, temporarily edit your `Makefile` to change `alembic upgrade head` to `alembic stamp head`. Deploy the code using `make redeploy-ecr`. This safely updates the version tracker to `001` without touching live tables. Afterward, change your `Makefile` back to `upgrade head`.
+
 ## Environment Variables
 
 | Variable | Required | Description |

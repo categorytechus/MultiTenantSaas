@@ -1,5 +1,5 @@
 import stripe
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, BackgroundTasks
 from sqlalchemy import select
 from typing import Any
 from uuid import UUID
@@ -9,15 +9,18 @@ from app.core.db import db_session, async_session_factory
 from app.core.logging import get_logger
 from app.models.agent_task import AgentTask, AgentTaskType
 from app.models.workflow import WorkflowSession
+from app.models.user import User
 from app.services import cost_seg as svc
 from app.services.agent_tasks import create_task
+from app.services.email.service import send_payment_success_email, send_payment_failed_email
+
 
 router = APIRouter(prefix="/api/webhooks", tags=["webhooks"])
 logger = get_logger(__name__)
 
 
 @router.post("/stripe")
-async def stripe_webhook(request: Request) -> Any:
+async def stripe_webhook(request: Request, background_tasks: BackgroundTasks) -> Any:
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature")
 
@@ -35,14 +38,16 @@ async def stripe_webhook(request: Request) -> Any:
     event_type = event["type"]
     logger.info(f"Received stripe webhook event", event_type=event_type)
 
-    if event_type != "checkout.session.completed":
+    if event_type not in ("checkout.session.completed", "checkout.session.async_payment_failed"):
         return {"status": "success"}
 
     session_data = event["data"]["object"]
     project_id_str = getattr(session_data, "client_reference_id", None)
+    if not project_id_str:
+        project_id_str = session_data.get("client_reference_id")
 
     if not project_id_str:
-        logger.warning("No client_reference_id found in checkout.session.completed — ignoring")
+        logger.warning("No client_reference_id found in checkout session — ignoring")
         return {"status": "success"}
 
     try:
@@ -53,16 +58,16 @@ async def stripe_webhook(request: Request) -> Any:
 
     logger.info(f"Processing checkout.session.completed", project_id=str(project_id))
 
-    # ── Step 1: Look up org_id from project (no RLS) ──────────────────────────
+    # ── Step 1: Look up org_id, user_id, and user email from project ──────────────────────────
     # Stripe has no JWT, so we use a raw session without RLS context to find
     # which org owns this project. This is safe — we only read org_id/user_id.
     try:
         async with async_session_factory() as raw_session:
             async with raw_session.begin():
                 result = await raw_session.execute(
-                    select(WorkflowSession.org_id, WorkflowSession.user_id).where(
-                        WorkflowSession.id == project_id
-                    )
+                    select(WorkflowSession.org_id, WorkflowSession.user_id, WorkflowSession.title, User.email)
+                    .outerjoin(User, WorkflowSession.user_id == User.id)
+                    .where(WorkflowSession.id == project_id)
                 )
                 row = result.one_or_none()
     except Exception as e:
@@ -73,8 +78,13 @@ async def stripe_webhook(request: Request) -> Any:
         logger.error(f"Project not found in DB", project_id=str(project_id))
         return {"status": "success"}
 
-    org_id, user_id = row[0], row[1]
+    org_id, user_id, project_title, user_email = row[0], row[1], row[2], row[3]
     logger.info(f"Found project", org_id=str(org_id), user_id=str(user_id))
+
+    if event_type == "checkout.session.async_payment_failed":
+        if user_email:
+            background_tasks.add_task(send_payment_failed_email, user_email, project_title)
+        return {"status": "success"}
 
     # ── Step 2: Mark project as paid (with RLS) ──────────────────────────────
     try:
@@ -83,6 +93,10 @@ async def stripe_webhook(request: Request) -> Any:
             if project.status != "paid":
                 await svc.update_project(sess, project, status="paid")
                 logger.info(f"Project marked as PAID", project_id=str(project_id))
+                
+                if user_email:
+                    amount = getattr(session_data, "amount_total", 0) / 100.0
+                    background_tasks.add_task(send_payment_success_email, user_email, amount, project_title)
             else:
                 logger.info(f"Project was already paid", project_id=str(project_id))
 

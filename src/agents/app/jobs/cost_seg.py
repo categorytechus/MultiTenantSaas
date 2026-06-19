@@ -840,18 +840,30 @@ async def _upsert_html_report(
     async with await psycopg.AsyncConnection.connect(db_url) as conn:
         async with conn.transaction():
             await conn.execute("SELECT set_config('app.current_org_id', %s, true)", [str(org_id)])
-            await conn.execute(
-                """
-                INSERT INTO workflow_outputs (
-                    id, session_id, org_id, type, content, data, generated_at
-                )
-                VALUES (
-                    %s::uuid, %s::uuid, %s::uuid, 'html_report', %s, %s::jsonb, now()
-                )
-                ON CONFLICT (session_id, type)
-                DO UPDATE SET content = EXCLUDED.content,
-                             data = EXCLUDED.data,
-                             generated_at = EXCLUDED.generated_at
-                """,
-                [str(uuid.uuid4()), project_id, org_id, html_content, _json.dumps(totals)],
+            cur = await conn.execute(
+                "SELECT id FROM workflow_outputs WHERE session_id = %s::uuid AND type = 'html_report'",
+                [project_id]
             )
+            existing = await cur.fetchone()
+
+            if existing:
+                await conn.execute(
+                    """
+                    UPDATE workflow_outputs 
+                    SET content = %s, data = %s::jsonb, generated_at = now()
+                    WHERE id = %s::uuid
+                    """,
+                    [html_content, _json.dumps(totals), existing[0]]
+                )
+            else:
+                await conn.execute(
+                    """
+                    INSERT INTO workflow_outputs (
+                        id, session_id, org_id, type, content, data, generated_at
+                    )
+                    VALUES (
+                        %s::uuid, %s::uuid, %s::uuid, 'html_report', %s, %s::jsonb, now()
+                    )
+                    """,
+                    [str(uuid.uuid4()), project_id, org_id, html_content, _json.dumps(totals)]
+                )

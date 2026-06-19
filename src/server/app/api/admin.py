@@ -2,7 +2,7 @@ from typing import Any
 from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, BackgroundTasks, File, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,8 +20,10 @@ from app.models.org_module import OrgModule
 from app.models.rbac import RbacPermission
 from app.models.super_admin import SuperAdminAllowlist
 from app.models.user import User
+from app.models.workflow import WorkflowSession
 from app.core.security import hash_password
 from app.services.invite_service import create_invite_record, link_query_role
+from app.services.email.service import send_invite_email
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 def _public_app_base(request: Request) -> str:
@@ -535,6 +537,7 @@ async def change_super_admin_password(
 async def create_org_admin_invite(
     body: OrgAdminInviteRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
     ctx: RequestContext = Depends(require_super_admin_user),
     session: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
@@ -561,6 +564,9 @@ async def create_org_admin_invite(
         f"&email={quote(normalize_email(body.email), safe='')}"
         f"&role={role_q}"
     )
+    
+    background_tasks.add_task(send_invite_email, body.email.strip(), org.name, signup_link)
+
     await session.flush()
     return {"success": True, "data": {"signup_link": signup_link}}
 
@@ -638,6 +644,7 @@ async def list_org_admins(
 async def create_org_admin(
     body: CreateOrgAdminRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
     ctx: RequestContext = Depends(require_super_admin_user),
     session: AsyncSession = Depends(get_db),
 ) -> Any:
@@ -693,6 +700,9 @@ async def create_org_admin(
         f"&email={quote(email, safe='')}"
         f"&role={role_q}"
     )
+    
+    background_tasks.add_task(send_invite_email, email, org.name, set_password_link)
+
     await session.flush()
     # Use 201 for a new invite link flow.
     return {"success": True, "data": {"set_password_link": set_password_link}}

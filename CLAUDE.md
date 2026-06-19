@@ -20,6 +20,9 @@ make frontend         # Next.js dev server on :3000 (src/frontend)
 # Database
 make migrate                          # alembic upgrade head
 make migrate-new msg='description'    # autogenerate new migration
+python -m scripts.compress_migrations # squash all migrations to 001_initial_schema
+python -m scripts.drop_db             # drop and recreate the DB schema
+python -m scripts.seed                # seed default roles and superadmin
 
 # Logs (Docker)
 make logs-server / logs-agents / logs-frontend

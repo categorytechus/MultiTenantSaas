@@ -1,0 +1,9 @@
+{% extends "layout.html" %}
+{% block content %}
+<h2>Your Report is Ready!</h2>
+<p>Hello,</p>
+<p>Great news! Your report for <strong>{{ project_name }}</strong> has been generated and is now ready for your review.</p>
+<p>You can view and download your full report by clicking the link below:</p>
+<a href="{{ report_url }}" class="button">View Report</a>
+<p>If you have any questions, our team is here to help.</p>
+{% endblock %}

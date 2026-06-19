@@ -9,7 +9,7 @@ from __future__ import annotations
 from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status, BackgroundTasks
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,11 +21,12 @@ from app.core.identity import is_super_admin_user, normalize_email
 from app.core.rbac import Role, role_permissions_from_db
 from app.core.tenancy import RequestContext, get_required_context
 from app.models.master_module import MasterModule
-from app.models.org import OrgMembership
+from app.models.org import OrgMembership, Org
 from app.models.org_module import OrgModule
 from app.models.user import User
 from app.models.rbac import RbacPermission, RbacRole, RoleOrgPermission, RolePermission
 from app.services.invite_service import _assign_custom_role_if_any, create_invite_record, link_query_role
+from app.services.email.service import send_invite_email
 
 router = APIRouter(
     prefix="/api/organizations/{organization_id}",
@@ -233,6 +234,7 @@ async def create_org_user(
     organization_id: UUID,
     body: "CreateOrgUserRequest",
     request: Request,
+    background_tasks: BackgroundTasks,
     ctx: RequestContext = Depends(get_required_context),
     session: AsyncSession = Depends(get_db),
 ):
@@ -311,6 +313,11 @@ async def create_org_user(
         f"?token={quote(plain_token, safe='')}"
         f"&email={quote(email, safe='')}"
     )
+    
+    org = await session.get(Org, organization_id)
+    org_name = org.name if org else "our organization"
+    background_tasks.add_task(send_invite_email, email, org_name, set_password_link)
+
     await session.flush()
     return {"success": True, "data": {"set_password_link": set_password_link}, "warnings": warnings}
 
