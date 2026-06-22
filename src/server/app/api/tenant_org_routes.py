@@ -89,6 +89,16 @@ async def my_modules(
             select(OrgModule.module_id).where(OrgModule.org_id == organization_id)
         )
         org_enabled_modules = {row[0] for row in org_modules_result.all()}
+        
+        # Enforce private deployment license features
+        if settings.CLIENT_JWT_LICENSE_TOKEN:
+            try:
+                from app.core.licensing import verify_license
+                payload = verify_license()
+                allowed = set(payload.get("features", []))
+                org_enabled_modules = org_enabled_modules.intersection(allowed)
+            except Exception:
+                org_enabled_modules = set()
 
     if "*" in perms:
         modules_set = {"ai_assistant", "documents", "web_urls"}
@@ -134,6 +144,17 @@ async def get_org_enabled_modules(
         select(OrgModule.module_id).where(OrgModule.org_id == organization_id)
     )
     enabled_ids = [row[0] for row in result.all()]
+    
+    # Enforce private deployment license features
+    if settings.CLIENT_JWT_LICENSE_TOKEN:
+        try:
+            from app.core.licensing import verify_license
+            payload = verify_license()
+            allowed = set(payload.get("features", []))
+            enabled_ids = [eid for eid in enabled_ids if eid in allowed]
+        except Exception:
+            enabled_ids = []
+            
     return ModulesPayload(data={"modules": enabled_ids})
 
 
@@ -608,7 +629,18 @@ async def _load_perm_modules(
                     .where(MasterModule.enabled == True)  # noqa: E712
                     .order_by(MasterModule.sort_order)
                 )
-            return [m for m in result.scalars().all() if m.permission_keys]
+            modules = [m for m in result.scalars().all() if m.permission_keys]
+            
+            # Enforce private deployment license features
+            if settings.CLIENT_JWT_LICENSE_TOKEN:
+                try:
+                    from app.core.licensing import verify_license
+                    payload = verify_license()
+                    allowed = set(payload.get("features", []))
+                    modules = [m for m in modules if m.id in allowed]
+                except Exception:
+                    modules = []
+            return modules
     except Exception:
         pass  # Migration 041 columns not present — build synthetic module objects below
 
@@ -639,6 +671,17 @@ async def _load_perm_modules(
         object.__setattr__(m, "permission_keys", spec["permissions"])
         object.__setattr__(m, "enabled", True)
         modules.append(m)
+        
+    # Enforce private deployment license features for legacy fallback
+    if settings.CLIENT_JWT_LICENSE_TOKEN:
+        try:
+            from app.core.licensing import verify_license
+            payload = verify_license()
+            allowed = set(payload.get("features", []))
+            modules = [m for m in modules if getattr(m, "id", None) in allowed]
+        except Exception:
+            modules = []
+            
     return modules
 
 

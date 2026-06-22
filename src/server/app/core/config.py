@@ -97,6 +97,10 @@ class Settings(BaseSettings):
     # Email
     ENABLE_EMAILS: bool = False
     EMAIL_FROM: str = "noreply@yourdomain.com"
+    
+    # Private Deployment Licensing
+    CLIENT_JWT_LICENSE_TOKEN: str | None = None
+    LICENSE_PUBLIC_KEY: str | None = None
 
 
 settings = Settings()

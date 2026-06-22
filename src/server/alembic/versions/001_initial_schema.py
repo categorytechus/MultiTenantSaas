@@ -58,6 +58,9 @@ def upgrade() -> None:
     sa.Column('status', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.Column('subscription_tier', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.Column('cost_seg_price_overrides', sa.JSON(), nullable=True),
+    sa.Column('license_start_date', sa.DateTime(), nullable=True),
+    sa.Column('license_expiry_date', sa.DateTime(), nullable=True),
+    sa.Column('license_features', sa.JSON(), nullable=True),
     sa.Column('created_at', sa.DateTime(), nullable=False),
     sa.PrimaryKeyConstraint('id')
     )

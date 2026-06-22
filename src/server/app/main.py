@@ -1,3 +1,4 @@
+import os
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -23,6 +24,23 @@ async def lifespan(app: FastAPI):
     """Application lifespan: startup and shutdown logic."""
     setup_logging()
     logger.info("Starting application", environment=settings.ENVIRONMENT)
+
+    # Private Deployment License Check (Startup)
+    if settings.CLIENT_JWT_LICENSE_TOKEN:
+        try:
+            from app.core.licensing import verify_license
+            import datetime
+            payload = verify_license()
+            exp_timestamp = payload.get("exp")
+            if exp_timestamp:
+                # Convert timestamp to human readable UTC date
+                exp_date = datetime.datetime.fromtimestamp(exp_timestamp, tz=datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                logger.info(f"Private deployment license verified successfully. Expires at: {exp_date}")
+            else:
+                logger.info("Private deployment license verified successfully on startup.")
+        except Exception as e:
+            logger.error(f"FATAL: Private deployment license verification failed: {e}")
+            sys.exit(1)
 
     try:
         redis = await get_redis()
@@ -98,6 +116,14 @@ async def request_id_middleware(request: Request, call_next) -> Response:
     bind_request_context(request_id=request_id)
 
     try:
+        if settings.CLIENT_JWT_LICENSE_TOKEN and request.url.path != "/health":
+            try:
+                from app.core.licensing import verify_license
+                # Verify RSA signature and expiration in real-time
+                verify_license()
+            except Exception as e:
+                return Response(content=f"Private deployment license error: {e}", status_code=403)
+
         response = await call_next(request)
         duration_ms = (time.perf_counter() - start_time) * 1000
         logger.info(

@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlmodel import Field, SQLModel, Column, JSON
@@ -14,6 +15,9 @@ class Org(SQLModel, table=True):
     status: str = Field(default="active", nullable=False)
     subscription_tier: str = Field(default="free", nullable=False)
     cost_seg_price_overrides: dict[str, float] = Field(default_factory=dict, sa_column=Column(JSON))
+    license_start_date: datetime | None = Field(default=None)
+    license_expiry_date: datetime | None = Field(default=None)
+    license_features: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
