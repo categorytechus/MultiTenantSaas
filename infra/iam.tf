@@ -44,6 +44,16 @@ data "aws_iam_policy_document" "ec2_permissions" {
       "${aws_s3_bucket.uploads.arn}/*",
     ]
   }
+
+  statement {
+    sid    = "SESAccess"
+    effect = "Allow"
+    actions = [
+      "ses:SendEmail",
+      "ses:SendRawEmail",
+    ]
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_role_policy" "ec2" {

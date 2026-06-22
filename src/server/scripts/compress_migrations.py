@@ -21,7 +21,7 @@ def main():
 
     # 3. Generate the new baseline migration
     print("3. Generating new unified baseline migration...")
-    subprocess.run([sys.executable, "-m", "alembic", "revision", "--autogenerate", "-m", "initial_schema"], check=True)
+    subprocess.run([sys.executable, "-m", "alembic", "revision", "--autogenerate", "--rev-id", "001", "-m", "initial_schema"], check=True)
 
     # Find the newly generated file
     new_files = glob.glob(os.path.join(versions_dir, "*_initial_schema.py"))

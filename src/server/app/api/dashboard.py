@@ -6,9 +6,41 @@ from sqlalchemy import text as sa_text
 
 from app.core.db import get_db
 from app.core.rbac import authorize
-from app.core.tenancy import RequestContext
+from app.core.tenancy import get_optional_tenant_context, RequestContext
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
+
+@router.get("/license")
+async def get_license_info(
+    ctx: RequestContext = Depends(get_optional_tenant_context),
+) -> Any:
+    """Return the private deployment license info (if applicable)."""
+    from app.core.config import settings
+    from app.core.rbac import Role
+    
+    # Only show license info to super admins
+    if not ctx.role or ctx.role != Role.SUPER_ADMIN:
+        return {"is_private_deployment": False}
+        
+    if not settings.CLIENT_JWT_LICENSE_TOKEN:
+        return {"is_private_deployment": False}
+        
+    try:
+        from app.core.licensing import verify_license
+        from datetime import datetime, timezone
+        payload = verify_license()
+        
+        exp = payload.get("exp")
+        nbf = payload.get("nbf")
+        
+        return {
+            "is_private_deployment": True,
+            "expires_at": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat() if exp else None,
+            "valid_from": datetime.fromtimestamp(nbf, tz=timezone.utc).isoformat() if nbf else None,
+            "features": payload.get("features", []),
+        }
+    except Exception as e:
+        return {"is_private_deployment": True, "error": str(e)}
 
 @router.get("/stats")
 async def get_dashboard_stats(

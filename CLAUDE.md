@@ -20,6 +20,9 @@ make frontend         # Next.js dev server on :3000 (src/frontend)
 # Database
 make migrate                          # alembic upgrade head
 make migrate-new msg='description'    # autogenerate new migration
+python -m scripts.compress_migrations # squash all migrations to 001_initial_schema
+python -m scripts.drop_db             # drop and recreate the DB schema
+python -m scripts.seed                # seed default roles and superadmin
 
 # Logs (Docker)
 make logs-server / logs-agents / logs-frontend
@@ -243,6 +246,9 @@ When `S3_BUCKET` is empty, writes to `LOCAL_UPLOAD_DIR` (`/tmp/uploads`). Safe f
 
 ### Frontend API Proxy
 Next.js `app/api/[...path]/route.ts` catches all `/api/*` requests and proxies them to `API_BACKEND_ORIGIN` (default `http://localhost:8000`). This keeps browser requests same-origin. The `apiFetch` helper in `src/lib/api.ts` adds Bearer tokens and handles 401 refresh.
+
+### Private Deployment Licensing
+The platform can run as a public multi-tenant SaaS OR a locked-down on-premise private deployment. If `CLIENT_JWT_LICENSE_TOKEN` and `LICENSE_PUBLIC_KEY` are present in `.env`, the FastAPI server intercepts every API request to mathematically verify the RSA-256 signature and expiration date. Admin scripts (`generate_keys.py` and `generate_license.py`) are located in `/scripts` to generate offline licenses. Never commit `private_key.pem` to the repository.
 
 ## Environment
 

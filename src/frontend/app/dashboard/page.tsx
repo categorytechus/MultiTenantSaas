@@ -34,6 +34,7 @@ export default function DashboardPage() {
   const [endDate, setEndDate] = useState("");
   const [preset, setPreset] = useState("All");
   const [loading, setLoading] = useState(true);
+  const [license, setLicense] = useState<any>(null);
 
   const [data, setData] = useState({
     chart_data: [],
@@ -84,6 +85,16 @@ export default function DashboardPage() {
         if (res.success) {
           setData(res.data.data);
         }
+        
+        // Fetch license info
+        try {
+          const licRes = await apiFetch<any>("/dashboard/license");
+          if (licRes.success && licRes.data?.is_private_deployment) {
+            setLicense(licRes.data);
+          }
+        } catch (err) {
+          console.error("Failed to fetch license", err);
+        }
       } catch (err) {
         console.error("Failed to fetch dashboard stats", err);
       } finally {
@@ -97,6 +108,21 @@ export default function DashboardPage() {
   return (
     <Layout>
       <div className="p-8 max-sm:p-4 bg-white min-h-full">
+        {/* License Banner */}
+        {license && (
+          <div className="mb-6 bg-indigo-50 border border-indigo-200 rounded-lg p-4 shadow-sm">
+            <h3 className="text-[14px] font-semibold text-indigo-900 mb-1">Private Deployment License</h3>
+            <div className="text-[13px] text-indigo-700">
+              Valid until: <strong className="font-semibold">{new Date(license.expires_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}</strong>
+              {license.features && license.features.length > 0 && (
+                <span className="ml-2 pl-2 border-l border-indigo-300">
+                  Features: <span className="font-semibold">{license.features.join(", ")}</span>
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Filters */}
         <div className="flex items-center gap-3 mb-6 flex-wrap">
           <div className="flex items-center bg-white border border-gray-200 rounded-lg px-3 h-9 shadow-sm min-w-[148px]">

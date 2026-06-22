@@ -1,0 +1,10 @@
+{% extends "layout.html" %}
+{% block content %}
+<h2>You've been invited!</h2>
+<p>Hello,</p>
+<p>You have been invited to join the organization <strong>{{ org_name }}</strong> on our platform.</p>
+<p>To accept the invitation and set up your account, please click the button below:</p>
+<a href="{{ invite_url }}" class="button">Accept Invitation</a>
+<p>This link will expire in 7 days.</p>
+<p>Welcome aboard!</p>
+{% endblock %}

@@ -94,5 +94,13 @@ class Settings(BaseSettings):
     STRIPE_COST_SEG_PRODUCT_ID: str = ""
     STRIPE_COST_SEG_PRICE_MAPPING: dict[str, str] = {}
 
+    # Email
+    ENABLE_EMAILS: bool = False
+    EMAIL_FROM: str = "noreply@yourdomain.com"
+    
+    # Private Deployment Licensing
+    CLIENT_JWT_LICENSE_TOKEN: str | None = None
+    LICENSE_PUBLIC_KEY: str | None = None
+
 
 settings = Settings()

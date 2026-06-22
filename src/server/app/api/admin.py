@@ -1,8 +1,9 @@
+from datetime import datetime
 from typing import Any
 from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, BackgroundTasks, File, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,8 +21,10 @@ from app.models.org_module import OrgModule
 from app.models.rbac import RbacPermission
 from app.models.super_admin import SuperAdminAllowlist
 from app.models.user import User
+from app.models.workflow import WorkflowSession
 from app.core.security import hash_password
 from app.services.invite_service import create_invite_record, link_query_role
+from app.services.email.service import send_invite_email
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 def _public_app_base(request: Request) -> str:
@@ -43,6 +46,9 @@ class CreateOrgRequest(BaseModel):
     status: str = "active"
     subscription_tier: str = Field(default="free", alias="subscriptionTier")
     cost_seg_price_overrides: dict[str, float] | None = None
+    license_start_date: datetime | None = None
+    license_expiry_date: datetime | None = None
+    license_features: dict[str, Any] | None = None
 
 
 class UpdateOrgRequest(BaseModel):
@@ -53,6 +59,9 @@ class UpdateOrgRequest(BaseModel):
     status: str | None = None
     subscription_tier: str | None = Field(default=None, alias="subscriptionTier")
     cost_seg_price_overrides: dict[str, float] | None = None
+    license_start_date: datetime | None = None
+    license_expiry_date: datetime | None = None
+    license_features: dict[str, Any] | None = None
 
 
 class OrgModuleRow(BaseModel):
@@ -209,6 +218,9 @@ async def list_organizations(
                 "status": org.status,
                 "subscription_tier": org.subscription_tier,
                 "cost_seg_price_overrides": org.cost_seg_price_overrides,
+                "license_start_date": org.license_start_date.isoformat() if org.license_start_date else None,
+                "license_expiry_date": org.license_expiry_date.isoformat() if org.license_expiry_date else None,
+                "license_features": org.license_features,
                 "created_at": org.created_at.isoformat(),
             }
             for org in orgs
@@ -252,6 +264,9 @@ async def create_organization(
         status=body.status,
         subscription_tier=body.subscription_tier,
         cost_seg_price_overrides=body.cost_seg_price_overrides or default_prices,
+        license_start_date=body.license_start_date,
+        license_expiry_date=body.license_expiry_date,
+        license_features=body.license_features or {},
     )
     session.add(org)
     await session.flush()
@@ -287,6 +302,9 @@ async def create_organization(
         "status": org.status,
         "subscription_tier": org.subscription_tier,
         "cost_seg_price_overrides": org.cost_seg_price_overrides,
+        "license_start_date": org.license_start_date.isoformat() if org.license_start_date else None,
+        "license_expiry_date": org.license_expiry_date.isoformat() if org.license_expiry_date else None,
+        "license_features": org.license_features,
         "created_at": org.created_at.isoformat(),
     }
 
@@ -324,6 +342,12 @@ async def update_organization(
         org.subscription_tier = body.subscription_tier
     if body.cost_seg_price_overrides is not None:
         org.cost_seg_price_overrides = body.cost_seg_price_overrides
+    if body.license_start_date is not None:
+        org.license_start_date = body.license_start_date
+    if body.license_expiry_date is not None:
+        org.license_expiry_date = body.license_expiry_date
+    if body.license_features is not None:
+        org.license_features = body.license_features
     session.add(org)
     await session.flush()
 
@@ -337,6 +361,9 @@ async def update_organization(
             "status": org.status,
             "subscription_tier": org.subscription_tier,
             "cost_seg_price_overrides": org.cost_seg_price_overrides,
+            "license_start_date": org.license_start_date.isoformat() if org.license_start_date else None,
+            "license_expiry_date": org.license_expiry_date.isoformat() if org.license_expiry_date else None,
+            "license_features": org.license_features,
             "created_at": org.created_at.isoformat(),
         },
     }
@@ -535,6 +562,7 @@ async def change_super_admin_password(
 async def create_org_admin_invite(
     body: OrgAdminInviteRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
     ctx: RequestContext = Depends(require_super_admin_user),
     session: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
@@ -561,6 +589,9 @@ async def create_org_admin_invite(
         f"&email={quote(normalize_email(body.email), safe='')}"
         f"&role={role_q}"
     )
+    
+    background_tasks.add_task(send_invite_email, body.email.strip(), org.name, signup_link)
+
     await session.flush()
     return {"success": True, "data": {"signup_link": signup_link}}
 
@@ -638,6 +669,7 @@ async def list_org_admins(
 async def create_org_admin(
     body: CreateOrgAdminRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
     ctx: RequestContext = Depends(require_super_admin_user),
     session: AsyncSession = Depends(get_db),
 ) -> Any:
@@ -693,6 +725,9 @@ async def create_org_admin(
         f"&email={quote(email, safe='')}"
         f"&role={role_q}"
     )
+    
+    background_tasks.add_task(send_invite_email, email, org.name, set_password_link)
+
     await session.flush()
     # Use 201 for a new invite link flow.
     return {"success": True, "data": {"set_password_link": set_password_link}}
@@ -844,6 +879,18 @@ async def get_org_module_flags(
 
     modules = await _load_modules_safe(session)
 
+    # Filter modules by private deployment license if applicable
+    if settings.CLIENT_JWT_LICENSE_TOKEN:
+        try:
+            from app.core.licensing import verify_license
+            payload = verify_license()
+            allowed_features = set(payload.get("features", []))
+            modules = [m for m in modules if m["id"] in allowed_features]
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"License verification failed: {e}")
+            modules = [] # Hide all if license is broken
+
     assigned_module_ids: set[str] = set()
     if await _org_modules_table_exists(session):
         try:
@@ -940,6 +987,18 @@ async def put_org_module_flags(
     result = await session.execute(select(MasterModule.id).where(MasterModule.enabled == True))  # noqa: E712
     allowed = set(result.scalars().all())
     normalized = [m for m in dict.fromkeys(body.module_ids) if m in allowed]
+
+    # Enforce private deployment license features to block raw API bypasses
+    if settings.CLIENT_JWT_LICENSE_TOKEN:
+        try:
+            from app.core.licensing import verify_license
+            payload = verify_license()
+            license_allowed = set(payload.get("features", []))
+            normalized = [m for m in normalized if m in license_allowed]
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"License verification failed during module assignment: {e}")
+            raise HTTPException(status_code=403, detail="Invalid license")
 
     if not await _org_modules_table_exists(session):
         raise HTTPException(status_code=503, detail="Organization module storage is not initialized")

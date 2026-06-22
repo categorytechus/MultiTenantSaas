@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status, BackgroundTasks
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -17,8 +17,11 @@ from app.core.db import db_session
 from app.models.api_execution_log import ApiExecutionLog
 from app.models.api_module import ApiModule
 from app.models.api_task_proposal import ApiTaskProposal
+from app.models.workflow import WorkflowSession
+from app.models.user import User
 from app.services.agent_tasks import update_task_status
 from app.services.chat import save_message
+from app.services.email.service import send_report_ready_email
 
 router = APIRouter(prefix="/internal", tags=["internal"], include_in_schema=False)
 
@@ -65,6 +68,7 @@ async def save_agent_message(
 async def update_agent_task(
     task_id: UUID,
     body: UpdateTaskRequest,
+    background_tasks: BackgroundTasks,
     _: None = Depends(_verify_secret),
 ) -> dict:
     """Called by agents service to update task status and output."""
@@ -76,6 +80,16 @@ async def update_agent_task(
             output=body.output,
             error=body.error,
         )
+        
+        if task.type == "cost_seg_report" and task.status == "succeeded":
+            project_id = task.input.get("project_id")
+            if project_id:
+                user = await session.get(User, task.user_id)
+                project = await session.get(WorkflowSession, UUID(project_id))
+                if user and user.email and project:
+                    report_link = f"{settings.PUBLIC_APP_URL.rstrip('/')}/cost_segregation/{project_id}"
+                    background_tasks.add_task(send_report_ready_email, user.email, project.title, report_link)
+
         return {"id": str(task.id), "status": task.status}
 
 

@@ -103,6 +103,15 @@ After `make migrate`, the following dev users are available (all share password 
 | `bob@acme.com` | user | Acme Corporation |
 | `charlie@techstartup.io` | tenant admin | Tech Startup Inc |
 
+## Database Squashing & Wiping
+
+If your migration history gets too long (e.g., 50+ files), you can "squash" them into a single `001_initial_schema.py` file to clear technical debt:
+
+1. **Squash Locally:** Run `uv run python -m scripts.compress_migrations`. This deletes all migration files, generates a single `001_initial_schema.py`, and injects required vector extensions. Commit and push this file.
+2. **Deploying the Squash:**
+   - **For new environments or when wiping data is acceptable:** Wiping is the easiest approach. Connect to your server, drop the old schema (`docker compose exec server python -m scripts.drop_db`), deploy (`make redeploy-ecr`), and re-seed the roles (`docker compose exec server python -m scripts.seed`). The clean DB will smoothly build from `001`.
+   - **For live environments (Never wipe data):** Do **not** drop the database. Instead, temporarily edit your `Makefile` to change `alembic upgrade head` to `alembic stamp head`. Deploy the code using `make redeploy-ecr`. This safely updates the version tracker to `001` without touching live tables. Afterward, change your `Makefile` back to `upgrade head`.
+
 ## Environment Variables
 
 | Variable | Required | Description |
@@ -114,6 +123,10 @@ After `make migrate`, the following dev users are available (all share password 
 | `ANTHROPIC_API_KEY` | No | Claude LLM (mock responses if empty) |
 | `OPENAI_API_KEY` | No | Embeddings (mock if empty) |
 | `S3_BUCKET` | No | File storage (local `/tmp/uploads` if empty) |
+| `ENABLE_EMAILS` | No | Set to `true` to enable AWS SES email sending |
+| `EMAIL_FROM` | No | The verified sender email address for AWS SES |
+| `STRIPE_API_KEY` | No | Stripe Secret Key for public SaaS billing |
+| `STRIPE_WEBHOOK_SECRET` | No | Secret to verify Stripe webhooks |
 
 ## How Chat Streaming Works
 
@@ -145,6 +158,12 @@ Browser  →  GET /api/chat/sessions/{id}/stream?message=...&token=JWT
 **Internal API**: `/internal/*` routes let the agents service write results back to the server (save assistant message, update task status). Protected by `X-Internal-Secret` header.
 
 **Document ingestion**: `POST /api/documents` → S3 upload → `ingest_document` Arq job (agents worker) → extract text (pypdf/python-docx) → chunk → embed (OpenAI) → store in `document_chunks` with pgvector → status `ready`.
+
+**Private Deployment Licensing**: To run the app as a secure, air-gapped private deployment, add `CLIENT_JWT_LICENSE_TOKEN` and `LICENSE_PUBLIC_KEY` to the `.env` file. This locks down all API endpoints (except `/health`) to mathematically verify the RSA signature and expiration date of the token. If omitted, the app runs in standard public SaaS mode. See `scripts/README.md` for master key generation.
+
+**Email Notifications (AWS SES)**: Emails are sent using `boto3` via AWS SES. Ensure your EC2 IAM role includes `ses:SendEmail` permissions, and verify your sender address (`EMAIL_FROM`) in the AWS Console.
+
+**Stripe Integration**: In public SaaS mode, tenant billing is powered by Stripe. You must configure `STRIPE_API_KEY`, `STRIPE_WEBHOOK_SECRET`, and product mappings. Webhooks handle payment success/failure to automatically upgrade or suspend tenant organizations.
 
 ## Common Commands
 
@@ -331,6 +350,12 @@ jobs:
 | `S3_BUCKET` | No | Falls back to local filesystem if absent (not suitable for prod) |
 | `AWS_DEFAULT_REGION` | No | Defaults to `us-east-1` |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | No | Only needed if EC2 instance profile is not set |
+| `ENABLE_EMAILS` | No | Enables AWS SES emails. EC2 role requires `ses:SendEmail` |
+| `EMAIL_FROM` | No | Verified SES email identity (e.g. `noreply@yourdomain.com`) |
+| `CLIENT_JWT_LICENSE_TOKEN` | No | Required to lock down a private deployment |
+| `LICENSE_PUBLIC_KEY` | No | Required to lock down a private deployment |
+| `STRIPE_API_KEY` | No | Needed if running in public SaaS mode (no license token) |
+| `STRIPE_WEBHOOK_SECRET` | No | Needed if running in public SaaS mode |
 
 ## Infrastructure
 
