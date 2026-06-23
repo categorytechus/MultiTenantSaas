@@ -237,17 +237,17 @@ upload-env:
 
 redeploy-ecr: ecr-login upload-env
 	@echo "Building and pushing images (tag: $(IMAGE_TAG))..."
-	docker build -t $(ECR_REGISTRY)/multitenant-saas-backend:$(IMAGE_TAG) \
+	docker build --platform linux/amd64 -t $(ECR_REGISTRY)/multitenant-saas-backend:$(IMAGE_TAG) \
 	             -t $(ECR_REGISTRY)/multitenant-saas-backend:latest \
 	             src/server
 	docker push $(ECR_REGISTRY)/multitenant-saas-backend:$(IMAGE_TAG)
 	docker push $(ECR_REGISTRY)/multitenant-saas-backend:latest
-	docker build -t $(ECR_REGISTRY)/multitenant-saas-agents:$(IMAGE_TAG) \
+	docker build --platform linux/amd64 -t $(ECR_REGISTRY)/multitenant-saas-agents:$(IMAGE_TAG) \
 	             -t $(ECR_REGISTRY)/multitenant-saas-agents:latest \
 	             src/agents
 	docker push $(ECR_REGISTRY)/multitenant-saas-agents:$(IMAGE_TAG)
 	docker push $(ECR_REGISTRY)/multitenant-saas-agents:latest
-	docker build -t $(ECR_REGISTRY)/multitenant-saas-web:$(IMAGE_TAG) \
+	docker build --platform linux/amd64 -t $(ECR_REGISTRY)/multitenant-saas-web:$(IMAGE_TAG) \
 	             -t $(ECR_REGISTRY)/multitenant-saas-web:latest \
 	             src/frontend
 	docker push $(ECR_REGISTRY)/multitenant-saas-web:$(IMAGE_TAG)
