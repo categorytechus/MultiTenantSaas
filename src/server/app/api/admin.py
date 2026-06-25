@@ -579,9 +579,9 @@ async def create_org_admin_invite(
         email=body.email.strip(),
         org_id=body.organization_id,
         invited_by=ctx.user_id,
-        role=Role.TENANT_ADMIN,
+        role=Role.ORG_ADMIN,
     )
-    role_q = link_query_role(Role.TENANT_ADMIN)
+    role_q = link_query_role(Role.ORG_ADMIN)
     base = _public_app_base(request)
     signup_link = (
         f"{base}/auth/signup/{body.organization_id}"
@@ -629,7 +629,7 @@ async def list_org_admins(
         select(User, Org, OrgMembership)
         .join(OrgMembership, OrgMembership.user_id == User.id)
         .join(Org, Org.id == OrgMembership.org_id)
-        .where(OrgMembership.role == Role.TENANT_ADMIN.value)
+        .where(OrgMembership.role == Role.ORG_ADMIN.value)
         .order_by(User.created_at.desc())
     )
     if org_id:
@@ -697,11 +697,12 @@ async def create_org_admin(
         )
         membership = mr.scalars().first()
         if membership:
-            membership.role = Role.TENANT_ADMIN.value
+            membership.role = Role.ORG_ADMIN.value
             session.add(membership)
         else:
+            # Create a new membership as org_admin
             session.add(
-                OrgMembership(user_id=user.id, org_id=body.organization_id, role=Role.TENANT_ADMIN.value)
+                OrgMembership(user_id=user.id, org_id=body.organization_id, role=Role.ORG_ADMIN.value)
             )
         await session.flush()
         # UI treats status=200 as "existing user added"
@@ -715,9 +716,9 @@ async def create_org_admin(
         email=email,
         org_id=body.organization_id,
         invited_by=ctx.user_id,
-        role=Role.TENANT_ADMIN,
+        role=Role.ORG_ADMIN,
     )
-    role_q = link_query_role(Role.TENANT_ADMIN)
+    role_q = link_query_role(Role.ORG_ADMIN)
     base = _public_app_base(request)
     set_password_link = (
         f"{base}/auth/signup/{body.organization_id}"
@@ -757,11 +758,11 @@ async def delete_org_admin(
     session: AsyncSession = Depends(get_db),
 ) -> None:
     _ = ctx
-    # Remove all tenant_admin memberships for this user.
+    # Remove all org_admin memberships for this user.
     result = await session.execute(
         select(OrgMembership).where(
             OrgMembership.user_id == user_id,
-            OrgMembership.role == Role.TENANT_ADMIN.value,
+            OrgMembership.role == Role.ORG_ADMIN.value,
         )
     )
     memberships = result.scalars().all()
@@ -784,7 +785,7 @@ async def delete_org_admin_from_org(
         select(OrgMembership).where(
             OrgMembership.user_id == user_id,
             OrgMembership.org_id == org_id,
-            OrgMembership.role == Role.TENANT_ADMIN.value,
+            OrgMembership.role == Role.ORG_ADMIN.value,
         )
     )
     membership = result.scalars().first()
@@ -824,7 +825,7 @@ async def list_all_users(
             roles_list.append({"id": "super_admin", "name": "super_admin"})
         else:
             for role in user_roles.get(user.id, []):
-                if role == Role.TENANT_ADMIN.value:
+                if role == Role.ORG_ADMIN.value:
                     roles_list.append({"id": "org_admin", "name": "org_admin"})
                 elif role == Role.USER.value:
                     roles_list.append({"id": "user", "name": "user"})
@@ -919,7 +920,7 @@ async def get_org_module_flags(
 
 
 async def _sync_module_permission_grants(session: AsyncSession, module_ids: list[str]) -> None:
-    """Ensure tenant_admin and org_admin system roles have grants for all permission_keys
+    """Ensure org_admin system roles have grants for all permission_keys
     belonging to the given modules. Called whenever org module assignments change.
     Skips silently if migration 041 columns are not yet available."""
     from app.models.rbac import RbacRole, RolePermission
@@ -948,10 +949,9 @@ async def _sync_module_permission_grants(session: AsyncSession, module_ids: list
     )
     perm_by_key = {f"{p.resource}:{p.action}": p for p in perm_rows_result.scalars().all()}
 
-    # Resolve system roles
     system_roles_result = await session.execute(
         select(RbacRole).where(
-            RbacRole.name.in_(["tenant_admin", "org_admin"]),
+            RbacRole.name.in_(["org_admin"]),
             RbacRole.is_system == True,  # noqa: E712
         )
     )

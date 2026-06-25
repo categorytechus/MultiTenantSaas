@@ -1,6 +1,6 @@
 """
 API Modules CRUD routes.
-Only tenant_admin and super_admin users can manage API modules.
+Only org_admin and super_admin users can manage API modules.
 auth_config is NEVER returned in list/get responses — masked as {"configured": true}.
 """
 from datetime import datetime, timezone
@@ -28,7 +28,7 @@ ALLOWED_AUTH_TYPES = {"none", "bearer", "basic", "api_key"}
 # ── Guards ────────────────────────────────────────────────────────────────────
 
 def _require_admin(ctx: RequestContext) -> None:
-    if ctx.role not in (Role.TENANT_ADMIN, Role.SUPER_ADMIN):
+    if ctx.role not in (Role.ORG_ADMIN, Role.SUPER_ADMIN):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Admin privileges required")
 
 

@@ -125,7 +125,7 @@ export default function UsersPage() {
     if (u.user_type === "super_admin") return ["super_admin"];
     if (u.roles?.length) return u.roles.map((r) => r.name);
     const orgRoleDisplay: Record<string, string> = {
-      tenant_admin: "org_admin",
+      org_admin: "org_admin",
       super_admin: "super_admin",
       user: "user",
       viewer: "viewer",

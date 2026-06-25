@@ -101,13 +101,13 @@ async def register_user(
     membership = OrgMembership(
         user_id=user.id,
         org_id=org.id,
-        role=Role.TENANT_ADMIN.value,
+        role=Role.ORG_ADMIN.value,
     )
     session.add(membership)
     await session.flush()
 
     # Create tokens
-    access_token = _make_access_token(user, org, Role.TENANT_ADMIN)
+    access_token = _make_access_token(user, org, Role.ORG_ADMIN)
     opaque_refresh, refresh_hash = create_refresh_token()
 
     refresh_token_obj = RefreshToken(

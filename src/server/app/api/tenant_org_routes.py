@@ -52,8 +52,8 @@ def _not_implemented() -> None:
     )
 
 
-def _require_tenant_admin(ctx: RequestContext) -> None:
-    if ctx.role not in (Role.TENANT_ADMIN, Role.SUPER_ADMIN):
+def _require_org_admin(ctx: RequestContext) -> None:
+    if ctx.role not in (Role.ORG_ADMIN, Role.SUPER_ADMIN):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Tenant administrator privileges required")
 
 
@@ -185,7 +185,7 @@ async def list_org_users(
     ctx: RequestContext = Depends(get_required_context),
     session: AsyncSession = Depends(get_db),
 ):
-    _require_tenant_admin(ctx)
+    _require_org_admin(ctx)
     _ensure_org_context(ctx, organization_id)
 
     result = await session.execute(
@@ -221,7 +221,7 @@ async def list_org_users(
         if not assigned_roles:
             # Fall back to membership.role for display when no user_roles entry exists.
             _display_map = {
-                Role.TENANT_ADMIN.value: "org_admin",
+                Role.ORG_ADMIN.value: "org_admin",
                 Role.USER.value: "user",
                 Role.VIEWER.value: "viewer",
                 Role.SUPER_ADMIN.value: "super_admin",
@@ -259,7 +259,7 @@ async def create_org_user(
     ctx: RequestContext = Depends(get_required_context),
     session: AsyncSession = Depends(get_db),
 ):
-    _require_tenant_admin(ctx)
+    _require_org_admin(ctx)
     _ensure_org_context(ctx, organization_id)
 
     email = normalize_email(body.email)
@@ -350,7 +350,7 @@ async def delete_org_user(
     ctx: RequestContext = Depends(get_required_context),
     session: AsyncSession = Depends(get_db),
 ):
-    _require_tenant_admin(ctx)
+    _require_org_admin(ctx)
     _ensure_org_context(ctx, organization_id)
 
     if user_id == ctx.user_id:
@@ -408,7 +408,7 @@ async def reset_user_password(
     ctx: RequestContext = Depends(get_required_context),
     session: AsyncSession = Depends(get_db),
 ):
-    _require_tenant_admin(ctx)
+    _require_org_admin(ctx)
     _ensure_org_context(ctx, organization_id)
 
     membership_result = await session.execute(
@@ -440,7 +440,7 @@ async def list_roles(
     ctx: RequestContext = Depends(get_required_context),
     session: AsyncSession = Depends(get_db),
 ):
-    _require_tenant_admin(ctx)
+    _require_org_admin(ctx)
     _ensure_org_context(ctx, organization_id)
 
     # System roles (is_system=True, organization_id=NULL) are global — org_admin, viewer, etc.
@@ -482,7 +482,7 @@ async def create_role(
     ctx: RequestContext = Depends(get_required_context),
     session: AsyncSession = Depends(get_db),
 ):
-    _require_tenant_admin(ctx)
+    _require_org_admin(ctx)
     _ensure_org_context(ctx, organization_id)
 
     existing = await session.execute(
@@ -519,7 +519,7 @@ async def update_role(
     ctx: RequestContext = Depends(get_required_context),
     session: AsyncSession = Depends(get_db),
 ):
-    _require_tenant_admin(ctx)
+    _require_org_admin(ctx)
     _ensure_org_context(ctx, organization_id)
 
     role = await session.get(RbacRole, role_id)
@@ -545,7 +545,7 @@ async def delete_role(
     ctx: RequestContext = Depends(get_required_context),
     session: AsyncSession = Depends(get_db),
 ):
-    _require_tenant_admin(ctx)
+    _require_org_admin(ctx)
     _ensure_org_context(ctx, organization_id)
 
     role = await session.get(RbacRole, role_id)
@@ -692,7 +692,7 @@ async def get_role_permissions(
     ctx: RequestContext = Depends(get_required_context),
     session: AsyncSession = Depends(get_db),
 ):
-    _require_tenant_admin(ctx)
+    _require_org_admin(ctx)
     _ensure_org_context(ctx, organization_id)
 
     role = await session.get(RbacRole, role_id)
@@ -702,7 +702,7 @@ async def get_role_permissions(
     if not role.is_system and role.organization_id is not None and role.organization_id != organization_id:
         raise HTTPException(status_code=403, detail="Role does not belong to this organization")
 
-    is_system_org_admin = bool(role.is_system and role.name in ("org_admin", "tenant_admin"))
+    is_system_org_admin = bool(role.is_system and role.name == "org_admin")
 
     # Load modules enabled for this org that have permission_keys
     perm_modules = await _load_perm_modules(session, organization_id)
@@ -792,7 +792,7 @@ async def put_role_permissions(
     ctx: RequestContext = Depends(get_required_context),
     session: AsyncSession = Depends(get_db),
 ):
-    _require_tenant_admin(ctx)
+    _require_org_admin(ctx)
     _ensure_org_context(ctx, organization_id)
 
     role = await session.get(RbacRole, role_id)
@@ -869,7 +869,7 @@ async def update_org_user(
     ctx: RequestContext = Depends(get_required_context),
     session: AsyncSession = Depends(get_db),
 ):
-    _require_tenant_admin(ctx)
+    _require_org_admin(ctx)
     _ensure_org_context(ctx, organization_id)
 
     membership = await session.execute(
@@ -896,7 +896,7 @@ async def assign_user_role(
     ctx: RequestContext = Depends(get_required_context),
     session: AsyncSession = Depends(get_db),
 ):
-    _require_tenant_admin(ctx)
+    _require_org_admin(ctx)
     _ensure_org_context(ctx, organization_id)
 
     role = await session.get(RbacRole, body.role_id)
@@ -926,8 +926,7 @@ async def assign_user_role(
 
     # Sync membership.role so the JWT role claim reflects the change at next login.
     _SYSTEM_TO_MEMBERSHIP = {
-        "org_admin": Role.TENANT_ADMIN.value,
-        "tenant_admin": Role.TENANT_ADMIN.value,
+        "org_admin": Role.ORG_ADMIN.value,
         "user": Role.USER.value,
         "viewer": Role.VIEWER.value,
     }
@@ -948,7 +947,7 @@ async def remove_user_role(
     ctx: RequestContext = Depends(get_required_context),
     session: AsyncSession = Depends(get_db),
 ):
-    _require_tenant_admin(ctx)
+    _require_org_admin(ctx)
     _ensure_org_context(ctx, organization_id)
 
     membership_result = await session.execute(

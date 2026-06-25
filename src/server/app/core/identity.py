@@ -49,6 +49,6 @@ def jwt_roles_claim(role: Role) -> list[str]:
     """Supplementary role strings embedded in JWT for UIs (sidebar, etc.)."""
     if role == Role.SUPER_ADMIN:
         return []
-    if role == Role.TENANT_ADMIN:
+    if role == Role.ORG_ADMIN:
         return ["org_admin"]
     return ["user"]

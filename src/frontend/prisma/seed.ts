@@ -30,7 +30,7 @@ async function main() {
             perms: ['*'],
         },
         {
-            name: 'TENANT_ADMIN',
+            name: 'ORG_ADMIN',
             description: 'Organization administrator with user management',
             perms: ['org:read', 'users:manage', 'users:read'],
         },

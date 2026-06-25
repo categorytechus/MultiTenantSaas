@@ -32,7 +32,6 @@ def upgrade() -> None:
     op.execute("""
         INSERT INTO users (id, email, hashed_password, name, created_at) VALUES
           ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'alice@acme.com', '$2b$12$TYB2rz/Qu8rOShtBMG3/I.XbxkYAZxTpIHLYV5RAXbaq08Dq8rTk2', 'Alice Admin', NOW()),
-          ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'bob@acme.com', '$2b$12$TYB2rz/Qu8rOShtBMG3/I.XbxkYAZxTpIHLYV5RAXbaq08Dq8rTk2', 'Bob Member', NOW()),
           ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'charlie@techstartup.io', '$2b$12$TYB2rz/Qu8rOShtBMG3/I.XbxkYAZxTpIHLYV5RAXbaq08Dq8rTk2', 'Charlie Founder', NOW())
         ON CONFLICT (id) DO UPDATE SET hashed_password = EXCLUDED.hashed_password;
     """)
@@ -40,9 +39,8 @@ def upgrade() -> None:
     op.execute("""
         INSERT INTO org_memberships (id, org_id, user_id, role, created_at)
         VALUES
-          ('aaaaaaaa-1111-1111-1111-aaaaaaaa1111', '11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'tenant_admin', NOW()),
-          ('bbbbbbbb-2222-2222-2222-bbbbbbbb2222', '11111111-1111-1111-1111-111111111111', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'user', NOW()),
-          ('cccccccc-3333-3333-3333-cccccccc3333', '22222222-2222-2222-2222-222222222222', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'tenant_admin', NOW())
+          ('aaaaaaaa-1111-1111-1111-aaaaaaaa1111', '11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'org_admin', NOW()),
+          ('cccccccc-3333-3333-3333-cccccccc3333', '22222222-2222-2222-2222-222222222222', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'org_admin', NOW())
         ON CONFLICT (id) DO NOTHING;
     """)
 
@@ -72,7 +70,7 @@ def upgrade() -> None:
           '99999999-1111-1111-1111-999999999999',
           '99999999-9999-9999-9999-999999999999',
           '11111111-1111-1111-1111-111111111111',
-          'tenant_admin',
+          'org_admin',
           NOW()
         )
         ON CONFLICT (id) DO NOTHING;
@@ -102,9 +100,7 @@ def upgrade() -> None:
     op.execute("""
     INSERT INTO roles (id, name, description, is_system, organization_id, created_at)
     VALUES
-      ('a1111111-1111-1111-1111-111111111111', 'tenant_admin', 'Organization admin — matched by JWT role claim', TRUE, NULL, NOW()),
-      ('e2222222-2222-2222-2222-222222222222', 'org_admin', 'Organization administrator (system role)', TRUE, NULL, NOW()),
-      ('f3333333-3333-3333-3333-333333333333', 'user', 'Tenant user (system role)', TRUE, NULL, NOW())
+      ('e2222222-2222-2222-2222-222222222222', 'org_admin', 'Organization administrator (system role)', TRUE, NULL, NOW())
     ON CONFLICT (id) DO NOTHING;
     """)
 
@@ -128,27 +124,11 @@ def upgrade() -> None:
     ON CONFLICT (id) DO NOTHING;
     """)
 
-    op.execute("""
-    INSERT INTO role_permissions (id, role_id, permission_id, created_at)
-    SELECT gen_random_uuid(), 'a1111111-1111-1111-1111-111111111111', id, NOW()
-    FROM permissions
-    ON CONFLICT DO NOTHING;
-    """)
 
     op.execute("""
     INSERT INTO role_permissions (id, role_id, permission_id, created_at)
     SELECT gen_random_uuid(), 'e2222222-2222-2222-2222-222222222222', id, NOW()
     FROM permissions
-    ON CONFLICT DO NOTHING;
-    """)
-
-    op.execute("""
-    INSERT INTO role_permissions (id, role_id, permission_id, created_at)
-    VALUES 
-      (gen_random_uuid(), 'f3333333-3333-3333-3333-333333333333', 'a0000000-0000-0000-0000-000000000001', NOW()),
-      (gen_random_uuid(), 'f3333333-3333-3333-3333-333333333333', 'b0000000-0000-0000-0000-000000000001', NOW()),
-      (gen_random_uuid(), 'f3333333-3333-3333-3333-333333333333', 'b0000000-0000-0000-0000-000000000002', NOW()),
-      (gen_random_uuid(), 'f3333333-3333-3333-3333-333333333333', 'b0000000-0000-0000-0000-000000000005', NOW())
     ON CONFLICT DO NOTHING;
     """)
 

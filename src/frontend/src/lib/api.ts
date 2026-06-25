@@ -78,6 +78,13 @@ export async function apiFetch<T = unknown>(
         data?.message ||
         data?.error ||
         `Request failed (${response.status})`;
+
+      if (response.status === 403 && typeof errorMessage === 'string' && errorMessage.toLowerCase().includes('license')) {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('license-error', { detail: errorMessage }));
+        }
+      }
+
       throw new ApiFetchError(errorMessage, response.status);
     }
 

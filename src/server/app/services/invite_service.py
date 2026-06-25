@@ -25,8 +25,8 @@ def _utcnow() -> datetime:
 
 
 def invite_role_to_membership_role(role_str: str) -> Role:
-    if role_str in (Role.TENANT_ADMIN.value, "org_admin"):
-        return Role.TENANT_ADMIN
+    if role_str in (Role.ORG_ADMIN.value, "org_admin"):
+        return Role.ORG_ADMIN
     return Role.USER
 
 
@@ -42,8 +42,7 @@ def _custom_role_id_from_invite(role_str: str) -> UUID | None:
 def _system_role_to_membership_role(role_name: str) -> str | None:
     """Map a system RBAC role name to the OrgMembership role string, or None for custom roles."""
     _map = {
-        "org_admin": Role.TENANT_ADMIN.value,
-        "tenant_admin": Role.TENANT_ADMIN.value,
+        "org_admin": Role.ORG_ADMIN.value,
         "user": Role.USER.value,
         "viewer": Role.VIEWER.value,
     }
@@ -112,7 +111,7 @@ async def _assign_custom_role_if_any(
 
 def link_query_role(membership_role: Role) -> str:
     """Query param for Next.js signup UI (`org_admin` vs `user`)."""
-    return "org_admin" if membership_role == Role.TENANT_ADMIN else "user"
+    return "org_admin" if membership_role == Role.ORG_ADMIN else "user"
 
 
 def generate_invite_plain_token() -> str:
@@ -125,7 +124,7 @@ async def create_invite_record(
     email: str,
     org_id: UUID,
     invited_by: UUID | None,
-    role: Role | str = Role.TENANT_ADMIN,
+    role: Role | str = Role.ORG_ADMIN,
 ) -> tuple[InviteToken, str]:
     """Insert invite row and return (row, plaintext token)."""
     email_norm = normalize_email(email)
