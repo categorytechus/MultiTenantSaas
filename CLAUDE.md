@@ -128,7 +128,7 @@ app/
 | Model | Table | Description |
 |-------|-------|-------------|
 | `User` | `users` | Email, hashed password, user_type (user/org_admin/super_admin) |
-| `Org` | `orgs` | Slug, name, domain, status, subscription_tier, cost_seg_price_overrides (JSON) |
+| `Org` | `orgs` | Slug, name, domain, status, subscription_tier, cost_seg_price_overrides (JSON), email_from, email_reply_to |
 | `OrgMembership` | `org_memberships` | User ↔ Org link with role |
 | `ChatSession` / `ChatMessage` | `chat_sessions` / `chat_messages` | Chat history |
 | `Document` / `DocumentChunk` | `documents` / `document_chunks` | Uploaded docs + pgvector embeddings |
@@ -265,6 +265,7 @@ Key env vars by category:
 - **Auth**: `SECRET_KEY`, `ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES`, `REFRESH_TOKEN_EXPIRE_DAYS`
 - **LLM**: `CHAT_MODEL`, `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `GEMINI_API_KEY`, `OPENAI_API_KEY`
 - **Claude Skills**: `ANTHROPIC_WORKSPACE_ID`, `CLAUDE_SKILLS_COST_SEG_ID`, `CLAUDE_SKILLS_COST_SEG_VERSION`, `CLAUDE_SKILLS_MODEL`
+- **Email**: `ENABLE_EMAILS`, `EMAIL_FROM`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` (boto3 client explicitly checks these for SES)
 - **S3**: `S3_BUCKET`, `S3_REGION` (empty = local filesystem)
 - **OAuth**: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`
 - **Stripe**: `STRIPE_API_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_COST_SEG_PRODUCT_ID`, `STRIPE_COST_SEG_PRICE_MAPPING`

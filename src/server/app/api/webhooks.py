@@ -83,7 +83,7 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks) ->
 
     if event_type == "checkout.session.async_payment_failed":
         if user_email:
-            background_tasks.add_task(send_payment_failed_email, user_email, project_title)
+            background_tasks.add_task(send_payment_failed_email, user_email, org_id, project_title)
         return {"status": "success"}
 
     # ── Step 2: Mark project as paid (with RLS) ──────────────────────────────
@@ -96,7 +96,7 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks) ->
                 
                 if user_email:
                     amount = getattr(session_data, "amount_total", 0) / 100.0
-                    background_tasks.add_task(send_payment_success_email, user_email, amount, project_title)
+                    background_tasks.add_task(send_payment_success_email, user_email, org_id, amount, project_title)
             else:
                 logger.info(f"Project was already paid", project_id=str(project_id))
 

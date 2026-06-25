@@ -161,7 +161,9 @@ Browser  →  GET /api/chat/sessions/{id}/stream?message=...&token=JWT
 
 **Private Deployment Licensing**: To run the app as a secure, air-gapped private deployment, add `CLIENT_JWT_LICENSE_TOKEN` and `LICENSE_PUBLIC_KEY` to the `.env` file. This locks down all API endpoints (except `/health`) to mathematically verify the RSA signature and expiration date of the token. If omitted, the app runs in standard public SaaS mode. See `scripts/README.md` for master key generation.
 
-**Email Notifications (AWS SES)**: Emails are sent using `boto3` via AWS SES. Ensure your EC2 IAM role includes `ses:SendEmail` permissions, and verify your sender address (`EMAIL_FROM`) in the AWS Console.
+**Email Notifications (AWS SES)**: Emails are sent using `boto3` via AWS SES. Ensure your EC2 IAM role includes `ses:SendEmail` permissions, and verify your default sender address (`EMAIL_FROM`) in the AWS Console. 
+- Organizations can configure a custom `email_from` and `email_reply_to` in their settings. 
+- If an organization uses a custom domain that is **not verified** in SES, the provider gracefully catches the `MessageRejected` error and falls back to the system `EMAIL_FROM`, while preserving the organization's display name.
 
 **Stripe Integration**: In public SaaS mode, tenant billing is powered by Stripe. You must configure `STRIPE_API_KEY`, `STRIPE_WEBHOOK_SECRET`, and product mappings. Webhooks handle payment success/failure to automatically upgrade or suspend tenant organizations.
 

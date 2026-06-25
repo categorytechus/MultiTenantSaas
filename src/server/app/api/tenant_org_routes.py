@@ -337,7 +337,7 @@ async def create_org_user(
     
     org = await session.get(Org, organization_id)
     org_name = org.name if org else "our organization"
-    background_tasks.add_task(send_invite_email, email, org_name, set_password_link)
+    background_tasks.add_task(send_invite_email, email, ctx.org_id, set_password_link)
 
     await session.flush()
     return {"success": True, "data": {"set_password_link": set_password_link}, "warnings": warnings}

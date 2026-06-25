@@ -43,6 +43,8 @@ class CreateOrgRequest(BaseModel):
     name: str
     slug: str | None = None
     domain: str | None = None
+    email_from: str | None = Field(default=None, alias="emailFrom")
+    email_reply_to: str | None = Field(default=None, alias="emailReplyTo")
     status: str = "active"
     subscription_tier: str = Field(default="free", alias="subscriptionTier")
     cost_seg_price_overrides: dict[str, float] | None = None
@@ -56,6 +58,8 @@ class UpdateOrgRequest(BaseModel):
     name: str
     slug: str | None = None
     domain: str | None = None
+    email_from: str | None = Field(default=None, alias="emailFrom")
+    email_reply_to: str | None = Field(default=None, alias="emailReplyTo")
     status: str | None = None
     subscription_tier: str | None = Field(default=None, alias="subscriptionTier")
     cost_seg_price_overrides: dict[str, float] | None = None
@@ -215,6 +219,8 @@ async def list_organizations(
                 "slug": org.slug,
                 "name": org.name,
                 "domain": org.domain,
+                "email_from": org.email_from,
+                "email_reply_to": org.email_reply_to,
                 "status": org.status,
                 "subscription_tier": org.subscription_tier,
                 "cost_seg_price_overrides": org.cost_seg_price_overrides,
@@ -261,6 +267,8 @@ async def create_organization(
         name=body.name,
         slug=slug,
         domain=(body.domain.strip() if body.domain else None),
+        email_from=(body.email_from.strip() if body.email_from else None),
+        email_reply_to=(body.email_reply_to.strip() if body.email_reply_to else None),
         status=body.status,
         subscription_tier=body.subscription_tier,
         cost_seg_price_overrides=body.cost_seg_price_overrides or default_prices,
@@ -299,6 +307,8 @@ async def create_organization(
         "slug": org.slug,
         "name": org.name,
         "domain": org.domain,
+        "email_from": org.email_from,
+        "email_reply_to": org.email_reply_to,
         "status": org.status,
         "subscription_tier": org.subscription_tier,
         "cost_seg_price_overrides": org.cost_seg_price_overrides,
@@ -336,6 +346,10 @@ async def update_organization(
 
     org.name = new_name
     org.domain = body.domain.strip() if body.domain else None
+    if body.email_from is not None:
+        org.email_from = body.email_from.strip() or None
+    if body.email_reply_to is not None:
+        org.email_reply_to = body.email_reply_to.strip() or None
     if body.status is not None:
         org.status = body.status
     if body.subscription_tier is not None:
@@ -358,6 +372,8 @@ async def update_organization(
             "slug": org.slug,
             "name": org.name,
             "domain": org.domain,
+            "email_from": org.email_from,
+            "email_reply_to": org.email_reply_to,
             "status": org.status,
             "subscription_tier": org.subscription_tier,
             "cost_seg_price_overrides": org.cost_seg_price_overrides,
@@ -590,7 +606,7 @@ async def create_org_admin_invite(
         f"&role={role_q}"
     )
     
-    background_tasks.add_task(send_invite_email, body.email.strip(), org.name, signup_link)
+    background_tasks.add_task(send_invite_email, body.email.strip(), body.organization_id, signup_link)
 
     await session.flush()
     return {"success": True, "data": {"signup_link": signup_link}}
@@ -727,7 +743,7 @@ async def create_org_admin(
         f"&role={role_q}"
     )
     
-    background_tasks.add_task(send_invite_email, email, org.name, set_password_link)
+    background_tasks.add_task(send_invite_email, email, body.organization_id, set_password_link)
 
     await session.flush()
     # Use 201 for a new invite link flow.
