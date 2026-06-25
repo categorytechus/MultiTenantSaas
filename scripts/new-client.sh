@@ -43,6 +43,7 @@ AWS_REGION=${REGION}
 AWS_ACCOUNT=${ACCOUNT_ID}
 CLIENT_ID=${CLIENT_ID}
 KEY_NAME=${KEY_NAME}
+DOCKER_PLATFORM=linux/amd64
 EOF
 
 # ── backend.hcl ───────────────────────────────────────────────────────────────
