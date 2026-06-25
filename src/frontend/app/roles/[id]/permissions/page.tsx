@@ -374,10 +374,6 @@ export default function RolePermissionsPage() {
               <strong>AI Assistant</strong> is the Chat toggle only. Hover column headers for hints.
             </div>
           </div>
-          <button type="button" className="btn btn-primary" onClick={handleSave} disabled={saving}>
-            {saving && <span className="spin" />}
-            {saving ? 'Saving…' : 'Save Changes'}
-          </button>
         </div>
 
         {saved && (

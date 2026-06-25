@@ -86,7 +86,17 @@ export default function Layout({ children }: LayoutProps) {
   const [userModules, setUserModules] = useState<string[] | null>(null);
   const [modulesResolved, setModulesResolved] = useState(false);
   const [roleLabel, setRoleLabel] = useState("");
+  const [licenseError, setLicenseError] = useState<string | null>(null);
   const dropRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleLicenseError = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      setLicenseError(customEvent.detail);
+    };
+    window.addEventListener('license-error', handleLicenseError);
+    return () => window.removeEventListener('license-error', handleLicenseError);
+  }, []);
 
   useEffect(() => {
     const handleOutside = (e: MouseEvent) => {
@@ -110,7 +120,7 @@ export default function Layout({ children }: LayoutProps) {
 
         if (isSuperAdminUserType(userData.user_type) || isSuperFromToken) {
           setRoleLabel("Super Admin");
-        } else if (primaryRole === "tenant_admin") {
+        } else if (primaryRole === "org_admin") {
           setRoleLabel("Org Admin");
         } else if (primaryRole === "user") {
           setRoleLabel("User");
@@ -175,7 +185,7 @@ export default function Layout({ children }: LayoutProps) {
               const jwtParsed = JSON.parse(atob(freshToken.split(".")[1])) as { org_id?: string };
               const freshPrimaryRole = extractPrimaryRoleFromToken(freshToken)?.toLowerCase().replace(/-/g, "_");
               const isSA = isSuperAdminUserType(userData.user_type) || freshPrimaryRole === "super_admin";
-              const isOA = freshPrimaryRole === "tenant_admin";
+              const isOA = freshPrimaryRole === "org_admin";
               if (isSA && !jwtParsed.org_id) {
                 // Super admin with no org context — unrestricted, show all modules
                 sessionStorage.removeItem("userModules");
@@ -276,7 +286,7 @@ export default function Layout({ children }: LayoutProps) {
     try { const token = localStorage.getItem("accessToken"); if (!token) return null; return extractPrimaryRoleFromToken(token)?.toLowerCase().replace(/-/g, "_") ?? null; } catch { return null; }
   })();
   const isSuperAdmin = isSuperAdminUserType(user?.user_type) || isSuperAdminUserType(user?.role) || primaryJwtRole === "super_admin" || normalizedJwtRoles.includes("super_admin");
-  const isOrgAdmin = primaryJwtRole === "tenant_admin" || isSuperAdmin;
+  const isOrgAdmin = primaryJwtRole === "org_admin" || isSuperAdmin;
 
   const hasModule = (moduleId: string) => {
     if (!PERMISSION_MODULE_ENABLED) return true;
@@ -324,6 +334,22 @@ export default function Layout({ children }: LayoutProps) {
 
   return (
     <>
+      {licenseError && (
+        <div className="fixed top-0 left-0 right-0 z-[100] bg-red-600 text-white px-4 py-3 flex items-center justify-between shadow-md">
+          <div className="flex items-center gap-3">
+            <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <span className="text-[13px] font-medium">{licenseError}</span>
+          </div>
+          <button onClick={() => setLicenseError(null)} className="text-white/80 hover:text-white transition-colors" aria-label="Dismiss">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
+
       {switching && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl px-6 py-4 flex items-center gap-3 shadow-xl">

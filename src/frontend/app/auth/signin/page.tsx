@@ -71,7 +71,7 @@ export default function SignInPage() {
             role?: string;
           };
           const role = (payload.role || "").toLowerCase().replace(/-/g, "_");
-          if (role === "super_admin" || role === "tenant_admin") {
+          if (role === "super_admin" || role === "org_admin") {
             sessionStorage.setItem("userModulesUnrestricted", "1");
           } else if (payload.org_id) {
             const mpRes = await apiFetch<{ data: { modules: string[] } }>(

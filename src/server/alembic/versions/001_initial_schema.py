@@ -61,6 +61,8 @@ def upgrade() -> None:
     sa.Column('license_start_date', sa.DateTime(), nullable=True),
     sa.Column('license_expiry_date', sa.DateTime(), nullable=True),
     sa.Column('license_features', sa.JSON(), nullable=True),
+    sa.Column('email_from', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('email_reply_to', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
     sa.Column('created_at', sa.DateTime(), nullable=False),
     sa.PrimaryKeyConstraint('id')
     )

@@ -173,10 +173,6 @@ export default function UserPermissionsPage() {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <span className="enabled-summary">{enabledModulesCount} / {availableModulesCount} modules fully granted</span>
-            <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-              {saving && <span className="spin" />}
-              {saving ? 'Saving…' : 'Save Changes'}
-            </button>
           </div>
         </div>
 

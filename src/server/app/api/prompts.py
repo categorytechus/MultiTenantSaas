@@ -32,7 +32,7 @@ async def get_org_prompts(
             ),
         )
         membership = mr.scalars().first()
-        if not membership or membership.role != "tenant_admin":
+        if not membership or membership.role != "org_admin":
             raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Super admin or org admin required")
 
     try:
@@ -70,7 +70,7 @@ async def update_org_prompts(
             ),
         )
         membership = mr.scalars().first()
-        if not membership or membership.role != "tenant_admin":
+        if not membership or membership.role != "org_admin":
             raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Super admin or org admin required")
 
     result = await session.execute(
@@ -112,7 +112,7 @@ async def reset_org_prompts(
             ),
         )
         membership = mr.scalars().first()
-        if not membership or membership.role != "tenant_admin":
+        if not membership or membership.role != "org_admin":
             raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Super admin or org admin required")
 
     query = select(OrgPrompt).where(OrgPrompt.org_id == org_id)

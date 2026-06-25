@@ -25,6 +25,7 @@ AWS_ACCOUNT  ?= $(shell aws sts get-caller-identity --query Account --output tex
 KEY_NAME     ?= multi-tenant-saas-key
 ECR_REGISTRY ?= $(AWS_ACCOUNT).dkr.ecr.$(AWS_REGION).amazonaws.com
 IMAGE_TAG    ?= $(shell git rev-parse --short HEAD)
+DOCKER_PLATFORM ?= linux/amd64
 
 # Paths that differ per client — must be absolute so terraform -chdir=infra can resolve them
 # SSH_KEY can be overridden: make redeploy-ecr CLIENT=x SSH_KEY=/path/to/other.pem
@@ -237,17 +238,17 @@ upload-env:
 
 redeploy-ecr: ecr-login upload-env
 	@echo "Building and pushing images (tag: $(IMAGE_TAG))..."
-	docker build --platform linux/amd64 -t $(ECR_REGISTRY)/multitenant-saas-backend:$(IMAGE_TAG) \
+	docker build --platform $(DOCKER_PLATFORM) -t $(ECR_REGISTRY)/multitenant-saas-backend:$(IMAGE_TAG) \
 	             -t $(ECR_REGISTRY)/multitenant-saas-backend:latest \
 	             src/server
 	docker push $(ECR_REGISTRY)/multitenant-saas-backend:$(IMAGE_TAG)
 	docker push $(ECR_REGISTRY)/multitenant-saas-backend:latest
-	docker build --platform linux/amd64 -t $(ECR_REGISTRY)/multitenant-saas-agents:$(IMAGE_TAG) \
+	docker build --platform $(DOCKER_PLATFORM) -t $(ECR_REGISTRY)/multitenant-saas-agents:$(IMAGE_TAG) \
 	             -t $(ECR_REGISTRY)/multitenant-saas-agents:latest \
 	             src/agents
 	docker push $(ECR_REGISTRY)/multitenant-saas-agents:$(IMAGE_TAG)
 	docker push $(ECR_REGISTRY)/multitenant-saas-agents:latest
-	docker build --platform linux/amd64 -t $(ECR_REGISTRY)/multitenant-saas-web:$(IMAGE_TAG) \
+	docker build --platform $(DOCKER_PLATFORM) -t $(ECR_REGISTRY)/multitenant-saas-web:$(IMAGE_TAG) \
 	             -t $(ECR_REGISTRY)/multitenant-saas-web:latest \
 	             src/frontend
 	docker push $(ECR_REGISTRY)/multitenant-saas-web:$(IMAGE_TAG)

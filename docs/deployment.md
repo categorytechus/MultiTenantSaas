@@ -158,7 +158,24 @@ make upload-env CLIENT=<client-id>
 
 ---
 
-### Step 6 — Build and deploy
+### Step 6 — Private deployment licensing (only for private deployments)
+
+Refer [Private Deployment Licensing](private_deployment_licensing.md) for more information.
+
+---
+
+### Step 7 — Configure Claude Skills
+
+If your client wants to use the **Report Generation** feature (Cost Segregation), you must configure Claude Skills in the Anthropic Console:
+
+1. Go to the Anthropic Console and create a new **Workspace**.
+2. Grab the `ANTHROPIC_API_KEY` and the `ANTHROPIC_WORKSPACE_ID` and put them in `prod.env`.
+3. Create a new **Skill** in that Workspace, and upload your Prompt/PDF instructions (available in `/skills` folder).
+4. Grab the Skill ID and put it in `CLAUDE_SKILLS_COST_SEG_ID` in `prod.env`.
+
+---
+
+### Step 8 — Build and deploy
 
 ```bash
 make redeploy-ecr CLIENT=<client-id>

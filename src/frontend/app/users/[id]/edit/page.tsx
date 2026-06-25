@@ -79,7 +79,7 @@ export default function EditUserPage() {
             setEmail(u.email);
             setStatus(u.status);
 
-            // The server may return pseudo-roles like {id: "tenant_admin", name: "org_admin"}
+            // The server may return pseudo-roles like {id: "org_admin", name: "org_admin"}
             // for users who have only a membership role but no user_roles entry.
             // Always resolve to a real UUID from the assignable list.
             const rbacRoles = u.roles || [];
@@ -90,7 +90,7 @@ export default function EditUserPage() {
               const found = assignable.find((a) => a.id === r.id);
               if (found) { matchedRole = found; break; }
             }
-            // 2. Name match — handles pseudo-role {id: "tenant_admin", name: "org_admin"}
+            // 2. Name match — handles pseudo-role {id: "org_admin", name: "org_admin"}
             if (!matchedRole) {
               for (const r of rbacRoles) {
                 const found = assignable.find((a) => a.name === r.name);
@@ -99,7 +99,7 @@ export default function EditUserPage() {
             }
             // 3. Derive from org_role membership field
             if (!matchedRole) {
-              const orgRoleToName: Record<string, string> = { tenant_admin: "org_admin" };
+              const orgRoleToName: Record<string, string> = { org_admin: "org_admin" };
               const lookupName = orgRoleToName[u.org_role ?? ""] ?? u.org_role;
               matchedRole = lookupName ? (assignable.find((r) => r.name === lookupName) ?? null) : null;
             }

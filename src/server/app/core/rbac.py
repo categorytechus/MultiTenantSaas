@@ -10,14 +10,14 @@ from sqlmodel import select
 
 class Role(str, Enum):
     SUPER_ADMIN = "super_admin"
-    TENANT_ADMIN = "tenant_admin"
+    ORG_ADMIN = "org_admin"
     USER = "user"
     VIEWER = "viewer"
 
 
 ROLE_PERMISSIONS: dict[Role, Set[str]] = {
     Role.SUPER_ADMIN: {"*"},
-    Role.TENANT_ADMIN: {
+    Role.ORG_ADMIN: {
         "users:read",
         "users:invite",
         "users:update",
@@ -89,10 +89,7 @@ async def role_permissions_from_db(
         return {"*"}
 
     role_name = role.value if isinstance(role, Role) else str(role)
-
-    # JWT carries "tenant_admin" but the DB system role is named "org_admin".
-    # Normalise here so migration 042 can drop the redundant tenant_admin DB role.
-    db_role_name = "org_admin" if role_name == "tenant_admin" else role_name
+    db_role_name = role_name
 
     try:
         from app.models.rbac import RbacPermission, RbacRole, RoleOrgPermission, RolePermission
@@ -138,20 +135,19 @@ async def role_permissions_from_db(
             )
             membership_role_name = membership_result.scalar_one_or_none()
             if membership_role_name:
-                # Normalise tenant_admin → org_admin so the DB lookup finds the right role.
-                lookup_name = "org_admin" if membership_role_name == "tenant_admin" else membership_role_name
-                membership_role = await session.execute(
-                    select(RbacRole).where(
-                        RbacRole.name == lookup_name,
-                        (
-                            (RbacRole.organization_id == None)  # noqa: E711
-                            | (RbacRole.organization_id == org_id)
-                        ),
-                    )
+                lookup_name = membership_role_name
+            membership_role = await session.execute(
+                select(RbacRole).where(
+                    RbacRole.name == lookup_name,
+                    (
+                        (RbacRole.organization_id == None)  # noqa: E711
+                        | (RbacRole.organization_id == org_id)
+                    ),
                 )
-                membership_role_row = membership_role.scalars().first()
-                if membership_role_row:
-                    role_ids_to_check.add(membership_role_row.id)
+            )
+            membership_role_row = membership_role.scalars().first()
+            if membership_role_row:
+                role_ids_to_check.add(membership_role_row.id)
 
         if not role_ids_to_check:
             return set()

@@ -1,6 +1,8 @@
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
+import json
 
 # Resolves to the project root .env when running locally (src/server/app/core/ = 4 levels deep).
 # In Docker, /app/app/core/ only has 3 parent levels, so we skip the file and rely on env vars.
@@ -93,6 +95,18 @@ class Settings(BaseSettings):
     STRIPE_WEBHOOK_SECRET: str = ""
     STRIPE_COST_SEG_PRODUCT_ID: str = ""
     STRIPE_COST_SEG_PRICE_MAPPING: dict[str, str] = {}
+
+    @field_validator('STRIPE_COST_SEG_PRICE_MAPPING', mode='before')
+    @classmethod
+    def parse_stripe_mapping(cls, v):
+        if not v:
+            return {}
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except Exception:
+                return {}
+        return v
 
     # Email
     ENABLE_EMAILS: bool = False

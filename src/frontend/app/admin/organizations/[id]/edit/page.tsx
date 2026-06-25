@@ -9,6 +9,8 @@ interface OrganizationListItem {
   id: string;
   name: string;
   domain: string | null;
+  email_from: string | null;
+  email_reply_to: string | null;
   status: string;
   subscription_tier: string;
   slug: string;
@@ -21,6 +23,8 @@ export default function EditOrganizationPage() {
 
   const [name, setName] = useState('');
   const [domain, setDomain] = useState('');
+  const [emailFrom, setEmailFrom] = useState('');
+  const [emailReplyTo, setEmailReplyTo] = useState('');
   const [status, setStatus] = useState('active');
   const [subscriptionTier, setSubscriptionTier] = useState('free');
   const [slug, setSlug] = useState('');
@@ -43,6 +47,8 @@ export default function EditOrganizationPage() {
         if (org) {
           setName(org.name);
           setDomain(org.domain || '');
+          setEmailFrom(org.email_from || '');
+          setEmailReplyTo(org.email_reply_to || '');
           setStatus(org.status);
           setSubscriptionTier(org.subscription_tier);
           setSlug(org.slug);
@@ -59,7 +65,7 @@ export default function EditOrganizationPage() {
     try {
       const res = await apiFetch(`/admin/organizations/${orgId}`, {
         method: 'PUT',
-        body: JSON.stringify({ name, domain: domain || null, status, subscriptionTier }),
+        body: JSON.stringify({ name, domain: domain || null, emailFrom: emailFrom || null, emailReplyTo: emailReplyTo || null, status, subscriptionTier }),
       });
       if (res.success) {
         router.push('/admin/organizations');
@@ -118,6 +124,17 @@ export default function EditOrganizationPage() {
                 <label className="field-lbl">Domain <span style={{ color: '#bbb', fontWeight: 400 }}>(optional)</span></label>
                 <input className="fi" type="text" placeholder="acmecorp.com" value={domain} onChange={e => setDomain(e.target.value)} />
                 <p style={{ fontSize: 12, color: '#9a9a9a', marginTop: 4 }}>Optional custom domain for this organization.</p>
+              </div>
+              <div className="field">
+                <label className="field-lbl">From Email <span style={{ color: '#bbb', fontWeight: 400 }}>(optional)</span></label>
+                <input className="fi" type="email" placeholder="notifications@acmecorp.com" value={emailFrom} onChange={e => setEmailFrom(e.target.value)} />
+                <p style={{ fontSize: 12, color: '#9a9a9a', marginTop: 4 }}>
+                  The domain must be verified on our AWS SES. If unverified, emails will automatically fall back to the default system address.
+                </p>
+              </div>
+              <div className="field">
+                <label className="field-lbl">Reply-To Email <span style={{ color: '#bbb', fontWeight: 400 }}>(optional)</span></label>
+                <input className="fi" type="email" placeholder="support@acmecorp.com" value={emailReplyTo} onChange={e => setEmailReplyTo(e.target.value)} />
               </div>
               <div className="field">
                 <label className="field-lbl">Status</label>

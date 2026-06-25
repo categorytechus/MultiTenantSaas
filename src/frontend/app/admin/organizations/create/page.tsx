@@ -9,6 +9,8 @@ export default function CreateOrganizationPage() {
   const router = useRouter();
   const [name, setName] = useState('');
   const [domain, setDomain] = useState('');
+  const [emailFrom, setEmailFrom] = useState('');
+  const [emailReplyTo, setEmailReplyTo] = useState('');
   const [subscriptionTier, setSubscriptionTier] = useState('free');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -31,7 +33,7 @@ export default function CreateOrganizationPage() {
     try {
       const res = await apiFetch('/admin/organizations', {
         method: 'POST',
-        body: JSON.stringify({ name, domain: domain || undefined, subscriptionTier }),
+        body: JSON.stringify({ name, domain: domain || undefined, emailFrom: emailFrom || undefined, emailReplyTo: emailReplyTo || undefined, subscriptionTier }),
       });
       if (res.success) {
         router.push('/admin/organizations');
@@ -78,6 +80,17 @@ export default function CreateOrganizationPage() {
               <label className="field-lbl">Domain <span style={{ color: '#bbb', fontWeight: 400 }}>(optional)</span></label>
               <input className="fi" type="text" placeholder="acmecorp.com" value={domain} onChange={e => setDomain(e.target.value)} />
               <p style={{ fontSize: 12, color: '#9a9a9a', marginTop: 4 }}>Optional custom domain for this organization.</p>
+            </div>
+            <div className="field">
+              <label className="field-lbl">From Email <span style={{ color: '#bbb', fontWeight: 400 }}>(optional)</span></label>
+              <input className="fi" type="email" placeholder="notifications@acmecorp.com" value={emailFrom} onChange={e => setEmailFrom(e.target.value)} />
+              <p style={{ fontSize: 12, color: '#9a9a9a', marginTop: 4 }}>
+                The domain must be verified on our AWS SES. If unverified, emails will automatically fall back to the default system address.
+              </p>
+            </div>
+            <div className="field">
+              <label className="field-lbl">Reply-To Email <span style={{ color: '#bbb', fontWeight: 400 }}>(optional)</span></label>
+              <input className="fi" type="email" placeholder="support@acmecorp.com" value={emailReplyTo} onChange={e => setEmailReplyTo(e.target.value)} />
             </div>
             <div className="field">
               <label className="field-lbl">Subscription plan</label>
