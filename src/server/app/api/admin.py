@@ -45,6 +45,7 @@ class CreateOrgRequest(BaseModel):
     domain: str | None = None
     email_from: str | None = Field(default=None, alias="emailFrom")
     email_reply_to: str | None = Field(default=None, alias="emailReplyTo")
+    org_email: str | None = Field(default=None, alias="orgEmail")
     status: str = "active"
     subscription_tier: str = Field(default="free", alias="subscriptionTier")
     cost_seg_price_overrides: dict[str, float] | None = None
@@ -60,6 +61,7 @@ class UpdateOrgRequest(BaseModel):
     domain: str | None = None
     email_from: str | None = Field(default=None, alias="emailFrom")
     email_reply_to: str | None = Field(default=None, alias="emailReplyTo")
+    org_email: str | None = Field(default=None, alias="orgEmail")
     status: str | None = None
     subscription_tier: str | None = Field(default=None, alias="subscriptionTier")
     cost_seg_price_overrides: dict[str, float] | None = None
@@ -237,6 +239,7 @@ async def list_organizations(
 @router.post("/organizations", status_code=201)
 async def create_organization(
     body: CreateOrgRequest,
+    background_tasks: BackgroundTasks,
     ctx: RequestContext = Depends(require_super_admin_user),
     session: AsyncSession = Depends(get_db),
 ) -> Any:
@@ -269,6 +272,7 @@ async def create_organization(
         domain=(body.domain.strip() if body.domain else None),
         email_from=(body.email_from.strip() if body.email_from else None),
         email_reply_to=(body.email_reply_to.strip() if body.email_reply_to else None),
+        org_email=(body.org_email.strip() if body.org_email else None),
         status=body.status,
         subscription_tier=body.subscription_tier,
         cost_seg_price_overrides=body.cost_seg_price_overrides or default_prices,
@@ -301,6 +305,10 @@ async def create_organization(
     except Exception as e:
         import logging
         logging.getLogger(__name__).error(f"Failed to seed prompts for new org: {e}")
+
+    if org.org_email:
+        from app.services.email.service import send_org_setup_success_email
+        background_tasks.add_task(send_org_setup_success_email, org.org_email, org.name, org.id)
 
     return {
         "id": str(org.id),
@@ -350,6 +358,8 @@ async def update_organization(
         org.email_from = body.email_from.strip() or None
     if body.email_reply_to is not None:
         org.email_reply_to = body.email_reply_to.strip() or None
+    if body.org_email is not None:
+        org.org_email = body.org_email.strip() or None
     if body.status is not None:
         org.status = body.status
     if body.subscription_tier is not None:
@@ -374,6 +384,7 @@ async def update_organization(
             "domain": org.domain,
             "email_from": org.email_from,
             "email_reply_to": org.email_reply_to,
+            "org_email": org.org_email,
             "status": org.status,
             "subscription_tier": org.subscription_tier,
             "cost_seg_price_overrides": org.cost_seg_price_overrides,
@@ -550,6 +561,7 @@ async def delete_super_admin(
 async def change_super_admin_password(
     user_id: UUID,
     body: SuperAdminChangePasswordRequest,
+    background_tasks: BackgroundTasks,
     ctx: RequestContext = Depends(require_super_admin_user),
     session: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
@@ -570,6 +582,9 @@ async def change_super_admin_password(
     session.add(user)
     session.add(allow)
     await session.flush()
+
+    from app.services.email.service import send_password_reset_success_email
+    background_tasks.add_task(send_password_reset_success_email, user.email)
 
     return {"success": True, "data": {"recovery_key": recovery_key}}
 

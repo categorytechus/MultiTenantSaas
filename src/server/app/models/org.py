@@ -18,6 +18,7 @@ class Org(SQLModel, table=True):
     license_start_date: datetime | None = Field(default=None)
     license_expiry_date: datetime | None = Field(default=None)
     license_features: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    org_email: str | None = Field(default=None)
     email_from: str | None = Field(default=None)
     email_reply_to: str | None = Field(default=None)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

@@ -11,6 +11,7 @@ interface OrganizationListItem {
   domain: string | null;
   email_from: string | null;
   email_reply_to: string | null;
+  org_email: string | null;
   status: string;
   subscription_tier: string;
   slug: string;
@@ -25,6 +26,7 @@ export default function EditOrganizationPage() {
   const [domain, setDomain] = useState('');
   const [emailFrom, setEmailFrom] = useState('');
   const [emailReplyTo, setEmailReplyTo] = useState('');
+  const [orgEmail, setOrgEmail] = useState('');
   const [status, setStatus] = useState('active');
   const [subscriptionTier, setSubscriptionTier] = useState('free');
   const [slug, setSlug] = useState('');
@@ -49,7 +51,8 @@ export default function EditOrganizationPage() {
           setDomain(org.domain || '');
           setEmailFrom(org.email_from || '');
           setEmailReplyTo(org.email_reply_to || '');
-          setStatus(org.status);
+          setOrgEmail(org.org_email || '');
+          setStatus(org.status || 'active');
           setSubscriptionTier(org.subscription_tier);
           setSlug(org.slug);
         }
@@ -63,9 +66,18 @@ export default function EditOrganizationPage() {
     setError('');
     setLoading(true);
     try {
+      const payload = {
+        name,
+        domain: domain || undefined,
+        emailFrom: emailFrom || undefined,
+        emailReplyTo: emailReplyTo || undefined,
+        orgEmail: orgEmail || undefined,
+        status,
+        subscriptionTier,
+      };
       const res = await apiFetch(`/admin/organizations/${orgId}`, {
         method: 'PUT',
-        body: JSON.stringify({ name, domain: domain || null, emailFrom: emailFrom || null, emailReplyTo: emailReplyTo || null, status, subscriptionTier }),
+        body: JSON.stringify(payload),
       });
       if (res.success) {
         router.push('/admin/organizations');
@@ -135,6 +147,13 @@ export default function EditOrganizationPage() {
               <div className="field">
                 <label className="field-lbl">Reply-To Email <span style={{ color: '#bbb', fontWeight: 400 }}>(optional)</span></label>
                 <input className="fi" type="email" placeholder="support@acmecorp.com" value={emailReplyTo} onChange={e => setEmailReplyTo(e.target.value)} />
+              </div>
+              <div className="field">
+                <label className="field-lbl">Org Contact Email <span style={{ color: '#bbb', fontWeight: 400 }}>(optional)</span></label>
+                <input className="fi" type="email" placeholder="contact@acmecorp.com" value={orgEmail} onChange={e => setOrgEmail(e.target.value)} />
+                <p style={{ fontSize: 12, color: '#9a9a9a', marginTop: 4 }}>
+                  This is the email we will use to contact the organization directly.
+                </p>
               </div>
               <div className="field">
                 <label className="field-lbl">Status</label>

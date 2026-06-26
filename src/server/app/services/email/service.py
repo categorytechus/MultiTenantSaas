@@ -21,7 +21,7 @@ from app.core.db import db_session
 from app.models.org import Org
 
 async def _get_org_email_settings(org_id: UUID | str) -> tuple[str, str | None, str | None]:
-    async with db_session() as session:
+    async with db_session(org_id) as session:
         org = await session.get(Org, org_id)
         if not org:
             logger.warning(f"Org {org_id} not found for email settings")
@@ -69,3 +69,21 @@ async def send_invite_email(to_email: str, org_id: UUID | str, invite_url: str) 
     provider = get_email_provider()
     await provider.send_email(to_email, subject, html, from_name=org_name, from_email=from_email, reply_to=reply_to)
 
+
+async def send_org_setup_success_email(to_email: str, org_name: str, org_id: UUID | str) -> None:
+    _, from_email, reply_to = await _get_org_email_settings(org_id)
+    subject = f"{org_name} has been successfully setup"
+    html = _render_template(
+        "org_setup_success.html", 
+        org_name=org_name
+    )
+    provider = get_email_provider()
+    await provider.send_email(to_email, subject, html, from_name="System", from_email=from_email, reply_to=reply_to)
+
+
+async def send_password_reset_success_email(to_email: str) -> None:
+    subject = "Your password has been successfully reset"
+    html = _render_template("password_reset_success.html")
+    provider = get_email_provider()
+    # No org context here, uses system defaults
+    await provider.send_email(to_email, subject, html, from_name="System")
