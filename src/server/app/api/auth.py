@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -292,6 +292,7 @@ class SetPasswordRequest(BaseModel):
 @router.post("/set-password")
 async def set_password_via_token(
     body: SetPasswordRequest,
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_db),
 ) -> dict:
     from datetime import datetime, timezone
@@ -328,12 +329,17 @@ async def set_password_via_token(
     invite.used_at = now
     session.add(invite)
     await session.flush()
+    
+    from app.services.email.service import send_password_reset_success_email
+    background_tasks.add_task(send_password_reset_success_email, user.email)
+    
     return {"success": True}
 
 
 @router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
 async def change_password(
     body: ChangePasswordRequest,
+    background_tasks: BackgroundTasks,
     ctx: RequestContext = Depends(get_optional_tenant_context),
     session: AsyncSession = Depends(get_db),
 ) -> None:
@@ -352,3 +358,6 @@ async def change_password(
     user.hashed_password = hash_password(body.new_password)
     session.add(user)
     await revoke_all_refresh_tokens(session, user.id)
+    
+    from app.services.email.service import send_password_reset_success_email
+    background_tasks.add_task(send_password_reset_success_email, user.email)

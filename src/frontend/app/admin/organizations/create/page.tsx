@@ -11,6 +11,7 @@ export default function CreateOrganizationPage() {
   const [domain, setDomain] = useState('');
   const [emailFrom, setEmailFrom] = useState('');
   const [emailReplyTo, setEmailReplyTo] = useState('');
+  const [orgEmail, setOrgEmail] = useState('');
   const [subscriptionTier, setSubscriptionTier] = useState('free');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -31,9 +32,18 @@ export default function CreateOrganizationPage() {
     setError('');
     setLoading(true);
     try {
+      const payload = {
+        name,
+        domain: domain || undefined,
+        emailFrom: emailFrom || undefined,
+        emailReplyTo: emailReplyTo || undefined,
+        orgEmail: orgEmail || undefined,
+        status: 'active',
+        subscriptionTier,
+      };
       const res = await apiFetch('/admin/organizations', {
         method: 'POST',
-        body: JSON.stringify({ name, domain: domain || undefined, emailFrom: emailFrom || undefined, emailReplyTo: emailReplyTo || undefined, subscriptionTier }),
+        body: JSON.stringify(payload),
       });
       if (res.success) {
         router.push('/admin/organizations');
@@ -91,6 +101,13 @@ export default function CreateOrganizationPage() {
             <div className="field">
               <label className="field-lbl">Reply-To Email <span style={{ color: '#bbb', fontWeight: 400 }}>(optional)</span></label>
               <input className="fi" type="email" placeholder="support@acmecorp.com" value={emailReplyTo} onChange={e => setEmailReplyTo(e.target.value)} />
+            </div>
+            <div className="field">
+              <label className="field-lbl">Org Contact Email <span style={{ color: '#bbb', fontWeight: 400 }}>(optional)</span></label>
+              <input className="fi" type="email" placeholder="contact@acmecorp.com" value={orgEmail} onChange={e => setOrgEmail(e.target.value)} />
+              <p style={{ fontSize: 12, color: '#9a9a9a', marginTop: 4 }}>
+                This is the email we will use to contact the organization directly.
+              </p>
             </div>
             <div className="field">
               <label className="field-lbl">Subscription plan</label>
