@@ -59,3 +59,20 @@ output "redis_url" {
   description = "Full REDIS_URL for the backend"
   value       = "redis://${aws_elasticache_cluster.redis.cache_nodes[0].address}:${aws_elasticache_cluster.redis.cache_nodes[0].port}/0"
 }
+
+output "alb_dns_name" {
+  description = "The DNS name of the ALB"
+  value       = aws_lb.app.dns_name
+}
+
+output "acm_certificate_validation_records" {
+  description = "The CNAME records needed to validate the ACM certificate via your external DNS provider"
+  value = {
+    for dvo in aws_acm_certificate.cert.domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      record = dvo.resource_record_value
+      type   = dvo.resource_record_type
+    }
+  }
+}
+

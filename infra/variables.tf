@@ -81,3 +81,9 @@ variable "allowed_ssh_cidrs" {
   type        = list(string)
   default     = ["0.0.0.0/0"]
 }
+
+variable "domain_name" {
+  description = "Domain name for the ACM certificate and ALB (e.g., app.categorytech.com)"
+  type        = string
+}
+
