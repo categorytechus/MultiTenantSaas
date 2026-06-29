@@ -303,6 +303,8 @@ export default function Layout({ children }: LayoutProps) {
     if (pathname === "/prompts") return { section: "Home", page: "System Prompts" };
     if (pathname === "/cost_segregation") return { section: "Tools", page: "Cost Segregation" };
     if (pathname.startsWith("/cost_segregation/")) return { section: "Cost Segregation", page: "Study Wizard" };
+    if (pathname === "/due_diligence") return { section: "Tools", page: "Due Diligence" };
+    if (pathname.startsWith("/due_diligence/")) return { section: "Due Diligence", page: "Study Wizard" };
     if (pathname === "/users") return { section: "User Management", page: "Users" };
     if (pathname === "/users/create") return { section: "User Management", page: "Create User" };
     if (pathname.startsWith("/users/")) return { section: "User Management", page: "Edit User" };
@@ -392,6 +394,9 @@ export default function Layout({ children }: LayoutProps) {
                 <div className="px-2 mb-1.5 text-[10px] font-semibold text-[#b0aaa0] uppercase tracking-wider">User Management</div>
                 <NavItem href="/users" active={pathname === "/users" || pathname.startsWith("/users/")} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>}>Users</NavItem>
                 <NavItem href="/roles" active={pathname === "/roles" || pathname.startsWith("/roles/")} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>}>Roles</NavItem>
+
+                <div className="px-2 mt-6 mb-1.5 text-[10px] font-semibold text-[#b0aaa0] uppercase tracking-wider">Configuration</div>
+                <NavItem href="/admin/due-diligence-rules" active={pathname.startsWith("/admin/due-diligence-rules")} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" /></svg>}>Due Diligence Rules</NavItem>
               </div>
             )}
 
@@ -427,9 +432,18 @@ export default function Layout({ children }: LayoutProps) {
                       <span className={pathname.startsWith("/cost_segregation") ? "bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent font-semibold" : ""}>Cost Segregation</span>
                     </Link>
                   )}
-                  {(hasModule(MODULE.COST_SEG) || hasModule(MODULE.DOCUMENTS) || hasModule(MODULE.WEB_URLS) || hasModule(MODULE.AI_IMAGES) || hasModule(MODULE.AI_LINKS) || hasModule(MODULE.API_CALLING)) && (
+                  {hasModule(MODULE.DUE_DILIGENCE) && (
+                    <Link href="/due_diligence" className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors w-full ${pathname.startsWith("/due_diligence") ? "bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 shadow-sm" : "text-[#606060] hover:bg-white hover:text-[#1a1a1a]"}`}>
+                      <span className="w-4 h-4 shrink-0 flex items-center justify-center">
+                        <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0012 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75z" /></svg>
+                      </span>
+                      <span className={pathname.startsWith("/due_diligence") ? "bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent font-semibold" : ""}>Due Diligence</span>
+                    </Link>
+                  )}
+                  {(hasModule(MODULE.COST_SEG) || hasModule(MODULE.DUE_DILIGENCE) || hasModule(MODULE.DOCUMENTS) || hasModule(MODULE.WEB_URLS) || hasModule(MODULE.AI_IMAGES) || hasModule(MODULE.AI_LINKS) || hasModule(MODULE.API_CALLING)) && (
                     <NavItem href="/prompts" active={pathname.startsWith("/prompts")} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" /></svg>}>System Prompts</NavItem>
                   )}
+
                   <NavItem href="/profile" active={pathname === "/profile"} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>}>My Profile</NavItem>
                 </div>
 
@@ -473,9 +487,18 @@ export default function Layout({ children }: LayoutProps) {
                       <span className={pathname.startsWith("/cost_segregation") ? "bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent font-semibold" : ""}>Cost Segregation</span>
                     </Link>
                   )}
-                  {(hasModule(MODULE.COST_SEG) || hasModule(MODULE.DOCUMENTS) || hasModule(MODULE.WEB_URLS) || hasModule(MODULE.AI_IMAGES) || hasModule(MODULE.AI_LINKS) || hasModule(MODULE.API_CALLING)) && (
+                  {hasModule(MODULE.DUE_DILIGENCE) && (
+                    <Link href="/due_diligence" className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors w-full ${pathname.startsWith("/due_diligence") ? "bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 shadow-sm" : "text-[#606060] hover:bg-white hover:text-[#1a1a1a]"}`}>
+                      <span className="w-4 h-4 shrink-0 flex items-center justify-center">
+                        <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0012 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75z" /></svg>
+                      </span>
+                      <span className={pathname.startsWith("/due_diligence") ? "bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent font-semibold" : ""}>Due Diligence</span>
+                    </Link>
+                  )}
+                  {(hasModule(MODULE.COST_SEG) || hasModule(MODULE.DUE_DILIGENCE) || hasModule(MODULE.DOCUMENTS) || hasModule(MODULE.WEB_URLS) || hasModule(MODULE.AI_IMAGES) || hasModule(MODULE.AI_LINKS) || hasModule(MODULE.API_CALLING)) && (
                     <NavItem href="/prompts" active={pathname.startsWith("/prompts")} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" /></svg>}>System Prompts</NavItem>
                   )}
+
                   <NavItem href="/profile" active={pathname === "/profile"} icon={<svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>}>My Profile</NavItem>
                 </div>
 

@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     ANTHROPIC_WORKSPACE_ID: str | None = None
     CLAUDE_SKILLS_COST_SEG_ID: str = ""       # Set after creating skill in Console
     CLAUDE_SKILLS_COST_SEG_VERSION: str = "latest"
+    CLAUDE_SKILLS_DUE_DILIGENCE_ID: str = ""
+    CLAUDE_SKILLS_DUE_DILIGENCE_VERSION: str = "latest"
     CLAUDE_SKILLS_MODEL: str = "claude-sonnet-4-20250514"
 
     ENVIRONMENT: str = "development"

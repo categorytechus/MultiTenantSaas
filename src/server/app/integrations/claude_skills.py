@@ -46,11 +46,15 @@ class ClaudeSkillsClient:
         self.model = model
         self._executor = ThreadPoolExecutor(max_workers=2)
 
-    async def generate_report(self, data: dict[str, Any]) -> dict[str, str]:
+    async def generate_report(
+        self,
+        data: dict[str, Any],
+        prompt_instruction: str = "Generate a cost segregation study report from the following structured data. Save the HTML report to /output/report.html and the Excel report to /output/report.xlsx",
+    ) -> dict[str, str]:
         """
-        Send structured report data to Claude with the cost-seg Skills context.
+        Send structured report data to Claude with the Skills context.
 
-        Returns ``{"html": "<full HTML string>"}`` or raises on failure.
+        Returns ``{"html": "<full HTML string>", "xlsx_bytes": <bytes>}`` or raises on failure.
         """
 
         def _call() -> Any:
@@ -75,9 +79,7 @@ class ClaudeSkillsClient:
                     {
                         "role": "user",
                         "content": (
-                            "Generate a cost segregation study report from the "
-                            "following structured data.  Save the HTML report to "
-                            "/output/report.html and the Excel report to /output/report.xlsx\n\n"
+                            f"{prompt_instruction}\n\n"
                             f"{json.dumps(data, default=str)}"
                         ),
                     }

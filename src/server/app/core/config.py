@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     CLAUDE_SKILLS_COST_SEG_ID: str = ""       # Set after creating skill in Console
     CLAUDE_SKILLS_COST_SEG_VERSION: str = "latest"
     CLAUDE_SKILLS_MODEL: str = "claude-sonnet-4-20250514"
+    CLAUDE_SKILLS_DUE_DILIGENCE_ID: str = ""     # Set after creating due diligence skill
+    CLAUDE_SKILLS_DUE_DILIGENCE_VERSION: str = "latest"
+
 
     ENVIRONMENT: str = "development"
     EMBEDDING_MODEL: str = "BAAI/bge-small-en-v1.5"
@@ -94,9 +97,12 @@ class Settings(BaseSettings):
     STRIPE_API_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""
     STRIPE_COST_SEG_PRODUCT_ID: str = ""
-    STRIPE_COST_SEG_PRICE_MAPPING: dict[str, str] = {}
+    STRIPE_COST_SEG_PRICE_MAPPING: dict[str, str] | str = {}
+    STRIPE_DUE_DILIGENCE_PRODUCT_ID: str = ""
+    STRIPE_DUE_DILIGENCE_PRICE_MAPPING: dict[str, str] | str = {}
 
-    @field_validator('STRIPE_COST_SEG_PRICE_MAPPING', mode='before')
+
+    @field_validator('STRIPE_COST_SEG_PRICE_MAPPING', 'STRIPE_DUE_DILIGENCE_PRICE_MAPPING', mode='before')
     @classmethod
     def parse_stripe_mapping(cls, v):
         if not v:

@@ -49,6 +49,7 @@ class CreateOrgRequest(BaseModel):
     status: str = "active"
     subscription_tier: str = Field(default="free", alias="subscriptionTier")
     cost_seg_price_overrides: dict[str, float] | None = None
+    due_diligence_price_overrides: dict[str, float] | None = None
     license_start_date: datetime | None = None
     license_expiry_date: datetime | None = None
     license_features: dict[str, Any] | None = None
@@ -65,6 +66,7 @@ class UpdateOrgRequest(BaseModel):
     status: str | None = None
     subscription_tier: str | None = Field(default=None, alias="subscriptionTier")
     cost_seg_price_overrides: dict[str, float] | None = None
+    due_diligence_price_overrides: dict[str, float] | None = None
     license_start_date: datetime | None = None
     license_expiry_date: datetime | None = None
     license_features: dict[str, Any] | None = None
@@ -226,6 +228,7 @@ async def list_organizations(
                 "status": org.status,
                 "subscription_tier": org.subscription_tier,
                 "cost_seg_price_overrides": org.cost_seg_price_overrides,
+                "due_diligence_price_overrides": org.due_diligence_price_overrides,
                 "license_start_date": org.license_start_date.isoformat() if org.license_start_date else None,
                 "license_expiry_date": org.license_expiry_date.isoformat() if org.license_expiry_date else None,
                 "license_features": org.license_features,
@@ -276,6 +279,7 @@ async def create_organization(
         status=body.status,
         subscription_tier=body.subscription_tier,
         cost_seg_price_overrides=body.cost_seg_price_overrides or default_prices,
+        due_diligence_price_overrides=body.due_diligence_price_overrides or {"multifamily": 5, "early_stage": 5},
         license_start_date=body.license_start_date,
         license_expiry_date=body.license_expiry_date,
         license_features=body.license_features or {},
@@ -320,6 +324,7 @@ async def create_organization(
         "status": org.status,
         "subscription_tier": org.subscription_tier,
         "cost_seg_price_overrides": org.cost_seg_price_overrides,
+        "due_diligence_price_overrides": org.due_diligence_price_overrides,
         "license_start_date": org.license_start_date.isoformat() if org.license_start_date else None,
         "license_expiry_date": org.license_expiry_date.isoformat() if org.license_expiry_date else None,
         "license_features": org.license_features,
@@ -366,6 +371,8 @@ async def update_organization(
         org.subscription_tier = body.subscription_tier
     if body.cost_seg_price_overrides is not None:
         org.cost_seg_price_overrides = body.cost_seg_price_overrides
+    if body.due_diligence_price_overrides is not None:
+        org.due_diligence_price_overrides = body.due_diligence_price_overrides
     if body.license_start_date is not None:
         org.license_start_date = body.license_start_date
     if body.license_expiry_date is not None:
@@ -388,6 +395,7 @@ async def update_organization(
             "status": org.status,
             "subscription_tier": org.subscription_tier,
             "cost_seg_price_overrides": org.cost_seg_price_overrides,
+            "due_diligence_price_overrides": org.due_diligence_price_overrides,
             "license_start_date": org.license_start_date.isoformat() if org.license_start_date else None,
             "license_expiry_date": org.license_expiry_date.isoformat() if org.license_expiry_date else None,
             "license_features": org.license_features,
