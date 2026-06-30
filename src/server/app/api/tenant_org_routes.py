@@ -399,7 +399,7 @@ async def delete_org_user(
     other = await session.execute(
         select(OrgMembership).where(OrgMembership.user_id == user_id)
     )
-    if other.scalars().first() is None:
+    if other.scalars().first() is None and not is_super_admin_user(user_id):
         await session.execute(
             text("DELETE FROM refresh_tokens WHERE user_id = :uid"),
             {"uid": user_id},

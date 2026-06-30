@@ -37,6 +37,18 @@ def set_db_super_admin_user_ids(ids: frozenset[UUID]) -> None:
     _DB_SUPER_IDS = ids
 
 
+def add_db_super_admin_user_id(user_id: UUID) -> None:
+    """Add a new super admin to the in-memory allowlist."""
+    global _DB_SUPER_IDS
+    _DB_SUPER_IDS = _DB_SUPER_IDS.union({user_id})
+
+
+def remove_db_super_admin_user_id(user_id: UUID) -> None:
+    """Remove a super admin from the in-memory allowlist."""
+    global _DB_SUPER_IDS
+    _DB_SUPER_IDS = _DB_SUPER_IDS.difference({user_id})
+
+
 def is_super_admin_user(user_id: UUID) -> bool:
     return user_id in super_admin_user_ids()
 

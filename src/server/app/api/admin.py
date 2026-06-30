@@ -523,14 +523,27 @@ async def create_super_admin(
     _ = ctx
     email = normalize_email(body.email)
     existing = await session.execute(select(User).where(User.email == email))
-    if existing.scalars().first():
-        raise HTTPException(status_code=409, detail="Email already registered")
+    user = existing.scalars().first()
 
-    user = User(email=email, hashed_password=hash_password(body.password), name=body.name)
-    session.add(user)
+    if user:
+        allow = await session.get(SuperAdminAllowlist, user.id)
+        if allow:
+            raise HTTPException(status_code=409, detail="User is already a super admin")
+        
+        user.name = body.name
+        user.hashed_password = hash_password(body.password)
+        session.add(user)
+    else:
+        user = User(email=email, hashed_password=hash_password(body.password), name=body.name)
+        session.add(user)
+
     await session.flush()
     session.add(SuperAdminAllowlist(user_id=user.id, status="active"))
     await session.flush()
+
+    from app.core.identity import add_db_super_admin_user_id
+    add_db_super_admin_user_id(user.id)
+
     return {"success": True, "data": {"id": str(user.id)}}
 
 
@@ -568,6 +581,29 @@ async def delete_super_admin(
         raise HTTPException(status_code=404, detail="Super admin not found")
     await session.delete(allow)
     await session.flush()
+
+    from app.core.identity import remove_db_super_admin_user_id
+    remove_db_super_admin_user_id(user_id)
+
+    # Clean up the user account if they have no org memberships
+    other = await session.execute(
+        select(OrgMembership).where(OrgMembership.user_id == user_id)
+    )
+    if other.scalars().first() is None:
+        await session.execute(
+            text("DELETE FROM refresh_tokens WHERE user_id = :uid"),
+            {"uid": user_id},
+        )
+        oi_exists = await session.execute(text("SELECT to_regclass('public.oauth_identities')"))
+        if oi_exists.scalar_one_or_none() is not None:
+            await session.execute(
+                text("DELETE FROM oauth_identities WHERE user_id = :uid"),
+                {"uid": user_id},
+            )
+        orphan = await session.get(User, user_id)
+        if orphan:
+            await session.delete(orphan)
+        await session.flush()
 
 
 @router.post("/super-admins/{user_id}/change-password")
