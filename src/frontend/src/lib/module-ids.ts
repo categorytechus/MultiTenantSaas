@@ -10,6 +10,8 @@ export const MODULE = {
   DOCUMENTS:         "documents",
   WEB_URLS:          "web_urls",
   API_CALLING:       "api_calling",
+  DUE_DILIGENCE:     "due_diligence",
 } as const;
+
 
 export type ModuleId = (typeof MODULE)[keyof typeof MODULE];

@@ -88,7 +88,18 @@ async def update_agent_task(
                 project = await session.get(WorkflowSession, UUID(project_id))
                 if user and user.email and project:
                     report_link = f"{settings.PUBLIC_APP_URL.rstrip('/')}/cost_segregation/{project_id}"
-                    background_tasks.add_task(send_report_ready_email, user.email, project.title, report_link)
+                    background_tasks.add_task(send_report_ready_email, user.email, task.org_id, project.title, report_link)
+
+        elif task.type == "due_diligence_report" and task.status == "succeeded":
+            from app.models.due_diligence import DueDiligenceStudy
+            study_id = task.input.get("study_id")
+            if study_id:
+                user = await session.get(User, task.user_id)
+                study = await session.get(DueDiligenceStudy, UUID(study_id))
+                if user and user.email and study:
+                    report_link = f"{settings.PUBLIC_APP_URL.rstrip('/')}/due_diligence/{study_id}"
+                    background_tasks.add_task(send_report_ready_email, user.email, task.org_id, study.title, report_link)
+
 
         return {"id": str(task.id), "status": task.status}
 

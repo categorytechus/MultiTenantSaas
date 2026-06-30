@@ -162,14 +162,21 @@ export default function EditOrganizationPage() {
                   <option value="suspended">Suspended</option>
                 </select>
               </div>
-              <div className="field">
-                <label className="field-lbl">Subscription plan</label>
-                <select className="fi" value={subscriptionTier} onChange={e => setSubscriptionTier(e.target.value)}>
-                  <option value="free">Free</option>
-                  <option value="pro">Pro</option>
-                  <option value="enterprise">Enterprise</option>
-                </select>
-              </div>
+
+              {!process.env.NEXT_PUBLIC_IS_PRIVATE_DEPLOYMENT && (
+                <div className="field">
+                  <label className="field-lbl">Subscription plan</label>
+                  <select 
+                    className="fi" 
+                    value={subscriptionTier} 
+                    onChange={e => setSubscriptionTier(e.target.value)}
+                  >
+                    <option value="free">Free</option>
+                    <option value="pro">Pro</option>
+                    <option value="enterprise">Enterprise</option>
+                  </select>
+                </div>
+              )}
               <div className="flex gap-3 justify-end mt-6">
                 <button className="btn btn-ghost" type="button" onClick={() => router.push('/admin/organizations')}>Cancel</button>
                 <button className="btn btn-primary" type="submit" disabled={loading}>

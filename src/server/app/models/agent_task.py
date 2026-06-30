@@ -13,6 +13,7 @@ class AgentTaskType(str, Enum):
     COST_SEG_EXTRACTION = "cost_seg_extraction"
     COST_SEG_CLASSIFICATION = "cost_seg_classification"
     COST_SEG_REPORT = "cost_seg_report"
+    DUE_DILIGENCE_REPORT = "due_diligence_report"
 
 
 

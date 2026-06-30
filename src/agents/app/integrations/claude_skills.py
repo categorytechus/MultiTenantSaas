@@ -41,14 +41,23 @@ class ClaudeSkillsClient:
         self.model = model
         self._executor = ThreadPoolExecutor(max_workers=2)
 
-    async def generate_report(self, data: dict[str, Any]) -> dict[str, str]:
+    async def generate_report(
+        self,
+        data: dict[str, Any],
+        prompt_instruction: str,
+        document_text: str | None = None,
+    ) -> dict[str, str]:
         """
-        Send structured report data to Claude with the cost-seg Skills context.
+        Send structured report data to Claude with the Skills context.
 
         Returns ``{"html": "<full HTML string>"}`` or raises on failure.
         """
 
         def _call() -> Any:
+            content = f"{prompt_instruction}\n\n{json.dumps(data, default=str)}"
+            if document_text:
+                content += f"\n\n--- DOCUMENT TEXT ---\n{document_text}"
+
             return self.client.beta.messages.create(
                 model=self.model,
                 max_tokens=16384,
@@ -69,12 +78,7 @@ class ClaudeSkillsClient:
                 messages=[
                     {
                         "role": "user",
-                        "content": (
-                            "Generate a cost segregation study report from the "
-                            "following structured data.  Save the HTML report to "
-                            "/output/report.html\n\n"
-                            f"{json.dumps(data, default=str)}"
-                        ),
+                        "content": content,
                     }
                 ],
                 tools=[
@@ -107,19 +111,26 @@ class ClaudeSkillsClient:
                         if fid:
                             file_ids.append(fid)
         
-        if file_ids:
-            file_id = file_ids[-1]
-            logger.info("Found file_id in Claude response: %s", file_id)
-        else:
+        if not file_ids:
             # Provide detailed block summary for debugging
             block_summary = [(getattr(b, "type", "unknown"), getattr(b, "content", None)) for b in response.content]
             logger.error("Claude Skills response missing file_id. Blocks: %s", block_summary)
             raise ValueError(f"Claude Skills response did not contain a generated file. Found blocks: {block_summary}")
 
         # Download the file content via Files API
-        logger.info("Downloading HTML file via Files API: %s", file_id)
-        file_content = self.client.beta.files.download(file_id=file_id)
-        html = file_content.read().decode("utf-8")
+        html = None
+        for fid in file_ids:
+            logger.info("Downloading file via Files API: %s", fid)
+            file_content = self.client.beta.files.download(file_id=fid)
+            text = file_content.read().decode("utf-8")
+            # Heuristic to find the HTML report instead of data.json
+            if "<html" in text.lower() or "<body" in text.lower() or "<div" in text.lower() or "<!doctype html" in text.lower():
+                html = text
+                break
+                
+        if not html:
+            # Fallback to the last file if we didn't explicitly match HTML tags
+            html = text
 
         logger.info(
             "Claude Skills report generated (html_length=%d, stop_reason=%s)",

@@ -173,6 +173,9 @@ from app.api.dashboard import router as dashboard_router
 from app.api.webhooks import router as webhooks_router
 
 from app.api.prompts import router as prompts_router
+from app.api.due_diligence import router as due_diligence_router
+from app.api.due_diligence_rules import router as due_diligence_rules_router
+
 
 app.include_router(auth_router)
 app.include_router(organizations_router)
@@ -191,3 +194,6 @@ app.include_router(internal_router)
 app.include_router(dashboard_router)
 app.include_router(prompts_router)
 app.include_router(webhooks_router)
+app.include_router(due_diligence_router)
+app.include_router(due_diligence_rules_router)
+

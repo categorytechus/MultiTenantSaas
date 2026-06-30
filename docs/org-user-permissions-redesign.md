@@ -117,6 +117,13 @@ UPDATE master_modules SET
   parent_id = NULL, sort_order = 40,
   permission_keys = ARRAY['api_calling:execute']
 WHERE id = 'api_calling';
+
+UPDATE master_modules SET
+  label = 'Due Diligence',
+  description = 'Due diligence AI study workflow.',
+  parent_id = NULL, sort_order = 50,
+  permission_keys = ARRAY['due_diligence:read', 'due_diligence:create', 'due_diligence:update', 'due_diligence:delete']
+WHERE id = 'due_diligence';
 ```
 
 ### 1c. Update the SQLModel
@@ -333,6 +340,7 @@ export const MODULE = {
   DOCUMENTS: "documents",
   WEB_URLS: "web_urls",
   API_CALLING: "api_calling",
+  DUE_DILIGENCE: "due_diligence",
 } as const;
 ```
 

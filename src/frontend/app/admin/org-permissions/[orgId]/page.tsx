@@ -20,6 +20,11 @@ const PROPERTY_TYPES = [
   { value: 'custom', label: 'Custom', defaultPrice: 5 },
 ];
 
+const DUE_DILIGENCE_TYPES = [
+  { value: 'multifamily', label: 'Real Estate - Multifamily', defaultPrice: 5 },
+  { value: 'early_stage', label: 'Startup - Early Stage', defaultPrice: 5 },
+];
+
 function Toggle({ on, disabled, onToggle, label }: { on: boolean; disabled?: boolean; onToggle: () => void; label: string }) {
   return (
     <button
@@ -66,6 +71,7 @@ export default function OrgPermissionsDetailPage() {
   const [error, setError] = useState('');
   const [orgData, setOrgData] = useState<any>(null);
   const [overrides, setOverrides] = useState<Record<string, number>>({});
+  const [ddOverrides, setDdOverrides] = useState<Record<string, number>>({});
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -78,7 +84,7 @@ export default function OrgPermissionsDetailPage() {
           router.push('/dashboard'); return;
         }
         const [orgsRes, modRes] = await Promise.all([
-          apiFetch<{ data: { id: string; name: string; slug: string; domain: string | null; status: string; subscription_tier: string; cost_seg_price_overrides?: Record<string, number> }[] }>('/admin/organizations'),
+          apiFetch<{ data: { id: string; name: string; slug: string; domain: string | null; status: string; subscription_tier: string; cost_seg_price_overrides?: Record<string, number>; due_diligence_price_overrides?: Record<string, number> }[] }>('/admin/organizations'),
           apiFetch<{ data: Module[] }>(`/admin/organizations/${orgId}/modules`),
         ]);
         if (cancelled) return;
@@ -88,6 +94,7 @@ export default function OrgPermissionsDetailPage() {
             setOrgName(org.name);
             setOrgData(org);
             setOverrides(org.cost_seg_price_overrides || {});
+            setDdOverrides(org.due_diligence_price_overrides || {});
           }
         }
         if (modRes.success) {
@@ -154,7 +161,8 @@ export default function OrgPermissionsDetailPage() {
             domain: orgData.domain,
             status: orgData.status,
             subscriptionTier: orgData.subscription_tier,
-            cost_seg_price_overrides: overrides
+            cost_seg_price_overrides: overrides,
+            due_diligence_price_overrides: ddOverrides
           }),
         });
         orgSuccess = orgRes.success;
@@ -283,6 +291,69 @@ export default function OrgPermissionsDetailPage() {
                                       onChange={(e) => {
                                         const val = parseFloat(e.target.value);
                                         setOverrides(prev => ({ ...prev, [pt.value]: isNaN(val) ? 0 : val }));
+                                      }}
+                                      className="w-20 pl-5 pr-2 py-1 text-[12px] border border-[#e5e5e5] rounded outline-none focus:border-[#1a1a1a]"
+                                    />
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {mod.id === 'due_diligence' && on && (
+                    <div style={{ padding: '16px 20px', background: '#fafafa', borderTop: '1px solid #f0eeeb' }}>
+                      <div className="flex items-center justify-between mb-3">
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a1a' }}>
+                          Price Overrides (USD)
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setDdOverrides({})}
+                          className="text-[11px] font-medium text-[#1a1a1a] bg-[#e5e5e5] hover:bg-[#d4d4d4] px-2 py-1 rounded transition-colors"
+                        >
+                          Reset All to Default
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        {DUE_DILIGENCE_TYPES.map((pt) => (
+                          <div key={pt.value} className="flex items-center justify-between bg-white p-2 border border-[#e5e5e5] rounded">
+                            <span className="text-[12px] text-[#444]">{pt.label}</span>
+                            <div className="flex items-center gap-2">
+                              {ddOverrides[pt.value] === undefined ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setDdOverrides(prev => ({ ...prev, [pt.value]: pt.defaultPrice }))}
+                                  className="text-[11px] font-medium text-[#1a1a1a] bg-[#e5e5e5] hover:bg-[#d4d4d4] px-3 py-1 rounded transition-colors"
+                                >
+                                  Set Override
+                                </button>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDdOverrides(prev => {
+                                      const next = { ...prev };
+                                      delete next[pt.value];
+                                      return next;
+                                    })}
+                                    className="text-[10px] text-[#9a9a9a] hover:text-[#1a1a1a] transition-colors mr-1"
+                                    title="Remove override and use default"
+                                  >
+                                    Clear
+                                  </button>
+                                  <div className="relative">
+                                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[12px] text-[#9a9a9a]">$</span>
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      value={ddOverrides[pt.value]}
+                                      onChange={(e) => {
+                                        const val = parseFloat(e.target.value);
+                                        setDdOverrides(prev => ({ ...prev, [pt.value]: isNaN(val) ? 0 : val }));
                                       }}
                                       className="w-20 pl-5 pr-2 py-1 text-[12px] border border-[#e5e5e5] rounded outline-none focus:border-[#1a1a1a]"
                                     />

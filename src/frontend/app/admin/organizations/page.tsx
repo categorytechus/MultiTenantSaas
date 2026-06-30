@@ -125,7 +125,9 @@ export default function OrganizationsPage() {
                     <th>Slug</th>
                     <th>Domain</th>
                     <th>Status</th>
-                    <th>Plan</th>
+                    {!process.env.NEXT_PUBLIC_IS_PRIVATE_DEPLOYMENT && (
+                      <th>Plan</th>
+                    )}
                     <th>Members</th>
                     <th>Created</th>
                     <th></th>
@@ -140,9 +142,11 @@ export default function OrganizationsPage() {
                       <td>
                         <span className={`badge badge-${org.status}`}>{org.status}</span>
                       </td>
-                      <td>
-                        <span className="badge badge-active">{org.subscription_tier}</span>
-                      </td>
+                      {!process.env.NEXT_PUBLIC_IS_PRIVATE_DEPLOYMENT && (
+                        <td>
+                          <span className="badge badge-active">{org.subscription_tier}</span>
+                        </td>
+                      )}
                       <td>{org.member_count}</td>
                       <td style={{ color: '#9a9a9a', fontSize: 12 }}>
                         {new Date(org.created_at).toLocaleDateString()}

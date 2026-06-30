@@ -107,6 +107,12 @@ async def my_modules(
             modules_set.add("ai_images")
         if "ai_links" in org_enabled_modules:
             modules_set.add("ai_links")
+        if "cost_seg" in org_enabled_modules:
+            modules_set.add("cost_seg")
+        if "due_diligence" in org_enabled_modules:
+            modules_set.add("due_diligence")
+        if "api_calling" in org_enabled_modules:
+            modules_set.add("api_calling")
         modules = sorted(modules_set)
     else:
         modules_set = set()
@@ -126,6 +132,15 @@ async def my_modules(
 
         if "link_embed:view" in perms and "ai_links" in org_enabled_modules:
             modules_set.add("ai_links")
+
+        if any(p.startswith("cost_seg:") for p in perms) and "cost_seg" in org_enabled_modules:
+            modules_set.add("cost_seg")
+
+        if any(p.startswith("due_diligence:") for p in perms) and "due_diligence" in org_enabled_modules:
+            modules_set.add("due_diligence")
+
+        if any(p.startswith("api_calling:") for p in perms) and "api_calling" in org_enabled_modules:
+            modules_set.add("api_calling")
 
         modules = sorted(modules_set)
 
@@ -601,6 +616,7 @@ _LEGACY_MODULES = {
     "documents":    {"label": "Documents",     "description": "Document library and document actions.",    "permissions": ["documents:view", "documents:create", "documents:upload", "documents:update", "documents:delete"]},
     "web_urls":     {"label": "Web URLs",      "description": "Manage web URL records and sources.",       "permissions": ["web_urls:view", "web_urls:create", "web_urls:update", "web_urls:delete"]},
     "cost_seg":     {"label": "Cost Segregation", "description": "IRS MACRS cost segregation.",           "permissions": ["cost_seg:read", "cost_seg:create", "cost_seg:delete"]},
+    "due_diligence":{"label": "Due Diligence", "description": "Due diligence AI study workflow.",         "permissions": ["due_diligence:read", "due_diligence:create", "due_diligence:update", "due_diligence:delete"]},
     "api_calling":  {"label": "API Calling",   "description": "Outbound API actions and webhooks.",        "permissions": ["api_calling:create", "api_calling:view", "api_calling:update", "api_calling:delete"]},
 }
 
