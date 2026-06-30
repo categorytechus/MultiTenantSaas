@@ -133,6 +133,7 @@ services:
       - "3000:3000"
     environment:
       AUTH_GATEWAY_PROXY_ORIGIN: http://server:8000
+      CLIENT_JWT_LICENSE_TOKEN: ${CLIENT_JWT_LICENSE_TOKEN:-}
     volumes:
       - ./src/frontend:/app
       # Keep container npm install off the bind mount so files are not root-owned on the host.

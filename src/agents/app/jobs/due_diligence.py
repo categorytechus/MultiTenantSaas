@@ -438,7 +438,7 @@ def _build_fallback_report(
     watermark_html = f"""
     <div style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-45deg); 
                 font-size: 100px; font-weight: bold; color: rgba(128,128,128,0.1); text-align: center; 
-                white-space: nowrap; pointer-events: none; z-index: 9999; user-select: none;">
+                pointer-events: none; z-index: 9999; user-select: none;">
       {watermark_label}<br>
       <span style="font-size: 30px; font-weight: normal;">{reviewer_email}</span><br>
       <span style="font-size: 30px; font-weight: normal;">{timestamp}</span>
@@ -568,10 +568,24 @@ async def run_due_diligence_report(
                     "timestamp": timestamp,
                 }
                 
+                try:
+                    guideline_bytes = await s3_download("global/market_research_guidelines.txt")
+                    guidelines = guideline_bytes.decode("utf-8").strip()
+                except Exception as e:
+                    logger.warning("Could not load global market research guidelines: %s", e)
+                    guidelines = ""
+                
                 instruction = (
                     "Generate a highly detailed, professional due diligence report in HTML format. "
                     "Use the provided extracted metrics, scorecard, and the full text of the uploaded documents "
                     "in `document_content` to write deep, multi-paragraph analysis for each section. "
+                )
+                if guidelines:
+                    instruction += (
+                        "\n\nCRITICAL: Adhere to the following custom market research guidelines when analyzing companies and websites:\n"
+                        f"{guidelines}\n\n"
+                    )
+                instruction += (
                     "CRITICAL INSTRUCTION: Do NOT generate any watermarks, overlays, or footer stamps whatsoever. "
                     "Our system will inject the watermarks later. "
                     "CRITICAL INSTRUCTION: You MUST ONLY write `report.html` to disk. Do NOT write `data.json`. "
@@ -589,7 +603,7 @@ async def run_due_diligence_report(
                     
                     # Inject watermark programmatically
                     watermark_html = f"""
-                    <div style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-45deg); font-size: 100px; font-weight: bold; color: rgba(128,128,128,0.1); text-align: center; white-space: nowrap; pointer-events: none; z-index: 9999; user-select: none;">
+                    <div style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-45deg); font-size: 100px; font-weight: bold; color: rgba(128,128,128,0.1); text-align: center; pointer-events: none; z-index: 9999; user-select: none;">
                         {watermark_label}<br>
                         <span style="font-size: 30px; font-weight: normal;">{reviewer_email}</span><br>
                         <span style="font-size: 30px; font-weight: normal;">{timestamp}</span>
@@ -603,7 +617,9 @@ async def run_due_diligence_report(
                     await publish(redis, channel, {"type": "progress", "message": "Applying watermark and saving..."})
                     import urllib.parse
                     encoded_label = urllib.parse.quote(watermark_label)
-                    svg = f"<svg xmlns='http://www.w3.org/2000/svg' width='600' height='600'><text x='50%' y='50%' font-size='60' fill='rgba(200,0,0,0.06)' font-family='sans-serif' font-weight='bold' text-anchor='middle' dominant-baseline='middle' transform='rotate(-45 300 300)'>{encoded_label}</text></svg>"
+                    encoded_email = urllib.parse.quote(reviewer_email)
+                    encoded_time = urllib.parse.quote(timestamp)
+                    svg = f"<svg xmlns='http://www.w3.org/2000/svg' width='600' height='600'><g transform='translate(300 300) rotate(-45)'><text x='0' y='-20' font-size='60' fill='rgba(128,128,128,0.1)' font-family='sans-serif' font-weight='bold' text-anchor='middle'>{encoded_label}</text><text x='0' y='20' font-size='30' fill='rgba(128,128,128,0.1)' font-family='sans-serif' text-anchor='middle'>{encoded_email}</text><text x='0' y='60' font-size='30' fill='rgba(128,128,128,0.1)' font-family='sans-serif' text-anchor='middle'>{encoded_time}</text></g></svg>"
                     svg_data = f"data:image/svg+xml;utf8,{svg}"
                     css_injection = f"""<style>
 .watermark-overlay {{ display: none !important; }}

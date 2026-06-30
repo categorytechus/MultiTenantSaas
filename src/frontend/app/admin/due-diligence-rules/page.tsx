@@ -61,17 +61,100 @@ export default function DueDiligenceRulesAdminPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [seeding, setSeeding] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasOrg, setHasOrg] = useState(true);
+  const [checkingAuth, setCheckingAuth] = useState(true);
+  const [hasModulePermission, setHasModulePermission] = useState(true);
+
+  const [guidelines, setGuidelines] = useState("");
+  const [originalGuidelines, setOriginalGuidelines] = useState("");
+  const [guidelinesLoading, setGuidelinesLoading] = useState(false);
+  const [guidelinesSaving, setGuidelinesSaving] = useState(false);
+  const [guidelinesSaved, setGuidelinesSaved] = useState(false);
+  const [guidelinesError, setGuidelinesError] = useState<string | null>(null);
+
+  const loadGuidelines = useCallback(async () => {
+    setGuidelinesLoading(true);
+    const res = await apiFetch<{ data: { content: string } }>('/due-diligence-rules/guidelines');
+    if (res.success && res.data?.data) {
+      setGuidelines(res.data.data.content || "");
+      setOriginalGuidelines(res.data.data.content || "");
+    }
+    setGuidelinesLoading(false);
+  }, []);
 
   const loadRules = useCallback(async () => {
     setLoading(true);
     const res = await apiFetch<DueDiligenceRule[]>('/due-diligence-rules');
     if (res.success) {
       setRules((res.data as any) || []);
+      setHasModulePermission(true);
+    } else {
+      if ((res.error as any)?.includes?.('module is not enabled') || (res.error as any)?.message?.includes?.('module is not enabled')) {
+        setHasModulePermission(false);
+      }
     }
     setLoading(false);
   }, []);
 
-  useEffect(() => { loadRules(); }, [loadRules]);
+  useEffect(() => {
+    const token = localStorage.getItem('accessToken');
+    if (!token) {
+      router.push('/auth/signin');
+      return;
+    }
+    apiFetch<{ data: { user_type: string } }>('/auth/me').then(res => {
+      if (!res.success || res.data.data.user_type !== 'super_admin') {
+        router.push('/dashboard');
+      } else {
+        setCheckingAuth(false);
+      }
+    });
+    
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      if (!payload.org_id) {
+        setHasOrg(false);
+        setLoading(false);
+      } else {
+        setHasOrg(true);
+        loadRules();
+        loadGuidelines();
+      }
+    } catch {
+      setHasOrg(false);
+      setLoading(false);
+    }
+  }, [router, loadRules, loadGuidelines]);
+
+  const handleGuidelinesSave = async () => {
+    setGuidelinesSaving(true);
+    setGuidelinesError(null);
+    const res = await apiFetch('/due-diligence-rules/guidelines', {
+      method: 'POST',
+      body: JSON.stringify({ content: guidelines })
+    });
+    setGuidelinesSaving(false);
+    if (!res.success) {
+      setGuidelinesError(res.error || 'Failed to save guidelines');
+    } else {
+      setOriginalGuidelines(guidelines);
+      setGuidelinesSaved(true);
+      setTimeout(() => setGuidelinesSaved(false), 3000);
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      if (event.target?.result) {
+        setGuidelines(event.target.result as string);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
 
   const openNew = () => {
     setEditingRule(null);
@@ -187,6 +270,30 @@ export default function DueDiligenceRulesAdminPage() {
     return 0;
   });
 
+  if (checkingAuth) {
+    return (
+      <Layout>
+        <div className="flex-1 flex items-center justify-center p-20">
+          <Loader2 size={30} className="animate-spin text-[#9ca3af]" />
+        </div>
+      </Layout>
+    );
+  }
+
+  if (!hasModulePermission) {
+    return (
+      <Layout>
+        <div className="flex-1 flex flex-col items-center justify-center p-20 max-w-lg mx-auto text-center">
+          <ShieldAlert size={48} className="text-[#9ca3af] mb-4" />
+          <h2 className="text-[18px] font-bold text-[#1a1a1a] mb-2">Module Disabled</h2>
+          <p className="text-[13px] text-[#6b7280]">
+            The Due Diligence module is not enabled for this organization. You cannot configure rules.
+          </p>
+        </div>
+      </Layout>
+    );
+  }
+
   return (
     <Layout>
       <div className="flex-1 p-8 max-w-5xl mx-auto w-full">
@@ -221,6 +328,19 @@ export default function DueDiligenceRulesAdminPage() {
             </button>
           </div>
         </div>
+
+        {!hasOrg ? (
+          <div className="bg-white border border-[#e5e7eb] rounded-2xl p-16 text-center shadow-sm">
+            <div className="w-16 h-16 bg-[#f3f4f6] rounded-full flex items-center justify-center mx-auto mb-4">
+              <ShieldAlert size={32} className="text-[#9ca3af]" />
+            </div>
+            <h2 className="text-[18px] font-bold text-[#1a1a1a] mb-2">No Organization Selected</h2>
+            <p className="text-[14px] text-[#6b7280] max-w-md mx-auto mb-6">
+              Select an organization from the top right menu to view and manage its due diligence rules.
+            </p>
+          </div>
+        ) : (
+          <>
 
         {/* Modal */}
         {showModal && (
@@ -455,6 +575,61 @@ export default function DueDiligenceRulesAdminPage() {
             </table>
           </div>
         )}
+        </>
+        )}
+        
+        {/* Global Market Research Guidelines */}
+        <div className="mt-12 pt-10 border-t border-[#e5e7eb]">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-[18px] font-bold text-[#1a1a1a]">Global Market Research Guidelines</h2>
+              <p className="text-[13px] text-[#7a7a7a]">
+                These guidelines will be strictly followed by the AI during all due diligence market research.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 px-4 py-2 border border-[#e5e7eb] text-[#374151] rounded-lg text-[13px] font-medium hover:bg-[#f9f9f8] transition-colors cursor-pointer">
+                Upload File
+                <input
+                  type="file"
+                  accept=".txt"
+                  className="hidden"
+                  onChange={handleFileUpload}
+                />
+              </label>
+              <button
+                onClick={handleGuidelinesSave}
+                disabled={guidelinesSaving || guidelinesLoading || guidelines === originalGuidelines}
+                className="flex items-center gap-2 px-4 py-2 bg-[#1a1a1a] text-white rounded-lg text-[13px] font-medium hover:bg-[#333] transition-colors disabled:opacity-50"
+              >
+                {guidelinesSaving ? <Loader2 size={15} className="animate-spin" /> : guidelinesSaved ? <Check size={15} /> : null}
+                {guidelinesSaved ? "Saved!" : (guidelines === originalGuidelines && !guidelinesSaving ? "No Changes" : "Save Guidelines")}
+              </button>
+            </div>
+          </div>
+          
+          {guidelinesError && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-100 text-red-600 rounded-lg text-[13px]">
+              {guidelinesError}
+            </div>
+          )}
+          
+          <div className="relative">
+            {guidelinesLoading && (
+              <div className="absolute inset-0 bg-white/50 flex items-center justify-center z-10 rounded-lg">
+                <Loader2 size={24} className="animate-spin text-[#9ca3af]" />
+              </div>
+            )}
+            <textarea
+              value={guidelines}
+              onChange={(e) => setGuidelines(e.target.value)}
+              placeholder="Enter market research guidelines in text format..."
+              className="w-full h-[400px] p-4 bg-white border border-[#e5e7eb] rounded-xl text-[13px] font-mono leading-relaxed outline-none focus:border-[#1a1a1a] resize-y shadow-sm"
+              spellCheck={false}
+            />
+          </div>
+        </div>
+
       </div>
     </Layout>
   );

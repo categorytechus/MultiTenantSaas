@@ -148,7 +148,21 @@ async def login_user(
         .order_by(asc(OrgMembership.created_at))
     )
     membership = membership_result.scalars().first()
+    
     if not membership:
+        if is_super_admin_user(user.id):
+            access_token = make_super_admin_reset_access_token(user)
+            opaque_refresh, refresh_hash = create_refresh_token()
+            refresh_token_obj = RefreshToken(
+                user_id=user.id,
+                token_hash=refresh_hash,
+                expires_at=datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+                org_id=None,
+                no_org_scope=True,
+            )
+            session.add(refresh_token_obj)
+            return user, access_token, opaque_refresh
+            
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User has no organization",
@@ -156,6 +170,19 @@ async def login_user(
 
     org_result = await session.get(Org, membership.org_id)
     if not org_result:
+        if is_super_admin_user(user.id):
+            access_token = make_super_admin_reset_access_token(user)
+            opaque_refresh, refresh_hash = create_refresh_token()
+            refresh_token_obj = RefreshToken(
+                user_id=user.id,
+                token_hash=refresh_hash,
+                expires_at=datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+                org_id=None,
+                no_org_scope=True,
+            )
+            session.add(refresh_token_obj)
+            return user, access_token, opaque_refresh
+            
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Organization not found",
@@ -252,16 +279,26 @@ async def refresh_tokens(
         )
         membership = membership_result.scalars().first()
         if not membership:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No membership")
-
-        org = await session.get(Org, membership.org_id)
-        if not org:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Org not found")
-
-        role = parse_membership_role(membership.role)
-        new_access = _make_access_token(user, org, role)
-        persist_org_id = org.id
-        persist_no_org = False
+            if is_super_admin_user(user.id):
+                new_access = make_super_admin_reset_access_token(user)
+                persist_org_id = None
+                persist_no_org = True
+            else:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No membership")
+        else:
+            org = await session.get(Org, membership.org_id)
+            if not org:
+                if is_super_admin_user(user.id):
+                    new_access = make_super_admin_reset_access_token(user)
+                    persist_org_id = None
+                    persist_no_org = True
+                else:
+                    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Org not found")
+            else:
+                role = parse_membership_role(membership.role)
+                new_access = _make_access_token(user, org, role)
+                persist_org_id = org.id
+                persist_no_org = False
 
     opaque, new_hash = create_refresh_token()
 

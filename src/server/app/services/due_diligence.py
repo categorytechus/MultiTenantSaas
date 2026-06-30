@@ -114,6 +114,8 @@ async def update_study(
         current_meta = dict(study.meta or {})
         current_meta.update(meta_patch)
         study.meta = current_meta
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(study, "meta")
     study.updated_at = datetime.now(timezone.utc)
     session.add(study)
     await session.flush()

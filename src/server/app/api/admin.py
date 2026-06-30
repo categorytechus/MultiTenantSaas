@@ -465,11 +465,16 @@ async def delete_organization(
     await _del("org_modules")
 
     # Delete users who now have no remaining memberships (i.e. only belonged to this org)
-    # and are not super admins.
-    _orphan_subq = """
+    # and are not super admins (from DB or config).
+    from app.core.identity import super_admin_user_ids
+    sa_ids = list(super_admin_user_ids())
+    sa_ids_str = ",".join(f"'{uid}'" for uid in sa_ids) if sa_ids else "'00000000-0000-0000-0000-000000000000'"
+
+    _orphan_subq = f"""
         SELECT id FROM users
         WHERE id NOT IN (SELECT user_id FROM org_memberships)
         AND id NOT IN (SELECT user_id FROM super_admin_allowlist)
+        AND id NOT IN ({sa_ids_str})
     """
     oi_exists = await session.execute(text("SELECT to_regclass('public.oauth_identities')"))
     if oi_exists.scalar_one_or_none() is not None:

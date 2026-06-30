@@ -32,10 +32,12 @@ interface Document {
 
 interface RuleResult {
   rule_id: string;
+  rule_key: string;
   rule_name: string;
   description: string;
   evaluation: 'PASS' | 'FAIL' | 'REVIEW';
   reason: string;
+  actual_value?: string | number | null;
 }
 
 interface Scorecard {
@@ -322,12 +324,6 @@ function Step2({
           className="w-full px-3 py-2.5 border border-[#e5e7eb] rounded-lg text-[13px] outline-none focus:border-[#1a1a1a]" />
       </div>
 
-      <div className="col-span-2 sm:col-span-1">
-        <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">Close Date</label>
-        <input type="date" value={form.close_date || ''} onChange={(e) => set('close_date', e.target.value)}
-          className="w-full px-3 py-2.5 border border-[#e5e7eb] rounded-lg text-[13px] outline-none focus:border-[#1a1a1a]" />
-      </div>
-
       <div className="col-span-2">
         <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">Additional Notes</label>
         <textarea value={form.additional_details || ''} onChange={(e) => set('additional_details', e.target.value)}
@@ -339,29 +335,29 @@ function Step2({
   const renderStartup = () => (
     <div className="grid grid-cols-2 gap-4">
       <div className="col-span-2 sm:col-span-1">
-        <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">First Name</label>
+        <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">First Name <span className="text-red-500">*</span></label>
         <input type="text" value={form.first_name || ''} onChange={(e) => set('first_name', e.target.value)}
-          className="w-full px-3 py-2.5 border border-[#e5e7eb] rounded-lg text-[13px] outline-none focus:border-[#1a1a1a]" />
+          className="w-full px-3 py-2.5 border border-[#e5e7eb] rounded-lg text-[13px] outline-none focus:border-[#1a1a1a]" required />
       </div>
       <div className="col-span-2 sm:col-span-1">
-        <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">Last Name</label>
+        <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">Last Name <span className="text-red-500">*</span></label>
         <input type="text" value={form.last_name || ''} onChange={(e) => set('last_name', e.target.value)}
-          className="w-full px-3 py-2.5 border border-[#e5e7eb] rounded-lg text-[13px] outline-none focus:border-[#1a1a1a]" />
+          className="w-full px-3 py-2.5 border border-[#e5e7eb] rounded-lg text-[13px] outline-none focus:border-[#1a1a1a]" required />
       </div>
       <div className="col-span-2 sm:col-span-1">
-        <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">Email</label>
+        <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">Email <span className="text-red-500">*</span></label>
         <input type="email" value={form.email || ''} onChange={(e) => set('email', e.target.value)}
-          className="w-full px-3 py-2.5 border border-[#e5e7eb] rounded-lg text-[13px] outline-none focus:border-[#1a1a1a]" />
+          className="w-full px-3 py-2.5 border border-[#e5e7eb] rounded-lg text-[13px] outline-none focus:border-[#1a1a1a]" required />
       </div>
       <div className="col-span-2 sm:col-span-1">
-        <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">Company Name</label>
+        <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">Company Name <span className="text-red-500">*</span></label>
         <input type="text" value={form.company_name || ''} onChange={(e) => set('company_name', e.target.value)}
-          className="w-full px-3 py-2.5 border border-[#e5e7eb] rounded-lg text-[13px] outline-none focus:border-[#1a1a1a]" />
+          className="w-full px-3 py-2.5 border border-[#e5e7eb] rounded-lg text-[13px] outline-none focus:border-[#1a1a1a]" required />
       </div>
       <div className="col-span-2 sm:col-span-1">
-        <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">Website</label>
+        <label className="block text-[12px] font-semibold text-[#6b7280] mb-1.5">Website <span className="text-red-500">*</span></label>
         <input type="url" value={form.website || ''} onChange={(e) => set('website', e.target.value)}
-          className="w-full px-3 py-2.5 border border-[#e5e7eb] rounded-lg text-[13px] outline-none focus:border-[#1a1a1a]" placeholder="https://" />
+          className="w-full px-3 py-2.5 border border-[#e5e7eb] rounded-lg text-[13px] outline-none focus:border-[#1a1a1a]" placeholder="https://" required />
       </div>
       
       <div className="border-t border-[#f3f4f6] pt-4 col-span-2">
@@ -654,12 +650,43 @@ function Step3({
 function Step4({
   analyzing,
   scorecard,
+  extractedMetrics,
   onNext,
+  onRuleUpdate,
 }: {
   analyzing: boolean;
   scorecard: Scorecard | null;
+  extractedMetrics: Record<string, any>;
   onNext: () => void;
+  onRuleUpdate: (ruleKey: string, value: string | null) => Promise<void>;
 }) {
+  const [editValues, setEditValues] = useState<Record<string, string>>({});
+  const [updating, setUpdating] = useState<string | null>(null);
+
+  const handleUpdate = async (ruleKey: string) => {
+    const val = editValues[ruleKey];
+    if (val === undefined || val.trim() === '') return;
+    setUpdating(ruleKey);
+    await onRuleUpdate(ruleKey, val);
+    setUpdating(null);
+    setEditValues(prev => {
+      const next = { ...prev };
+      delete next[ruleKey];
+      return next;
+    });
+  };
+
+  const handleClear = async (ruleKey: string) => {
+    setUpdating(ruleKey);
+    await onRuleUpdate(ruleKey, null);
+    setUpdating(null);
+    setEditValues(prev => {
+      const next = { ...prev };
+      delete next[ruleKey];
+      return next;
+    });
+  };
+
   if (analyzing || !scorecard) {
     return (
       <div className="py-20 text-center space-y-4">
@@ -712,6 +739,32 @@ function Step4({
                 <p className="text-[12px] text-[#6b7280] mb-2">{r.description}</p>
                 <div className="text-[13px] text-[#374151] p-3 bg-[#f9f9f8] rounded-lg border border-[#e5e7eb]">
                   {r.reason}
+                </div>
+                <div className="mt-3 flex items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="Enter value manually..."
+                    className="px-3 py-1.5 border border-[#e5e7eb] rounded text-[12px] outline-none focus:border-[#1a1a1a]"
+                    value={editValues[r.rule_key] ?? r.actual_value ?? ''}
+                    onChange={e => setEditValues({ ...editValues, [r.rule_key]: e.target.value })}
+                  />
+                  <button
+                    className="px-3 py-1.5 bg-[#1a1a1a] text-white text-[12px] font-medium rounded flex items-center gap-1 disabled:opacity-50"
+                    onClick={() => handleUpdate(r.rule_key)}
+                    disabled={updating === r.rule_key || ((editValues[r.rule_key] ?? '').toString().trim() === '')}
+                  >
+                    {updating === r.rule_key ? <Loader2 size={12} className="animate-spin" /> : null}
+                    Update
+                  </button>
+                  {((editValues[r.rule_key] ?? r.actual_value) !== undefined && (editValues[r.rule_key] ?? r.actual_value) !== null && (editValues[r.rule_key] ?? r.actual_value) !== '') && (
+                    <button
+                      className="px-2 py-1.5 bg-gray-200 text-gray-800 text-[12px] rounded flex items-center gap-1 disabled:opacity-50 ml-2"
+                      onClick={() => handleClear(r.rule_key)}
+                      disabled={updating === r.rule_key}
+                    >
+                      Clear
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -949,6 +1002,7 @@ function DueDiligenceWizardContent() {
   const [details, setDetails] = useState<any>({});
   const [docs, setDocs] = useState<Document[]>([]);
   const [scorecard, setScorecard] = useState<Scorecard | null>(null);
+  const [extractedMetrics, setExtractedMetrics] = useState<Record<string, any>>({});
   
   const [currentStep, setCurrentStep] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -971,6 +1025,7 @@ function DueDiligenceWizardContent() {
     setDetails(data.details || {});
     setCanCheckout(data.can_checkout ?? true);
     setScorecard(data.scorecard || null);
+    setExtractedMetrics(data.extracted_metrics || {});
     
     setCurrentStep(STATUS_TO_STEP[st.status] ?? 1);
     setAnalyzing(st.status === 'analyzing');
@@ -1033,6 +1088,20 @@ function DueDiligenceWizardContent() {
       const newStatus = (res.data as any).study_status;
       setStudy(s => s ? { ...s, status: newStatus || s.status } : s);
       setCurrentStep(3);
+    }
+  };
+
+  const handleRuleUpdate = async (ruleKey: string, value: string | null) => {
+    // Attempt to parse as float if it's numeric, else keep as string
+    const parsedValue = value === null ? null : (!isNaN(parseFloat(value)) ? parseFloat(value) : value);
+    const res = await apiFetch(`/due-diligence/studies/${studyId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ rule_values: { [ruleKey]: parsedValue } }),
+    });
+    if (res.success) {
+      await loadAll();
+    } else {
+      alert(`Failed to update rule value: ${res.error || 'Unknown error'}`);
     }
   };
 
@@ -1101,7 +1170,7 @@ function DueDiligenceWizardContent() {
       case 3:
         return <Step3 studyId={studyId} docs={docs} analyzing={analyzing} onUpload={handleUpload} onDelete={handleDeleteDoc} onAnalyze={handleAnalyze} onBack={() => setCurrentStep(2)} />;
       case 4:
-        return <Step4 analyzing={analyzing} scorecard={scorecard} onNext={() => setCurrentStep(5)} />;
+        return <Step4 analyzing={analyzing} scorecard={scorecard} extractedMetrics={extractedMetrics} onNext={() => setCurrentStep(5)} onRuleUpdate={handleRuleUpdate} />;
       case 5:
         return <Step5 onPay={handlePay} paying={paying} canCheckout={canCheckout} onBack={() => setCurrentStep(4)} />;
       case 6:

@@ -146,9 +146,11 @@ def _format_scorecard(raw_rules: list[dict]) -> dict:
         results.append({
             "rule_id": r["rule_id"],
             "rule_name": r["rule_label"],
+            "rule_key": r["rule_key"],
             "description": desc,
             "evaluation": eval_str,
             "reason": reason,
+            "actual_value": actual,
         })
         
     summary = "All required criteria met for this offering."
@@ -180,20 +182,24 @@ async def get_study(
     can_checkout = (study.offering_type in mapping) or (study.offering_type in overrides)
 
     scorecard = None
+    extracted_metrics = {}
     if study.status in ("analysis_complete", "paid", "report_ready"):
         raw_rules = await svc.evaluate_rules(session, study)
         scorecard = _format_scorecard(raw_rules)
+        extracted_metrics = (study.meta or {}).get("metrics", {})
 
     return {
         "data": _study_out(study),
         "details": details,
         "can_checkout": can_checkout,
         "scorecard": scorecard,
+        "extracted_metrics": extracted_metrics,
     }
 
 
 class UpdateStudyRequest(BaseModel):
     title: Optional[str] = None
+    rule_values: Optional[dict[str, Any]] = None
 
 
 @router.patch("/studies/{study_id}")
@@ -205,7 +211,14 @@ async def update_study(
 ) -> Any:
     async with db_session(ctx.org_id) as sess:
         study = await svc.get_study(sess, study_id)
-        study = await svc.update_study(sess, study, title=body.title)
+        meta_patch = {}
+        if body.rule_values is not None:
+            # Merge with existing rule_values, avoiding in-place mutation of the original reference
+            existing_rule_values = dict((study.meta or {}).get("rule_values", {}))
+            existing_rule_values.update(body.rule_values)
+            meta_patch["rule_values"] = existing_rule_values
+            
+        study = await svc.update_study(sess, study, title=body.title, meta_patch=meta_patch if meta_patch else None)
     return {"data": _study_out(study)}
 
 

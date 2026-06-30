@@ -18,6 +18,8 @@ from app.core.rbac import authorize
 from app.core.tenancy import RequestContext
 from app.models.due_diligence import DueDiligenceRule
 from app.services import due_diligence as svc
+from app.integrations import s3
+from app.core.tenancy import require_super_admin_user
 
 router = APIRouter(prefix="/api/due-diligence-rules", tags=["due-diligence-rules"])
 logger = get_logger(__name__)
@@ -33,6 +35,47 @@ def _require_admin(ctx: RequestContext) -> None:
 def _require_org_context(ctx: RequestContext) -> None:
     if not ctx.org_id:
         raise HTTPException(status_code=400, detail="No organization context. Switch to an org first.")
+
+
+async def _require_due_diligence_module(session: AsyncSession, org_id: UUID) -> None:
+    from sqlalchemy import text
+    # Check if org_modules table exists to be safe
+    exists = await session.execute(text("SELECT to_regclass('public.org_modules')"))
+    if exists.scalar_one_or_none() is not None:
+        result = await session.execute(
+            text("SELECT 1 FROM org_modules WHERE org_id = :org_id AND module_id = 'due_diligence'"),
+            {"org_id": org_id}
+        )
+        if not result.scalars().first():
+            raise HTTPException(
+                status_code=403,
+                detail="The 'due_diligence' module is not enabled for this organization."
+            )
+
+GLOBAL_GUIDELINES_KEY = "global/market_research_guidelines.txt"
+
+class GuidelinesRequest(BaseModel):
+    content: str
+
+@router.get("/guidelines")
+async def get_global_guidelines(
+    ctx: RequestContext = Depends(require_super_admin_user),
+) -> dict[str, Any]:
+    try:
+        content_bytes = await s3.download(GLOBAL_GUIDELINES_KEY)
+        content = content_bytes.decode("utf-8")
+    except Exception:
+        content = ""
+    return {"data": {"content": content}}
+
+@router.post("/guidelines")
+async def save_global_guidelines(
+    req: GuidelinesRequest,
+    ctx: RequestContext = Depends(require_super_admin_user),
+) -> dict[str, Any]:
+    await s3.upload(GLOBAL_GUIDELINES_KEY, req.content.encode("utf-8"))
+    return {"success": True}
+
 
 
 def _rule_out(r: DueDiligenceRule) -> dict:
@@ -62,6 +105,7 @@ async def list_rules(
 ) -> list[dict]:
     _require_admin(ctx)
     _require_org_context(ctx)
+    await _require_due_diligence_module(session, ctx.org_id)
     rules = await svc.list_rules(session, ctx.org_id, offering_type=offering_type)
     return [_rule_out(r) for r in rules]
 
@@ -86,6 +130,8 @@ async def create_rule(
 ) -> dict:
     _require_admin(ctx)
     _require_org_context(ctx)
+    async with db_session(ctx.org_id) as sess:
+        await _require_due_diligence_module(sess, ctx.org_id)
 
     if body.operator not in VALID_OPERATORS:
         raise HTTPException(
@@ -129,7 +175,6 @@ async def update_rule(
 ) -> dict:
     _require_admin(ctx)
     _require_org_context(ctx)
-
     if body.operator is not None and body.operator not in VALID_OPERATORS:
         raise HTTPException(
             status_code=400,
@@ -137,6 +182,7 @@ async def update_rule(
         )
 
     async with db_session(ctx.org_id) as sess:
+        await _require_due_diligence_module(sess, ctx.org_id)
         rule = await svc.get_rule(sess, rule_id, ctx.org_id)
         rule = await svc.update_rule(
             sess,
@@ -161,6 +207,7 @@ async def delete_rule(
     _require_admin(ctx)
     _require_org_context(ctx)
     async with db_session(ctx.org_id) as sess:
+        await _require_due_diligence_module(sess, ctx.org_id)
         await svc.get_rule(sess, rule_id, ctx.org_id)  # 404 guard
         await svc.delete_rule(sess, rule_id)
 
@@ -173,8 +220,8 @@ async def seed_default_rules(
 ) -> Any:
     _require_admin(ctx)
     _require_org_context(ctx)
-
     async with db_session(ctx.org_id) as sess:
+        await _require_due_diligence_module(sess, ctx.org_id)
         created = await svc.seed_default_rules(sess, ctx.org_id)
 
     logger.info("DD default rules seeded", count=len(created), org_id=str(ctx.org_id))

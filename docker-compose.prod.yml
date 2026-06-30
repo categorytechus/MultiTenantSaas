@@ -80,6 +80,7 @@ services:
     restart: unless-stopped
     environment:
       API_BACKEND_ORIGIN: http://server:8000
+      CLIENT_JWT_LICENSE_TOKEN: ${CLIENT_JWT_LICENSE_TOKEN:-}
     ports:
       - "3000:3000"
     depends_on:
